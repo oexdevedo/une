@@ -1,0 +1,158 @@
+.settings-container {
+  padding: 40px;
+  height: 100%;
+  overflow-y: auto;
+  background-color: #f8f9fa;
+}
+
+.settings-header {
+  margin-bottom: 32px;
+}
+
+.settings-header h1 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #1e1e2d;
+  margin: 0 0 8px 0;
+}
+
+.settings-header p {
+  color: #a1a5b7;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.settings-content {
+  max-width: 700px;
+}
+
+.settings-card {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.03);
+  overflow: hidden;
+}
+
+.settings-section {
+  padding: 32px 32px 16px 32px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #1e1e2d;
+  margin: 0 0 8px 0;
+}
+
+.section-subtitle {
+  color: #a1a5b7;
+  font-size: 0.9rem;
+  margin: 0 0 24px 0;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid #f1f1f4;
+  margin: 0;
+}
+
+.form-group {
+  margin-bottom: 20px;
+  width: 100%;
+}
+
+.form-group label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #3f4254;
+  margin-bottom: 8px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* INPUTS MODERNS */
+.modern-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: #1e1e2d;
+  font-family: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.modern-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(253, 224, 71, 0.2);
+}
+
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 16px;
+  color: #a1a5b7;
+}
+
+.modern-input.has-icon {
+  padding-left: 44px;
+}
+
+/* FOOTER & BOTÕES */
+.settings-footer {
+  padding: 24px 32px;
+  background-color: #fcfcfc;
+  border-top: 1px solid #f1f1f4;
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.btn-light {
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: none;
+  background: #f1f1f4;
+  color: #3f4254;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-light:hover {
+  background: #e4e6ef;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: none;
+  background: var(--primary);
+  color: #1e1e2d;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  filter: brightness(0.95);
+  box-shadow: 0 4px 12px rgba(253, 224, 71, 0.4);
+}

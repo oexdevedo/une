@@ -1,0 +1,150 @@
+.connections-container {
+  padding: 32px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.connections-header {
+  margin-bottom: 32px;
+}
+
+.connections-header h1 {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #18181B;
+  letter-spacing: -0.5px;
+  margin-bottom: 8px;
+}
+
+.connections-header p {
+  color: #71717A;
+  font-size: 1rem;
+}
+
+.connections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+}
+
+.connection-card {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #E4E4E7;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.connection-card-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #F4F4F5;
+}
+
+.connection-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.connection-title h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #18181B;
+  margin-bottom: 4px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-connected {
+  background-color: #DCFCE7;
+  color: #15803D;
+}
+
+.status-connecting {
+  background-color: #FEF3C7;
+  color: #B45309;
+}
+
+.status-disconnected {
+  background-color: #F4F4F5;
+  color: #71717A;
+}
+
+.connection-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.empty-state, .success-state, .qr-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 0;
+  flex: 1;
+}
+
+.empty-state p, .success-state p, .qr-state p {
+  color: #71717A;
+  margin: 16px 0 24px 0;
+  line-height: 1.5;
+}
+
+.qr-box {
+  background: white;
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  border: 1px solid #E4E4E7;
+}
+
+.form-state {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 24px;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3F3F46;
+}
+
+.form-group input {
+  padding: 10px 12px;
+  border: 1px solid #D4D4D8;
+  border-radius: 8px;
+  outline: none;
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+}
+
+.form-group input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2);
+}
