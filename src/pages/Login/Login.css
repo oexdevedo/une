@@ -79,6 +79,74 @@
   box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.1);
 }
 
+.input-handle-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-handle-prefix {
+  position: absolute;
+  left: 20px;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: #111827;
+  pointer-events: none;
+  user-select: none;
+}
+
+.login-input.has-prefix {
+  padding-left: 42px;
+}
+
+.handle-badge-status {
+  position: absolute;
+  right: 18px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.handle-badge-status.available {
+  background-color: #DCFCE7;
+  color: #15803D;
+}
+
+.handle-badge-status.taken {
+  background-color: #FEE2E2;
+  color: #B91C1C;
+}
+
+.login-error-alert {
+  background-color: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  color: #991B1B;
+  padding: 12px 18px;
+  border-radius: 14px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  margin-bottom: 20px;
+  line-height: 1.4;
+  animation: fadeIn 0.2s ease;
+}
+
+.login-success-alert {
+  background-color: #DCFCE7;
+  border: 1px solid #86EFAC;
+  color: #166534;
+  padding: 12px 18px;
+  border-radius: 14px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  margin-bottom: 20px;
+  line-height: 1.4;
+  animation: fadeIn 0.2s ease;
+}
+
+
 .toggle-password {
   position: absolute;
   right: 20px;

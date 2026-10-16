@@ -61,6 +61,7 @@ async function init() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       workspace_id INTEGER NOT NULL,
       name TEXT NOT NULL,
+      username TEXT UNIQUE,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT DEFAULT 'agent',
@@ -329,6 +330,11 @@ async function init() {
   await ensureColumn(db, 'workspaces', 'confirmation_agent_id', "TEXT DEFAULT '3'");
   await ensureColumn(db, 'workspaces', 'confirmation_enabled', 'INTEGER DEFAULT 1');
 
+  await ensureColumn(db, 'users', 'username', 'TEXT');
+  try {
+    await db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(LOWER(username)) WHERE username IS NOT NULL;");
+  } catch (idxErr) {}
+
   await ensureColumn(db, 'agents', 'prompt', 'TEXT');
   await ensureColumn(db, 'agents', 'role', 'TEXT');
   await ensureColumn(db, 'automations', 'nodes_json', 'TEXT');
@@ -351,10 +357,10 @@ async function init() {
   const admin = await db.get('SELECT id FROM users WHERE email = ?', ['admin@unico.com']);
   if (!admin) {
     await db.run(
-      `INSERT INTO users (workspace_id, name, email, password_hash, role)
-       VALUES (1, 'Administrador', 'admin@unico.com', '123456', 'admin');`
+      `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
+       VALUES (1, 'Administrador', 'admin', 'admin@unico.com', '123456', 'admin');`
     );
-    console.log('✓ Usuário admin padrão criado (admin@unico.com / 123456)');
+    console.log('✓ Usuário admin padrão criado (@admin / admin@unico.com / 123456)');
   }
 
   // 5. Seed de Agentes Oficiais (Lucas Vendas e Mariana Confirmação)

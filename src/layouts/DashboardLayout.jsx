@@ -37,7 +37,31 @@ const navItems = [
 export default function DashboardLayout() {
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('unne_user') || 'null');
+    } catch {
+      return null;
+    }
+  });
+
+  React.useEffect(() => {
+    fetch('http://localhost:3001/api/users/me')
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.name) {
+          setCurrentUser(data);
+          localStorage.setItem('unne_user', JSON.stringify(data));
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('unne_user');
+    window.location.href = '/login';
+  };
+
   // Mapping paths to titles
   const getTitle = () => {
     const current = navItems.find(item => item.path === location.pathname);
@@ -87,30 +111,41 @@ export default function DashboardLayout() {
           ))}
         </nav>
 
-        <div style={{ padding: '12px' }}>
-          <Link to="/configuracoes" className={`nav-item ${location.pathname === '/configuracoes' ? 'active' : ''}`} onClick={() => setIsSidebarOpen(false)}>
+        <div className="sidebar-bottom-actions">
+          <Link 
+            to="/configuracoes" 
+            className={`nav-item ${location.pathname === '/configuracoes' ? 'active' : ''}`} 
+            onClick={() => setIsSidebarOpen(false)}
+            title="Configurações"
+          >
              <Sliders size={18} />
              <span>Configurações</span>
           </Link>
-        </div>
-
-        <div className="sidebar-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div className="user-avatar">
-              W
-            </div>
-            <div className="user-info">
-              <span className="user-name">Wyllkens</span>
-              <span className="user-role">Admin</span>
-            </div>
-          </div>
           <button 
-            className="logout-btn" 
-            onClick={() => window.location.href = '/login'}
-            title="Sair"
+            type="button"
+            className="nav-item logout-nav-item" 
+            onClick={handleLogout}
+            title="Sair da conta"
           >
             <Logout size={18} />
+            <span>Sair da conta</span>
           </button>
+        </div>
+
+        <div className="sidebar-footer">
+          <Link to="/configuracoes" className="sidebar-user-link" title="Ver configurações da conta">
+            <div className="user-avatar" style={{ flexShrink: 0 }}>
+              {(currentUser?.name || currentUser?.username || 'U').charAt(0).toUpperCase()}
+            </div>
+            <div className="user-info" style={{ minWidth: 0, overflow: 'hidden' }}>
+              <span className="user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                {currentUser?.name || 'Usuário'}
+              </span>
+              <span className="user-role" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.75rem', display: 'block' }}>
+                {currentUser?.username || '@admin'}
+              </span>
+            </div>
+          </Link>
         </div>
       </aside>
 
@@ -148,10 +183,31 @@ export default function DashboardLayout() {
               <span style={{ color: 'var(--text-muted)' }}>Hostinger</span>
             </div>
             
-            <button className="bell-btn">
+            <button className="bell-btn" title="Notificações">
               <Bell size={18} />
               <div className="bell-badge">3</div>
             </button>
+
+            <div className="topbar-user-badge">
+              <Link to="/configuracoes" className="topbar-user-info" title="Configurações da conta">
+                <div className="topbar-avatar">
+                  {(currentUser?.name || currentUser?.username || 'U').charAt(0).toUpperCase()}
+                </div>
+                <div className="topbar-user-details">
+                  <span className="topbar-user-name">{currentUser?.name || 'Usuário'}</span>
+                  <span className="topbar-user-handle">{currentUser?.username || '@admin'}</span>
+                </div>
+              </Link>
+              <button 
+                type="button"
+                className="topbar-logout-btn" 
+                onClick={handleLogout}
+                title="Sair da conta"
+              >
+                <Logout size={16} />
+                <span>Sair</span>
+              </button>
+            </div>
           </div>
         </header>
 

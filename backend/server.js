@@ -919,12 +919,161 @@ app.delete('/api/contacts/:id', async (req, res) => {
   }
 });
 
+// ==========================================
+// AUTENTICAÇÃO E PERFIL COM SUPORTE A @USERNAME
+// ==========================================
+
+function validateAndCleanUsername(handle) {
+  if (!handle) return { valid: false, error: 'O @ de usuário é obrigatório.' };
+  const clean = handle.trim().replace(/^@+/, '').toLowerCase();
+  if (clean.length < 2 || clean.length > 30) {
+    return { valid: false, error: 'O @ deve conter entre 2 e 30 caracteres.' };
+  }
+  // Letras, números, sublinhado (_) e ponto (.)
+  const regex = /^[a-z0-9_][a-z0-9_.]{0,28}[a-z0-9_]?$/;
+  if (!regex.test(clean)) {
+    return { valid: false, error: 'O @ deve conter apenas letras, números, underline (_) e ponto (.).' };
+  }
+  return { valid: true, clean };
+}
+
+// Rota de Login (aceita @usuario, usuario ou e-mail)
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { identifier, password } = req.body;
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, error: 'Informe seu @usuário ou e-mail e a senha.' });
+    }
+
+    const cleanInput = identifier.trim().toLowerCase();
+    const cleanHandle = cleanInput.replace(/^@+/, '');
+
+    const database = await db.getDB();
+    const user = await database.get(
+      `SELECT id, workspace_id, name, username, email, password_hash, role, created_at 
+       FROM users 
+       WHERE LOWER(email) = ? OR LOWER(username) = ?`,
+      [cleanInput, cleanHandle]
+    );
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Usuário ou e-mail não encontrado.' });
+    }
+
+    // Valida senha (compatível com plain text ou hash)
+    if (user.password_hash !== password && user.password_hash !== `plain:${password}`) {
+      return res.status(401).json({ success: false, error: 'Senha incorreta. Tente novamente.' });
+    }
+
+    const displayUsername = user.username ? `@${user.username.replace(/^@+/, '')}` : '';
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        workspace_id: user.workspace_id,
+        name: user.name,
+        username: displayUsername,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Erro no login:', error);
+    res.status(500).json({ success: false, error: 'Erro interno ao realizar login.' });
+  }
+});
+
+// Rota de Cadastro de Nova Conta com @ exclusivo
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, username, email, password } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'O Nome Completo é obrigatório.' });
+    }
+    if (!email || !email.trim()) {
+      return res.status(400).json({ success: false, error: 'O E-mail é obrigatório.' });
+    }
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, error: 'A senha deve conter no mínimo 6 caracteres.' });
+    }
+
+    const handleCheck = validateAndCleanUsername(username);
+    if (!handleCheck.valid) {
+      return res.status(400).json({ success: false, error: handleCheck.error });
+    }
+
+    const cleanName = name.trim();
+    const cleanHandle = handleCheck.clean;
+    const cleanEmail = email.trim().toLowerCase();
+
+    const database = await db.getDB();
+
+    // Verifica se @username já existe
+    const existingHandle = await database.get('SELECT id FROM users WHERE LOWER(username) = ?', [cleanHandle]);
+    if (existingHandle) {
+      return res.status(400).json({ success: false, error: `O nome de usuário @${cleanHandle} já está em uso. Por favor, escolha outro.` });
+    }
+
+    // Verifica se e-mail já existe
+    const existingEmail = await database.get('SELECT id FROM users WHERE LOWER(email) = ?', [cleanEmail]);
+    if (existingEmail) {
+      return res.status(400).json({ success: false, error: 'Este e-mail já está cadastrado no sistema.' });
+    }
+
+    const result = await database.run(
+      `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
+       VALUES (1, ?, ?, ?, ?, 'agent')`,
+      [cleanName, cleanHandle, cleanEmail, password]
+    );
+
+    res.json({
+      success: true,
+      user: {
+        id: result.lastID,
+        workspace_id: 1,
+        name: cleanName,
+        username: `@${cleanHandle}`,
+        email: cleanEmail,
+        role: 'agent'
+      }
+    });
+  } catch (error) {
+    console.error('Erro no cadastro:', error);
+    res.status(500).json({ success: false, error: 'Erro interno ao cadastrar conta.' });
+  }
+});
+
+// Verificação de disponibilidade de @username em tempo real
+app.get('/api/users/check-username/:username', async (req, res) => {
+  try {
+    const handleCheck = validateAndCleanUsername(req.params.username);
+    if (!handleCheck.valid) {
+      return res.json({ available: false, error: handleCheck.error });
+    }
+
+    const database = await db.getDB();
+    const existing = await database.get('SELECT id FROM users WHERE LOWER(username) = ?', [handleCheck.clean]);
+    if (existing) {
+      return res.json({ available: false, error: `O @${handleCheck.clean} já está em uso.` });
+    }
+
+    res.json({ available: true, clean: handleCheck.clean, formatted: `@${handleCheck.clean}` });
+  } catch (error) {
+    console.error('Erro ao verificar username:', error);
+    res.status(500).json({ available: false, error: 'Erro ao verificar disponibilidade.' });
+  }
+});
+
 // APIs para Usuário / Perfil
 app.get('/api/users/me', async (req, res) => {
   try {
     const database = await db.getDB();
-    const user = await database.get('SELECT id, workspace_id, name, email, role, created_at FROM users WHERE id = 1');
-    res.json(user || { name: 'Admin', email: 'admin@unico.com' });
+    const user = await database.get('SELECT id, workspace_id, name, username, email, role, created_at FROM users WHERE id = 1');
+    if (user) {
+      user.username = user.username ? `@${user.username.replace(/^@+/, '')}` : '';
+    }
+    res.json(user || { name: 'Admin', username: '@admin', email: 'admin@unico.com' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar dados do usuário' });
@@ -933,19 +1082,58 @@ app.get('/api/users/me', async (req, res) => {
 
 app.put('/api/users/me', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, username, email, password } = req.body;
     const database = await db.getDB();
-    if (password && password.trim()) {
-      await database.run('UPDATE users SET name = ?, email = ?, password_hash = ? WHERE id = 1', [name, email, password]);
-    } else {
-      await database.run('UPDATE users SET name = ?, email = ? WHERE id = 1', [name, email]);
+
+    let cleanHandle = null;
+    if (username) {
+      const handleCheck = validateAndCleanUsername(username);
+      if (!handleCheck.valid) {
+        return res.status(400).json({ success: false, error: handleCheck.error });
+      }
+      cleanHandle = handleCheck.clean;
+
+      // Verifica se outro usuário já usa esse username
+      const existing = await database.get('SELECT id FROM users WHERE LOWER(username) = ? AND id != 1', [cleanHandle]);
+      if (existing) {
+        return res.status(400).json({ success: false, error: `O @${cleanHandle} já pertence a outra conta.` });
+      }
     }
-    res.json({ success: true });
+
+    if (email) {
+      const existingEmail = await database.get('SELECT id FROM users WHERE LOWER(email) = ? AND id != 1', [email.trim().toLowerCase()]);
+      if (existingEmail) {
+        return res.status(400).json({ success: false, error: 'Este e-mail já pertence a outra conta.' });
+      }
+    }
+
+    if (password && password.trim()) {
+      await database.run(
+        'UPDATE users SET name = ?, username = ?, email = ?, password_hash = ? WHERE id = 1',
+        [name, cleanHandle, email, password]
+      );
+    } else {
+      await database.run(
+        'UPDATE users SET name = ?, username = ?, email = ? WHERE id = 1',
+        [name, cleanHandle, email]
+      );
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: 1,
+        name,
+        username: cleanHandle ? `@${cleanHandle}` : '',
+        email
+      }
+    });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Erro ao atualizar dados do usuário' });
+    res.status(500).json({ success: false, error: 'Erro ao atualizar dados do usuário' });
   }
 });
+
 
 // APIs para Configuração e Padrão de Calendário
 app.get('/api/calendar/settings', async (req, res) => {
