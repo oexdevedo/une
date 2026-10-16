@@ -30,8 +30,7 @@ const navItems = [
   { path: '/automacao', icon: Robot, label: 'Automação' },
   { path: '/massa', icon: Megaphone, label: 'Msg em massa' },
   { path: '/templates', icon: File, label: 'Templates' },
-  { path: '/agenda', icon: Calendar, label: 'Agenda' },
-  { path: '/conexoes', icon: LinkIcon, label: 'Conexões' }
+  { path: '/agenda', icon: Calendar, label: 'Agenda' }
 ];
 
 export default function DashboardLayout() {
@@ -66,7 +65,7 @@ export default function DashboardLayout() {
   const getTitle = () => {
     const current = navItems.find(item => item.path === location.pathname);
     if (current) return current.label;
-    if (location.pathname === '/configuracoes') return 'Configurações';
+    if (location.pathname.startsWith('/configuracoes') || location.pathname === '/conexoes') return 'Configurações';
     return 'Unico';
   };
 
@@ -114,7 +113,7 @@ export default function DashboardLayout() {
         <div className="sidebar-bottom-actions">
           <Link 
             to="/configuracoes" 
-            className={`nav-item ${location.pathname === '/configuracoes' ? 'active' : ''}`} 
+            className={`nav-item ${location.pathname.startsWith('/configuracoes') || location.pathname === '/conexoes' ? 'active' : ''}`} 
             onClick={() => setIsSidebarOpen(false)}
             title="Configurações"
           >
@@ -143,20 +142,20 @@ export default function DashboardLayout() {
               <input type="text" placeholder="Buscar..." />
             </div>
             
-            <div className="connection-pill">
+            <Link to="/configuracoes?tab=conexoes" className="connection-pill" style={{ textDecoration: 'none' }} title="Conexão WhatsApp (Configurações)">
               <div className="connection-dot" style={{ backgroundColor: 'var(--whatsapp)' }}></div>
               <span style={{ color: 'var(--text-muted)' }}>WhatsApp</span>
-            </div>
+            </Link>
 
-            <div className="connection-pill">
+            <Link to="/configuracoes?tab=conexoes" className="connection-pill" style={{ textDecoration: 'none' }} title="Conexão Telegram (Configurações)">
               <div className="connection-dot" style={{ backgroundColor: 'var(--whatsapp)' }}></div>
               <span style={{ color: 'var(--text-muted)' }}>Telegram</span>
-            </div>
+            </Link>
 
-            <div className="connection-pill">
+            <Link to="/configuracoes?tab=conexoes" className="connection-pill" style={{ textDecoration: 'none' }} title="Conexão Hostinger (Configurações)">
               <div className="connection-dot" style={{ backgroundColor: '#10B981' }}></div>
               <span style={{ color: 'var(--text-muted)' }}>Hostinger</span>
-            </div>
+            </Link>
             
             <button className="bell-btn" title="Notificações">
               <Bell size={18} />

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import './Settings.css';
 import {
   User,
@@ -6,10 +7,35 @@ import {
   Lock,
   Save,
   Shield,
-  Logout
+  Logout,
+  Link as LinkIcon
 } from 'pixelarticons/react';
+import Connections from '../Connections/Connections';
 
-export default function Settings() {
+export default function Settings({ initialTab }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(() => {
+    if (initialTab) return initialTab;
+    if (tabParam === 'conexoes' || location.pathname.includes('/conexoes')) return 'conexoes';
+    return 'perfil';
+  });
+
+  useEffect(() => {
+    if (tabParam === 'conexoes' || location.pathname.includes('/conexoes')) {
+      setActiveTab('conexoes');
+    } else if (tabParam === 'perfil' || location.pathname === '/configuracoes') {
+      if (!tabParam) setActiveTab('perfil');
+    }
+  }, [tabParam, location.pathname]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
+
   const [formData, setFormData] = useState({
     name: '',
     username: '',
@@ -19,7 +45,7 @@ export default function Settings() {
     confirmPassword: ''
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetch('http://localhost:3001/api/users/me')
       .then(r => r.json())
       .then(data => {
@@ -79,12 +105,43 @@ export default function Settings() {
   return (
     <div className="settings-container">
       <header className="settings-header">
-        <h1>Configurações da Conta</h1>
-        <p>Gerencie seus dados pessoais, seu @usuário exclusivo, email e segurança.</p>
+        <h1>Configurações</h1>
+        <p>
+          {activeTab === 'perfil' 
+            ? 'Gerencie seus dados pessoais, seu @usuário exclusivo, email e segurança.'
+            : 'Gerencie as conexões de WhatsApp, Telegram, E-mail, Banco de Dados e IA do seu sistema.'
+          }
+        </p>
+
+        {/* Tab Navigation */}
+        <div className="settings-tabs">
+          <button 
+            type="button" 
+            className={`settings-tab-btn ${activeTab === 'perfil' ? 'active' : ''}`}
+            onClick={() => handleTabChange('perfil')}
+          >
+            <User size={18} />
+            <span>Minha Conta</span>
+          </button>
+
+          <button 
+            type="button" 
+            className={`settings-tab-btn ${activeTab === 'conexoes' ? 'active' : ''}`}
+            onClick={() => handleTabChange('conexoes')}
+          >
+            <LinkIcon size={18} />
+            <span>Conexões e Integrações</span>
+          </button>
+        </div>
       </header>
 
-      <div className="settings-content">
-        <form className="settings-card" onSubmit={handleSave}>
+      {activeTab === 'conexoes' ? (
+        <div className="settings-tab-content">
+          <Connections isSubpage={true} />
+        </div>
+      ) : (
+        <div className="settings-content">
+          <form className="settings-card" onSubmit={handleSave}>
           
           <div className="settings-section">
             <h2 className="section-title"><User size={20} /> Informações Pessoais</h2>
@@ -224,6 +281,7 @@ export default function Settings() {
 
         </form>
       </div>
+      )}
     </div>
   );
 }

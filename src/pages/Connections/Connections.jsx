@@ -14,7 +14,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import EmailConnectionCard from './EmailConnectionCard';
 import DatabaseConnectionCard from './DatabaseConnectionCard';
 
-export default function Connections() {
+export default function Connections({ isSubpage = false }) {
   const [waStatus, setWaStatus] = useState('disconnected');
   const [waQR, setWaQR] = useState('');
   const [isLoadingWA, setIsLoadingWA] = useState(false);
@@ -23,6 +23,7 @@ export default function Connections() {
   const [tgStatus, setTgStatus] = useState('disconnected');
   const [tgBotInfo, setTgBotInfo] = useState(null);
   const [isLoadingTG, setIsLoadingTG] = useState(false);
+  const [isReconnectingAll, setIsReconnectingAll] = useState(false);
 
   const [calToken, setCalToken] = useState(() => localStorage.getItem('unne_cal_api_key') || '');
   const [calStatus, setCalStatus] = useState(() => localStorage.getItem('unne_cal_api_key') ? 'connected' : 'disconnected');
@@ -151,21 +152,28 @@ export default function Connections() {
     setIsLoadingTG(false);
   };
 
-  const disconnectTelegram = async () => {
-    if (!window.confirm('Deseja realmente desconectar o bot do Telegram?')) return;
+  const disconnectTelegram = async (clearToken = false) => {
+    const confirmMsg = clearToken 
+      ? 'Deseja realmente remover o token do Telegram do banco de dados?' 
+      : 'Deseja desconectar a sessão do bot? O token permanecerá salvo no banco para reconectar quando quiser.';
+    if (!window.confirm(confirmMsg)) return;
+
     setIsLoadingTG(true);
     try {
       const res = await fetch('http://localhost:3001/api/connections/telegram/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId })
+        body: JSON.stringify({ workspace_id: workspaceId, clear_token: clearToken })
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.removeItem('unne_tg_token');
-        setTgToken('');
+        if (clearToken) {
+          localStorage.removeItem('unne_tg_token');
+          setTgToken('');
+        }
         setTgStatus('disconnected');
         setTgBotInfo(null);
+        await fetchTGStatus();
       } else {
         alert('Erro ao desconectar: ' + (data.error || 'Erro desconhecido'));
       }
@@ -174,6 +182,49 @@ export default function Connections() {
       alert('Erro ao desconectar o bot do Telegram.');
     }
     setIsLoadingTG(false);
+  };
+
+  const saveTelegramTokenOnly = async () => {
+    if (!tgToken.trim()) return alert('Insira um token válido.');
+    setIsLoadingTG(true);
+    try {
+      const res = await fetch('http://localhost:3001/api/connections/telegram/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, token: tgToken.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('unne_tg_token', tgToken.trim());
+        alert('Token do Telegram salvo no banco de dados com sucesso!');
+      } else {
+        alert('Erro ao salvar token: ' + (data.error || 'Erro desconhecido'));
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao salvar token do Telegram.');
+    }
+    setIsLoadingTG(false);
+  };
+
+  const reconnectAllServices = async () => {
+    setIsReconnectingAll(true);
+    try {
+      const res = await fetch('http://localhost:3001/api/connections/reconnect-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        await fetchWAStatus();
+        await fetchTGStatus();
+        await fetchSettings();
+      }
+    } catch (e) {
+      console.error('Erro ao reconectar todos os canais:', e);
+    }
+    setIsReconnectingAll(false);
   };
 
   const handleFilterChange = async (e) => {
@@ -242,11 +293,45 @@ export default function Connections() {
   };
 
   return (
-    <div className="connections-container">
-      <header className="connections-header">
-        <h1>Conexões e Integrações</h1>
-        <p>Gerencie as conexões de WhatsApp, Telegram, E-mail e Agenda do seu CRM para enviar e receber mensagens.</p>
-      </header>
+    <div className={`connections-container ${isSubpage ? 'is-subpage' : ''}`}>
+      {!isSubpage && (
+        <header className="connections-header">
+          <h1>Conexões e Integrações</h1>
+          <p>Gerencie as conexões de WhatsApp, Telegram, E-mail e Agenda do seu CRM para enviar e receber mensagens.</p>
+        </header>
+      )}
+
+      {/* Barra de Ações Rápidas de Sincronização */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        background: '#FFFFFF',
+        border: '1px solid #E4E4E7',
+        borderRadius: '12px',
+        padding: '14px 20px',
+        marginBottom: '20px',
+        flexWrap: 'wrap',
+        gap: '12px'
+      }}>
+        <div>
+          <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: '#18181B' }}>
+            Persistência Automática das Contas
+          </h4>
+          <p style={{ margin: '2px 0 0', fontSize: '0.82rem', color: '#71717A' }}>
+            Suas chaves e tokens ficam salvos no banco SQLite e conectam WhatsApp, Telegram, Cal.com e E-mail a cada login.
+          </p>
+        </div>
+        <button
+          className="btn-secondary"
+          onClick={reconnectAllServices}
+          disabled={isReconnectingAll}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontWeight: 600, fontSize: '0.85rem' }}
+        >
+          <Refresh size={16} />
+          {isReconnectingAll ? 'Reconectando...' : 'Reconectar Todas as Contas'}
+        </button>
+      </div>
 
       <div className="connections-grid">
         {/* WhatsApp Card */}
@@ -315,14 +400,25 @@ export default function Connections() {
                     @{tgBotInfo.username} {tgBotInfo.first_name ? `(${tgBotInfo.first_name})` : ''}
                   </div>
                 )}
-                <button 
-                  className="btn-secondary" 
-                  style={{ marginTop: '8px' }} 
-                  onClick={disconnectTelegram}
-                  disabled={isLoadingTG}
-                >
-                  <Refresh size={16} /> {isLoadingTG ? 'Desconectando...' : 'Desconectar Bot'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={() => disconnectTelegram(false)}
+                    disabled={isLoadingTG}
+                    title="Desconecta a sessão em tempo real mas mantém o token no banco"
+                  >
+                    <Refresh size={16} /> {isLoadingTG ? 'Aguarde...' : 'Desconectar Bot'}
+                  </button>
+                  <button 
+                    className="btn-secondary" 
+                    style={{ color: '#EF4444', borderColor: '#FCA5A5' }}
+                    onClick={() => disconnectTelegram(true)}
+                    disabled={isLoadingTG}
+                    title="Exclui o token permanentemente do banco"
+                  >
+                    <Close size={16} /> Limpar Token
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="form-state">
@@ -330,7 +426,14 @@ export default function Connections() {
                   Para conectar o Telegram, crie um bot através do <strong>@BotFather</strong> e cole o token gerado abaixo.
                 </p>
                 <div className="form-group">
-                  <label>Bot Token</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ margin: 0 }}>Bot Token</label>
+                    {tgToken && (
+                      <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 600 }}>
+                        ● Salvo no Banco
+                      </span>
+                    )}
+                  </div>
                   <input 
                     type="text" 
                     placeholder="Ex: 123456789:ABCdefGHI..." 
@@ -338,9 +441,26 @@ export default function Connections() {
                     onChange={(e) => setTgToken(e.target.value)}
                   />
                 </div>
-                <button className="btn-primary" onClick={connectTelegram} disabled={!tgToken.trim() || isLoadingTG}>
-                  {isLoadingTG ? 'Conectando...' : 'Salvar & Conectar Bot'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button 
+                    className="btn-primary" 
+                    style={{ flex: 1 }}
+                    onClick={connectTelegram} 
+                    disabled={!tgToken.trim() || isLoadingTG}
+                  >
+                    {isLoadingTG ? 'Conectando...' : (tgToken ? 'Salvar & Conectar Bot' : 'Conectar Bot')}
+                  </button>
+                  {tgToken && (
+                    <button 
+                      className="btn-secondary"
+                      onClick={() => disconnectTelegram(true)}
+                      disabled={isLoadingTG}
+                      title="Excluir token do banco"
+                    >
+                      <Close size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

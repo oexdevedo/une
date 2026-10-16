@@ -6,14 +6,39 @@ const aiHandler = require('./ai_handler');
 const sessions = {}; 
 
 async function connectToTelegram(workspaceId, token) {
-  if (!token || !token.trim()) return { success: false, error: 'Token não fornecido' };
-  const cleanToken = token.trim();
+  let cleanToken = token ? token.trim() : null;
+
+  // Se não foi passado token no parâmetro, busca do banco de dados
+  if (!cleanToken) {
+    try {
+      const database = await db.getDB();
+      const ws = await database.get('SELECT telegram_token FROM workspaces WHERE id = ?', [workspaceId]);
+      if (ws && ws.telegram_token && ws.telegram_token.trim()) {
+        cleanToken = ws.telegram_token.trim();
+      }
+    } catch (e) {
+      console.error('Erro ao buscar token salvo do Telegram:', e);
+    }
+  }
+
+  if (!cleanToken) return { success: false, error: 'Token não fornecido' };
+
+  // Salva imediatamente no banco SQLite de forma preventiva para NUNCA perder
+  try {
+    const database = await db.getDB();
+    await database.run('UPDATE workspaces SET telegram_token = ? WHERE id = ?', [cleanToken, workspaceId]);
+    console.log(`💾 Token do Telegram salvo preventivamente no banco para Workspace ${workspaceId}`);
+  } catch (dbErr) {
+    console.error('Erro ao salvar token preventivo do Telegram:', dbErr);
+  }
 
   if (!sessions[workspaceId]) {
-    sessions[workspaceId] = { bot: null, status: 'disconnected', botInfo: null, token: null };
+    sessions[workspaceId] = { bot: null, status: 'disconnected', botInfo: null, token: cleanToken };
   }
   
   const session = sessions[workspaceId];
+  session.token = cleanToken;
+  session.status = 'connecting';
 
   try {
     if (session.bot) {
@@ -147,15 +172,6 @@ async function connectToTelegram(workspaceId, token) {
     session.status = 'connected';
     session.botInfo = botInfo;
     session.token = cleanToken;
-    
-    // Salva imediatamente o token no banco SQLite
-    try {
-      const database = await db.getDB();
-      await database.run('UPDATE workspaces SET telegram_token = ? WHERE id = ?', [cleanToken, workspaceId]);
-      console.log(`💾 Token do Telegram persistido no banco para o Workspace ${workspaceId}`);
-    } catch (dbErr) {
-      console.error('Erro ao persistir token do Telegram no banco:', dbErr);
-    }
 
     process.once('SIGINT', () => {
       try { bot.stop('SIGINT'); } catch (e) {}
@@ -176,6 +192,17 @@ async function connectToTelegram(workspaceId, token) {
   }
 }
 
+async function saveToken(workspaceId, token) {
+  const cleanToken = token ? token.trim() : null;
+  const database = await db.getDB();
+  await database.run('UPDATE workspaces SET telegram_token = ? WHERE id = ?', [cleanToken, workspaceId]);
+  if (sessions[workspaceId]) {
+    sessions[workspaceId].token = cleanToken;
+  }
+  console.log(`💾 Token do Telegram atualizado no banco (Workspace ${workspaceId})`);
+  return { success: true };
+}
+
 async function getStatus(workspaceId) {
   let session = sessions[workspaceId];
 
@@ -183,17 +210,17 @@ async function getStatus(workspaceId) {
   try {
     const database = await db.getDB();
     const ws = await database.get('SELECT telegram_token FROM workspaces WHERE id = ?', [workspaceId]);
-    if (ws && ws.telegram_token) {
-      savedToken = ws.telegram_token;
+    if (ws && ws.telegram_token && ws.telegram_token.trim()) {
+      savedToken = ws.telegram_token.trim();
     }
   } catch (dbErr) {
     console.error('Erro ao consultar telegram_token no banco:', dbErr);
   }
 
-  // Se a sessão em memória não está conectada, mas temos token salvo no banco, tentar auto-conectar
-  if ((!session || session.status !== 'connected') && savedToken) {
+  // Se a sessão em memória não está conectada nem conectando, mas temos token salvo no banco, tentar auto-conectar
+  if ((!session || session.status === 'disconnected') && savedToken) {
     try {
-      console.log(`🔄 Auto-reconectando Telegram para Workspace ${workspaceId} via getStatus...`);
+      console.log(`🔄 Auto-reconectando Telegram para Workspace ${workspaceId} via getStatus com token salvo...`);
       const connectResult = await connectToTelegram(workspaceId, savedToken);
       if (connectResult.success) {
         session = sessions[workspaceId];
@@ -204,13 +231,13 @@ async function getStatus(workspaceId) {
   }
 
   return {
-    status: session && session.status === 'connected' ? 'connected' : 'disconnected',
+    status: session && session.status === 'connected' ? 'connected' : (session ? session.status : 'disconnected'),
     token: savedToken || (session ? session.token : null) || null,
     botInfo: session && session.botInfo ? session.botInfo : null
   };
 }
 
-async function disconnectTelegram(workspaceId) {
+async function disconnectTelegram(workspaceId, clearToken = false) {
   try {
     const session = sessions[workspaceId];
     if (session && session.bot) {
@@ -220,11 +247,19 @@ async function disconnectTelegram(workspaceId) {
         console.warn('Aviso ao parar bot no disconnect:', e.message);
       }
     }
-    sessions[workspaceId] = { bot: null, status: 'disconnected', botInfo: null, token: null };
 
-    const database = await db.getDB();
-    await database.run('UPDATE workspaces SET telegram_token = NULL WHERE id = ?', [workspaceId]);
-    console.log(`🔌 Telegram desconectado e token removido do Workspace ${workspaceId}`);
+    // Preserva o token na sessão a não ser que clearToken seja explicitamente true
+    const preservedToken = clearToken ? null : (session?.token || null);
+    sessions[workspaceId] = { bot: null, status: 'disconnected', botInfo: null, token: preservedToken };
+
+    if (clearToken) {
+      const database = await db.getDB();
+      await database.run('UPDATE workspaces SET telegram_token = NULL WHERE id = ?', [workspaceId]);
+      console.log(`🔌 Telegram desconectado e token removido do banco (Workspace ${workspaceId})`);
+    } else {
+      console.log(`🔌 Bot do Telegram parado, token mantido no banco de dados para reconexão futura (Workspace ${workspaceId})`);
+    }
+
     return { success: true };
   } catch (err) {
     console.error(`Erro ao desconectar Telegram (Workspace ${workspaceId}):`, err);
@@ -285,5 +320,5 @@ async function sendMessage(workspaceId, jid, text, file) {
   return { success: true, messageId };
 }
 
-module.exports = { connectToTelegram, getStatus, sendMessage, disconnectTelegram };
+module.exports = { connectToTelegram, getStatus, sendMessage, disconnectTelegram, saveToken };
 

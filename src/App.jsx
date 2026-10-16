@@ -41,10 +41,11 @@ function App() {
           <Route path="contratos" element={<Contracts />} />
           <Route path="automacao" element={<Automations />} />
           <Route path="massa" element={<MassMessage />} />
-          <Route path="conexoes" element={<Connections />} />
           <Route path="agenda" element={<Calendar />} />
           <Route path="templates" element={<Templates />} />
           <Route path="configuracoes" element={<Settings />} />
+          <Route path="configuracoes/conexoes" element={<Settings initialTab="conexoes" />} />
+          <Route path="conexoes" element={<Navigate to="/configuracoes?tab=conexoes" replace />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

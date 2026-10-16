@@ -22,6 +22,49 @@
   font-size: 0.95rem;
 }
 
+/* SETTINGS TABS */
+.settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.settings-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  color: #71717a;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  border-radius: 8px 8px 0 0;
+}
+
+.settings-tab-btn:hover {
+  color: #1e1e2d;
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.settings-tab-btn.active {
+  color: #1e1e2d;
+  border-bottom-color: var(--primary);
+  background-color: rgba(253, 224, 71, 0.15);
+  font-weight: 700;
+}
+
+.settings-tab-content {
+  width: 100%;
+}
+
 .settings-content {
   max-width: 700px;
 }

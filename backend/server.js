@@ -978,6 +978,11 @@ app.post('/api/auth/login', async (req, res) => {
         role: user.role
       }
     });
+
+    // Recupera chaves salvas no banco e conecta WhatsApp, Telegram, Cal.com e Email sempre que logar
+    reconnectAllConnections(user.workspace_id || 1).catch(connErr => {
+      console.error('⚠️ [Login AutoConnect] Erro ao reconectar contas em segundo plano:', connErr.message);
+    });
   } catch (error) {
     console.error('Erro no login:', error);
     res.status(500).json({ success: false, error: 'Erro interno ao realizar login.' });
@@ -1353,13 +1358,37 @@ app.post('/api/connections/telegram/start', async (req, res) => {
 
 app.post('/api/connections/telegram/disconnect', async (req, res) => {
   try {
-    const { workspace_id } = req.body;
+    const { workspace_id, clear_token } = req.body;
     const workspaceId = workspace_id || 1;
     const telegramApi = require('./telegram');
-    const result = await telegramApi.disconnectTelegram(workspaceId);
+    const result = await telegramApi.disconnectTelegram(workspaceId, Boolean(clear_token));
     res.json(result);
   } catch (err) {
     console.error('Erro ao desconectar Telegram:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/telegram/save', async (req, res) => {
+  try {
+    const { workspace_id, token } = req.body;
+    const workspaceId = workspace_id || 1;
+    const telegramApi = require('./telegram');
+    const result = await telegramApi.saveToken(workspaceId, token);
+    res.json(result);
+  } catch (err) {
+    console.error('Erro ao salvar token do Telegram:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/reconnect-all', async (req, res) => {
+  try {
+    const workspaceId = req.body.workspace_id || 1;
+    const status = await reconnectAllConnections(workspaceId);
+    res.json({ success: true, status });
+  } catch (err) {
+    console.error('Erro ao reconectar todas as contas:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -1831,34 +1860,123 @@ if (fs.existsSync(distPath)) {
   console.log('📦 Servindo frontend estático de ../dist');
 }
 
+// ==========================================
+// CENTRAL DE RECONEXÃO AUTOMÁTICA DE CONTAS
+// ==========================================
+/**
+ * Recupera as credenciais/tokens salvos no banco SQLite e conecta/sincroniza:
+ * 1. WhatsApp (Baileys)
+ * 2. Telegram (Bot Telegraf)
+ * 3. Cal.com / Agenda (API Key)
+ * 4. E-mail Hostinger (IMAP & SMTP)
+ */
+async function reconnectAllConnections(workspaceId = 1) {
+  console.log(`\n======================================================`);
+  console.log(`🔄 [AutoConnect] Verificando e conectando canais do Workspace ${workspaceId}...`);
+  const results = {
+    whatsapp: 'disconnected',
+    telegram: 'disconnected',
+    calendar: 'disconnected',
+    email: 'disconnected'
+  };
+
+  try {
+    const database = await db.getDB();
+    const ws = await database.get('SELECT telegram_token, cal_api_key, cal_link FROM workspaces WHERE id = ?', [workspaceId]);
+
+    // 1. WhatsApp (Baileys)
+    try {
+      const whatsappApi = require('./whatsapp');
+      const waStatus = whatsappApi.getStatus(workspaceId);
+      if (waStatus && waStatus.status === 'connected') {
+        results.whatsapp = 'connected';
+        console.log('📱 [AutoConnect] WhatsApp já está conectado.');
+      } else {
+        console.log('📱 [AutoConnect] Conectando WhatsApp...');
+        await whatsappApi.connectToWhatsApp(workspaceId);
+        results.whatsapp = 'connecting';
+      }
+    } catch (waErr) {
+      console.error('❌ [AutoConnect] Erro ao reconectar WhatsApp:', waErr.message);
+      results.whatsapp = 'error';
+    }
+
+    // 2. Telegram (Telegraf)
+    try {
+      const telegramApi = require('./telegram');
+      const token = (ws && ws.telegram_token && ws.telegram_token.trim()) || null;
+      if (token) {
+        console.log(`✈️ [AutoConnect] Conectando Telegram com token recuperado do banco...`);
+        const tgRes = await telegramApi.connectToTelegram(workspaceId, token);
+        if (tgRes.success) {
+          results.telegram = 'connected';
+          console.log(`✅ [AutoConnect] Telegram conectado com sucesso: @${tgRes.botInfo ? tgRes.botInfo.username : 'bot'}`);
+        } else {
+          results.telegram = 'error';
+          console.warn('⚠️ [AutoConnect] Erro ao conectar bot Telegram:', tgRes.error);
+        }
+      } else {
+        console.log('ℹ️ [AutoConnect] Nenhum token de Telegram configurado no banco.');
+      }
+    } catch (tgErr) {
+      console.error('❌ [AutoConnect] Erro ao reconectar Telegram:', tgErr.message);
+      results.telegram = 'error';
+    }
+
+    // 3. Cal.com / Agenda
+    try {
+      if (ws && ws.cal_api_key && ws.cal_api_key.trim()) {
+        results.calendar = 'connected';
+        console.log('📅 [AutoConnect] Cal.com ativo e chave validada no banco.');
+      } else {
+        console.log('ℹ️ [AutoConnect] Nenhuma API Key do Cal.com configurada.');
+      }
+    } catch (calErr) {
+      console.error('❌ [AutoConnect] Erro ao verificar Cal.com:', calErr.message);
+      results.calendar = 'error';
+    }
+
+    // 4. E-mail Hostinger (IMAP & SMTP)
+    try {
+      const emailService = require('./email_service');
+      const accounts = await database.all('SELECT id, email_address FROM email_accounts WHERE workspace_id = ?', [workspaceId]);
+      if (accounts && accounts.length > 0) {
+        for (const acc of accounts) {
+          try {
+            console.log(`📬 [AutoConnect] Sincronizando caixa de entrada Hostinger: ${acc.email_address}...`);
+            await emailService.syncAccountInbox(acc.id);
+            results.email = 'connected';
+          } catch (mailSyncErr) {
+            console.warn(`⚠️ [AutoConnect] Falha ao sincronizar e-mail ${acc.email_address}:`, mailSyncErr.message);
+            results.email = 'error';
+          }
+        }
+      } else {
+        console.log('ℹ️ [AutoConnect] Nenhuma conta de e-mail Hostinger configurada.');
+      }
+    } catch (emailErr) {
+      console.error('❌ [AutoConnect] Erro ao inicializar e-mails Hostinger:', emailErr.message);
+      results.email = 'error';
+    }
+
+  } catch (dbErr) {
+    console.error('❌ [AutoConnect] Erro ao ler banco para reconexão:', dbErr);
+  }
+
+  console.log(`🏁 [AutoConnect] Status de conexões:`, results);
+  console.log(`======================================================\n`);
+  return results;
+}
+
 // Inicia o Servidor
 app.listen(PORT, async () => {
   console.log(`🚀 Backend rodando na porta ${PORT}`);
   
-  // Tenta reconectar automaticamente o WhatsApp do Workspace 1 ao iniciar
+  // Reconecta automaticamente todas as conexões salvas (WhatsApp, Telegram, Cal.com e Email Hostinger)
   try {
-    const whatsappApi = require('./whatsapp');
-    await whatsappApi.connectToWhatsApp(1);
-    console.log('🔄 Reconexão automática do WhatsApp iniciada para o Workspace 1.');
-  } catch (err) {
-    console.error('Erro ao iniciar auto-reconectar WhatsApp:', err);
-  }
-
-  // Tenta reconectar automaticamente o Telegram do Workspace 1 se houver token
-  try {
-    const database = await db.getDB();
-    const ws = await database.get('SELECT telegram_token FROM workspaces WHERE id = 1');
-    if (ws && ws.telegram_token) {
-      const telegramApi = require('./telegram');
-      const autoRes = await telegramApi.connectToTelegram(1, ws.telegram_token);
-      if (autoRes.success) {
-        console.log(`✅ Reconexão automática do Telegram bem-sucedida para o Workspace 1 (@${autoRes.botInfo ? autoRes.botInfo.username : 'bot'}).`);
-      } else {
-        console.warn('⚠️ Falha ao auto-reconectar Telegram no boot:', autoRes.error);
-      }
-    }
-  } catch (err) {
-    console.error('Erro ao auto-reconectar Telegram:', err);
+    await reconnectAllConnections(1);
+  } catch (autoErr) {
+    console.error('Erro na auto-reconexão inicial de canais:', autoErr);
   }
 
   // Inicia o serviço de confirmação e lembretes 24h antes
@@ -1869,7 +1987,7 @@ app.listen(PORT, async () => {
     console.error('Erro ao iniciar ReminderService:', remErr);
   }
 
-  // Inicia o serviço de sincronização de e-mails Hostinger
+  // Inicia o serviço de sincronização periódica de e-mails Hostinger
   try {
     const emailService = require('./email_service');
     emailService.startPeriodicEmailSync();
