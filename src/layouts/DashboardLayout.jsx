@@ -121,31 +121,6 @@ export default function DashboardLayout() {
              <Sliders size={18} />
              <span>Configurações</span>
           </Link>
-          <button 
-            type="button"
-            className="nav-item logout-nav-item" 
-            onClick={handleLogout}
-            title="Sair da conta"
-          >
-            <Logout size={18} />
-            <span>Sair da conta</span>
-          </button>
-        </div>
-
-        <div className="sidebar-footer">
-          <Link to="/configuracoes" className="sidebar-user-link" title="Ver configurações da conta">
-            <div className="user-avatar" style={{ flexShrink: 0 }}>
-              {(currentUser?.name || currentUser?.username || 'U').charAt(0).toUpperCase()}
-            </div>
-            <div className="user-info" style={{ minWidth: 0, overflow: 'hidden' }}>
-              <span className="user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
-                {currentUser?.name || 'Usuário'}
-              </span>
-              <span className="user-role" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '0.75rem', display: 'block' }}>
-                {currentUser?.username || '@admin'}
-              </span>
-            </div>
-          </Link>
         </div>
       </aside>
 
