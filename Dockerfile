@@ -10,37 +10,32 @@ COPY . .
 RUN npm run build
 
 # ==========================================
-# Estágio 2: Build do Backend (Compilando sqlite3 nativamente)
+# Estágio 2: Runtime de Produção (Ubuntu 24.04 LTS com GLIBC 2.39)
 # ==========================================
-FROM node:20-bookworm-slim AS backend-builder
+FROM ubuntu:24.04
 
-WORKDIR /app/backend
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Instala ferramentas necessárias para compilar sqlite3 contra a glibc do Debian
+# Instala Node.js 20 oficial e certificados
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY backend/package*.json ./
-RUN npm install --omit=dev --build-from-source=sqlite3
-
-# ==========================================
-# Estágio 3: Imagem Final de Produção (Super leve)
-# ==========================================
-FROM node:20-bookworm-slim
+    curl \
+    ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copia código do backend e os módulos nativos já compilados
+# Copia e instala dependências do backend diretamente
+COPY backend/package*.json ./backend/
+WORKDIR /app/backend
+RUN npm install --omit=dev
+
+# Copia o código do backend
 COPY backend/ /app/backend/
-COPY --from=backend-builder /app/backend/node_modules /app/backend/node_modules
 
 # Copia o build estático do frontend para /app/dist (onde server.js procura ../dist)
 COPY --from=frontend-builder /app/dist /app/dist
-
-WORKDIR /app/backend
 
 # Cria pastas para uploads e persistência de dados
 RUN mkdir -p /app/backend/uploads /app/backend/data
