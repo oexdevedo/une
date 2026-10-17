@@ -10,22 +10,37 @@ COPY . .
 RUN npm run build
 
 # ==========================================
-# Estágio 2: Runtime de Produção (Node.js 20)
+# Estágio 2: Build das dependências do Backend (Compila sqlite3 nativamente)
+# ==========================================
+FROM node:20-bookworm-slim AS backend-builder
+
+WORKDIR /app/backend
+
+# Instala ferramentas essenciais para compilar o sqlite3 na glibc do container
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/package*.json ./
+RUN npm install --omit=dev
+RUN npm rebuild sqlite3 --build-from-source
+
+# ==========================================
+# Estágio 3: Runtime de Produção Oficial
 # ==========================================
 FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# Copia e instala dependências do backend
-COPY backend/package*.json ./backend/
-WORKDIR /app/backend
-RUN npm install --omit=dev
-
-# Copia código do backend
+# Copia código do backend e os módulos nativos compilados contra esta mesma imagem
 COPY backend/ /app/backend/
+COPY --from=backend-builder /app/backend/node_modules /app/backend/node_modules
 
 # Copia o build estático do frontend para /app/dist (onde server.js procura ../dist)
 COPY --from=frontend-builder /app/dist /app/dist
+
+WORKDIR /app/backend
 
 # Cria pastas para uploads e persistência de dados
 RUN mkdir -p /app/backend/uploads /app/backend/data
