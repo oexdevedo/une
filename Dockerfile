@@ -1,7 +1,7 @@
 # ==========================================
 # Estágio 1: Build do Frontend React (Vite)
 # ==========================================
-FROM node:20-bullseye-slim AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -16,20 +16,14 @@ RUN npm run build
 # ==========================================
 # Estágio 2: Runtime de Produção (Node.js)
 # ==========================================
-FROM node:20-bullseye-slim
+FROM node:20-bookworm-slim
 
 WORKDIR /app
-
-# Instala ffmpeg e dependências necessárias para áudio/vídeo do WhatsApp
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copia e instala dependências do backend
 COPY backend/package*.json ./backend/
 WORKDIR /app/backend
-RUN npm install --production
+RUN npm install --omit=dev
 
 # Copia o código do backend
 COPY backend/ ./
