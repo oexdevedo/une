@@ -1972,6 +1972,14 @@ async function reconnectAllConnections(workspaceId = 1) {
 app.listen(PORT, async () => {
   console.log(`🚀 Backend rodando na porta ${PORT}`);
   
+  // 1. Inicializa o banco de dados SQLite e garante todas as 22 tabelas
+  try {
+    const { init: initDB } = require('./initialize_db');
+    await initDB();
+  } catch (initErr) {
+    console.error('❌ Erro na auto-inicialização do banco SQLite:', initErr);
+  }
+
   // Reconecta automaticamente todas as conexões salvas (WhatsApp, Telegram, Cal.com e Email Hostinger)
   try {
     await reconnectAllConnections(1);

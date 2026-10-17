@@ -510,7 +510,11 @@ Início em {{data_inicio}} e término previsto para {{data_termino}}.`;
   console.log('🎉 Banco SQLite configurado com sucesso e 100% pronto para uso!');
 }
 
-init().catch(err => {
-  console.error('❌ Erro crítico ao inicializar banco de dados:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  init().catch(err => {
+    console.error('❌ Erro crítico ao inicializar banco de dados:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { init };
