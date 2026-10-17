@@ -10,28 +10,18 @@ COPY . .
 RUN npm run build
 
 # ==========================================
-# Estágio 2: Runtime de Produção (Ubuntu 24.04 LTS com GLIBC 2.39)
+# Estágio 2: Runtime de Produção (Node.js 20)
 # ==========================================
-FROM ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Instala Node.js 20 oficial e certificados
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# Copia e instala dependências do backend diretamente
+# Copia e instala dependências do backend
 COPY backend/package*.json ./backend/
 WORKDIR /app/backend
 RUN npm install --omit=dev
 
-# Copia o código do backend
+# Copia código do backend
 COPY backend/ /app/backend/
 
 # Copia o build estático do frontend para /app/dist (onde server.js procura ../dist)
