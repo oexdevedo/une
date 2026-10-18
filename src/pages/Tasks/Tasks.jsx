@@ -14,8 +14,8 @@ import {
   Flag,
   ChevronLeft,
   ChevronRight,
-  Pencil
 } from 'pixelarticons/react';
+import { getWorkspaceId } from '../../utils/workspace';
 
 const API_BASE = '/api/tasks';
 
@@ -36,6 +36,7 @@ const KANBAN_COLUMNS = [
 ];
 
 export default function Tasks() {
+  const workspaceId = getWorkspaceId();
   // Active Tab: 'notebook' (post-its) or 'kanban' (projects)
   const [activeTab, setActiveTab] = useState('notebook');
 
@@ -88,8 +89,8 @@ export default function Tasks() {
     try {
       setLoading(true);
       const [notesRes, kanbanRes] = await Promise.all([
-        fetch(`${API_BASE}/notes`),
-        fetch(`${API_BASE}/kanban`)
+        fetch(`${API_BASE}/notes?workspace_id=${workspaceId}`),
+        fetch(`${API_BASE}/kanban?workspace_id=${workspaceId}`)
       ]);
 
       if (notesRes.ok) {
@@ -110,7 +111,7 @@ export default function Tasks() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [workspaceId]);
 
   // ----------------------------------------------------
   // NOTEBOOK / POST-ITS HANDLERS
@@ -302,6 +303,7 @@ export default function Tasks() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            workspace_id: workspaceId,
             title: noteForm.title,
             category: noteForm.category,
             color: noteForm.color,
@@ -428,7 +430,7 @@ export default function Tasks() {
         const res = await fetch(`${API_BASE}/kanban`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(kanbanForm)
+          body: JSON.stringify({ ...kanbanForm, workspace_id: workspaceId })
         });
 
         if (res.ok) {

@@ -15,8 +15,10 @@ import {
   Message,
   Sliders
 } from 'pixelarticons/react';
+import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Contracts() {
+  const workspaceId = getWorkspaceId();
   const [activeTab, setActiveTab] = useState('templates'); // 'templates' | 'contracts'
   const [templates, setTemplates] = useState([]);
   const [contracts, setContracts] = useState([]);
@@ -55,11 +57,11 @@ export default function Contracts() {
     fetchContracts();
     fetchContacts();
     fetchAgents();
-  }, []);
+  }, [workspaceId]);
 
   const fetchTemplates = async () => {
     try {
-      const res = await fetch('/api/contracts/templates');
+      const res = await fetch(`/api/contracts/templates?workspace_id=${workspaceId}`);
       const data = await res.json();
       setTemplates(data || []);
     } catch (err) {
@@ -69,7 +71,7 @@ export default function Contracts() {
 
   const fetchContracts = async () => {
     try {
-      const res = await fetch('/api/contracts');
+      const res = await fetch(`/api/contracts?workspace_id=${workspaceId}`);
       const data = await res.json();
       setContracts(data || []);
     } catch (err) {
@@ -79,7 +81,7 @@ export default function Contracts() {
 
   const fetchContacts = async () => {
     try {
-      const res = await fetch('/api/contacts?workspace_id=1');
+      const res = await fetch(`/api/contacts?workspace_id=${workspaceId}`);
       const data = await res.json();
       setContacts(data || []);
     } catch (err) {
@@ -89,7 +91,7 @@ export default function Contracts() {
 
   const fetchAgents = async () => {
     try {
-      const res = await fetch('/api/agents?workspace_id=1');
+      const res = await fetch(`/api/agents?workspace_id=${workspaceId}`);
       const data = await res.json();
       setAgents(data || []);
     } catch (err) {
@@ -161,7 +163,7 @@ CONTRATANTE: {{nome_cliente}}`,
         await fetch('/api/contracts/templates', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...templateForm, workspace_id: 1 })
+          body: JSON.stringify({ ...templateForm, workspace_id: workspaceId })
         });
       }
       setIsTemplateModalOpen(false);
@@ -316,7 +318,7 @@ CONTRATANTE: {{nome_cliente}}`,
             templateId: selectedTemplateForGen.id,
             clientName: targetName,
             clientPhone: targetPhone,
-            workspace_id: 1
+            workspace_id: workspaceId
           })
         });
 
@@ -341,7 +343,7 @@ CONTRATANTE: {{nome_cliente}}`,
             clientName: targetName,
             clientPhone: targetPhone,
             data: { ...manualVariableValues, nome_cliente: targetName },
-            workspace_id: 1
+            workspace_id: workspaceId
           })
         });
 
@@ -369,7 +371,7 @@ CONTRATANTE: {{nome_cliente}}`,
       const res = await fetch(`/api/contracts/${contractId}/send-whatsapp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: 1 })
+        body: JSON.stringify({ workspace_id: workspaceId })
       });
       const data = await res.json();
       if (data.success) {

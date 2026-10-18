@@ -18,8 +18,10 @@ import {
   ChevronDown as ChevronDownIcon,
   Trash
 } from 'pixelarticons/react';
+import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Chat() {
+  const workspaceId = getWorkspaceId();
   const [localMessages, setLocalMessages] = useState([]);
   const [waContacts, setWaContacts] = useState([]);
   const [activeContactId, setActiveContactId] = useState(null);
@@ -45,20 +47,20 @@ export default function Chat() {
 
   useEffect(() => {
     // 1. Agentes
-    fetch('/api/agents?workspace_id=1')
+    fetch(`/api/agents?workspace_id=${workspaceId}`)
       .then(res => res.json())
       .then(data => {
-        setAgentsList([{ id: 'none', name: 'Nenhum Agente (Manual)' }, ...data]);
+        setAgentsList([{ id: 'none', name: 'Nenhum Agente (Manual)' }, ...(Array.isArray(data) ? data : [])]);
       })
       .catch(err => console.error('Error fetching agents:', err));
 
     // 2. Automações
-    fetch('/api/automations?workspace_id=1')
+    fetch(`/api/automations?workspace_id=${workspaceId}`)
       .then(res => res.json())
       .then(data => {
         let list = Array.isArray(data) ? [...data] : [];
         try {
-          const saved = localStorage.getItem('unne_automations_list');
+          const saved = localStorage.getItem(`unne_automations_list_ws_${workspaceId}`) || localStorage.getItem('unne_automations_list');
           if (saved) {
             const parsed = JSON.parse(saved);
             if (Array.isArray(parsed)) {
@@ -79,7 +81,7 @@ export default function Chat() {
       .catch(err => {
         console.error('Error fetching automations:', err);
         try {
-          const saved = localStorage.getItem('unne_automations_list');
+          const saved = localStorage.getItem(`unne_automations_list_ws_${workspaceId}`) || localStorage.getItem('unne_automations_list');
           if (saved) setAutomationsList(JSON.parse(saved));
           else setAutomationsList([{ id: 1, name: 'Orquestra de Agentes (Porteiro)' }]);
         } catch(e) {
@@ -88,7 +90,7 @@ export default function Chat() {
       });
 
     // 3. Configuração Global de Auto-resposta
-    fetch('/api/workspaces/1/auto_respond')
+    fetch(`/api/workspaces/${workspaceId}/auto_respond`)
       .then(res => res.json())
       .then(data => {
         if (data) {
@@ -100,13 +102,13 @@ export default function Chat() {
       .catch(err => console.error('Error fetching auto respond settings:', err));
 
     // 4. Atribuições individuais
-    fetch('/api/workspaces/1/chat_assignments')
+    fetch(`/api/workspaces/${workspaceId}/chat_assignments`)
       .then(res => res.json())
       .then(data => {
         setChatAgents(data || {});
       })
       .catch(err => console.error('Error fetching chat assignments:', err));
-  }, []);
+  }, [workspaceId]);
 
   const handleToggleAutoRespondAll = async (checked) => {
     setAutoRespondAll(checked);
@@ -126,7 +128,7 @@ export default function Chat() {
     }
 
     try {
-      await fetch('/api/workspaces/1/auto_respond', {
+      await fetch(`/api/workspaces/${workspaceId}/auto_respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -145,7 +147,7 @@ export default function Chat() {
       setAutoRespondAll(false);
       setAutoRespondTarget('none');
       try {
-        await fetch('/api/workspaces/1/auto_respond', {
+        await fetch(`/api/workspaces/${workspaceId}/auto_respond`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -167,7 +169,7 @@ export default function Chat() {
       setAutoRespondTarget(targetId);
 
       try {
-        await fetch('/api/workspaces/1/auto_respond', {
+        await fetch(`/api/workspaces/${workspaceId}/auto_respond`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -185,7 +187,7 @@ export default function Chat() {
   const handleAgentChange = async (contactId, agentId) => {
     setChatAgents(prev => ({...prev, [contactId]: agentId}));
     try {
-      await fetch('/api/workspaces/1/chat_assignments', {
+      await fetch(`/api/workspaces/${workspaceId}/chat_assignments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -244,7 +246,7 @@ export default function Chat() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          workspace_id: 1,
+          workspace_id: workspaceId,
           to: activeContactId,
           text: textToSend
         })
@@ -273,7 +275,7 @@ export default function Chat() {
     
     for (const file of files) {
       const formData = new FormData();
-      formData.append('workspace_id', 1);
+      formData.append('workspace_id', workspaceId);
       formData.append('to', activeContactId);
       formData.append('text', '');
       formData.append('file', file);
@@ -310,7 +312,7 @@ export default function Chat() {
         const file = new File([audioBlob], 'audio.webm', { type: 'audio/webm' });
         
         const formData = new FormData();
-        formData.append('workspace_id', 1);
+        formData.append('workspace_id', workspaceId);
         formData.append('to', activeContactId);
         formData.append('text', '');
         formData.append('file', file);
@@ -344,7 +346,7 @@ export default function Chat() {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const res = await fetch('/api/messages?workspace_id=1');
+        const res = await fetch(`/api/messages?workspace_id=${workspaceId}`);
         if (res.ok) {
           const data = await res.json();
           
@@ -355,7 +357,7 @@ export default function Chat() {
               contactsMap[contactId] = {
                 id: contactId,
                 name: msg.pushName || contactId.split('@')[0],
-                avatar: `/api/contacts/${contactId}/avatar?workspace_id=1`,
+                avatar: `/api/contacts/${contactId}/avatar?workspace_id=${workspaceId}`,
                 fallbackAvatar: `https://api.dicebear.com/7.x/initials/svg?seed=${msg.pushName || contactId}`,
                 msg: msg.text,
                 time: new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -384,7 +386,7 @@ export default function Chat() {
     fetchMessages();
     const interval = setInterval(fetchMessages, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [workspaceId]);
 
   const activeContact = waContacts.find(c => c.id === activeContactId);
   const displayMessages = activeContact 
@@ -395,7 +397,7 @@ export default function Chat() {
     if (!activeContactId) return;
     if (window.confirm('Tem certeza que deseja apagar esta conversa do histórico?')) {
       try {
-        await fetch(`/api/messages/${activeContactId}?workspace_id=1`, {
+        await fetch(`/api/messages/${activeContactId}?workspace_id=${workspaceId}`, {
           method: 'DELETE',
         });
         

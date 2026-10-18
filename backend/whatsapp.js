@@ -374,4 +374,13 @@ async function getProfilePicUrl(workspaceId, jid) {
   }
 }
 
-module.exports = { connectToWhatsApp, getSocket, getStatus, getMessages, sendMessage, getProfilePicUrl };
+function hasSavedCredentials(workspaceId) {
+  try {
+    const authDir = getWhatsAppAuthDir(workspaceId);
+    return fs.existsSync(path.join(authDir, 'creds.json'));
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { connectToWhatsApp, getSocket, getStatus, getMessages, sendMessage, getProfilePicUrl, hasSavedCredentials };

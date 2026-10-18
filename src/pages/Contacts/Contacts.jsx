@@ -16,8 +16,10 @@ import {
   Trash,
   Check
 } from 'pixelarticons/react';
+import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Contacts() {
+  const workspaceId = getWorkspaceId();
   const [lists, setLists] = useState([]);
   const [isLoadingLists, setIsLoadingLists] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -63,7 +65,7 @@ export default function Contacts() {
   const fetchLists = async () => {
     setIsLoadingLists(true);
     try {
-      const res = await fetch('/api/lists?workspace_id=1');
+      const res = await fetch(`/api/lists?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setLists(data);
@@ -77,13 +79,13 @@ export default function Contacts() {
 
   useEffect(() => {
     fetchLists();
-  }, []);
+  }, [workspaceId]);
 
   // 2. Carrega EXCLUSIVAMENTE os contatos da lista selecionada
   const fetchContactsForList = async (listId) => {
     setIsLoadingLeads(true);
     try {
-      const res = await fetch(`/api/contacts?workspace_id=1&list_id=${listId}`);
+      const res = await fetch(`/api/contacts?workspace_id=${workspaceId}&list_id=${listId}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setLeads(data.map(c => ({
@@ -120,7 +122,7 @@ export default function Contacts() {
       const res = await fetch('/api/lists/sync-agenda', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: 1 })
+        body: JSON.stringify({ workspace_id: workspaceId })
       });
       const data = await res.json();
       if (data.success) {
@@ -145,7 +147,7 @@ export default function Contacts() {
       const res = await fetch('/api/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: 1, name: newListName.trim() })
+        body: JSON.stringify({ workspace_id: workspaceId, name: newListName.trim() })
       });
       const data = await res.json();
       if (data.success) {
@@ -176,7 +178,7 @@ export default function Contacts() {
         const listRes = await fetch('/api/lists', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspace_id: 1, name: baseName })
+          body: JSON.stringify({ workspace_id: workspaceId, name: baseName })
         });
         const listData = await listRes.json();
         if (!listData.success || !listData.id) return;
@@ -211,7 +213,7 @@ export default function Contacts() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              workspace_id: 1,
+              workspace_id: workspaceId,
               list_id: listData.id,
               contacts: parsedContacts
             })
@@ -277,7 +279,7 @@ export default function Contacts() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            workspace_id: 1,
+            workspace_id: workspaceId,
             list_id: activeList.id,
             contacts: parsedContacts
           })
@@ -308,7 +310,7 @@ export default function Contacts() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          workspace_id: 1,
+          workspace_id: workspaceId,
           list_id: activeList.id,
           name: manualContact.name.trim(),
           phone: manualContact.phone.trim(),

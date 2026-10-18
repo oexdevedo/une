@@ -22,8 +22,10 @@ import {
   Telegram,
   Smartphone
 } from 'pixelarticons/react';
+import { getWorkspaceId } from '../../utils/workspace';
 
 export default function MassMessage() {
+  const workspaceId = getWorkspaceId();
   const [activeTab, setActiveTab] = useState('mensagem');
   const [channel, setChannel] = useState('whatsapp'); // 'whatsapp' | 'telegram'
   const [waStatus, setWaStatus] = useState('disconnected');
@@ -72,7 +74,7 @@ export default function MassMessage() {
   const fetchLists = async (preferredId) => {
     setIsLoadingLists(true);
     try {
-      const res = await fetch('/api/lists?workspace_id=1');
+      const res = await fetch(`/api/lists?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setLists(data);
@@ -97,7 +99,7 @@ export default function MassMessage() {
     }
     setIsLoadingContacts(true);
     try {
-      const res = await fetch(`/api/contacts?workspace_id=1&list_id=${listId}`);
+      const res = await fetch(`/api/contacts?workspace_id=${workspaceId}&list_id=${listId}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setContacts(data);
@@ -115,8 +117,8 @@ export default function MassMessage() {
   const fetchChannelStatuses = async () => {
     try {
       const [waRes, tgRes] = await Promise.all([
-        fetch('/api/connections/whatsapp?workspace_id=1'),
-        fetch('/api/connections/telegram?workspace_id=1')
+        fetch(`/api/connections/whatsapp?workspace_id=${workspaceId}`),
+        fetch(`/api/connections/telegram?workspace_id=${workspaceId}`)
       ]);
       const waData = await waRes.json();
       const tgData = await tgRes.json();
@@ -157,7 +159,7 @@ export default function MassMessage() {
       const res = await fetch(`/api/lists/${selectedListId}/import-channel-contacts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: 1, channel: targetChannel })
+        body: JSON.stringify({ workspace_id: workspaceId, channel: targetChannel })
       });
       const data = await res.json();
       if (data.success) {
@@ -178,13 +180,13 @@ export default function MassMessage() {
   // Carrega Templates salvos
   useEffect(() => {
     if (isTemplateModalOpen) {
-      fetch('/api/templates?workspace_id=1')
+      fetch(`/api/templates?workspace_id=${workspaceId}`)
         .then(res => res.json())
         .then(data => {
           if (Array.isArray(data) && data.length > 0) {
             setSavedTemplates(data);
           } else {
-            const st = localStorage.getItem('unne_templates');
+            const st = localStorage.getItem(`unne_templates_ws_${workspaceId}`) || localStorage.getItem('unne_templates');
             if (st) {
               try { setSavedTemplates(JSON.parse(st)); } catch (e) {}
             }
@@ -192,13 +194,13 @@ export default function MassMessage() {
         })
         .catch(err => {
           console.error(err);
-          const st = localStorage.getItem('unne_templates');
+          const st = localStorage.getItem(`unne_templates_ws_${workspaceId}`) || localStorage.getItem('unne_templates');
           if (st) {
             try { setSavedTemplates(JSON.parse(st)); } catch (e) {}
           }
         });
     }
-  }, [isTemplateModalOpen]);
+  }, [isTemplateModalOpen, workspaceId]);
 
   const handleLoadTemplate = (content) => {
     setMessageText(content);
@@ -214,7 +216,7 @@ export default function MassMessage() {
       const res = await fetch('/api/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: 1, name: newListName.trim() })
+        body: JSON.stringify({ workspace_id: workspaceId, name: newListName.trim() })
       });
       const data = await res.json();
       if (data.success && data.id) {
@@ -315,7 +317,7 @@ export default function MassMessage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            workspace_id: 1,
+            workspace_id: workspaceId,
             list_id: selectedListId,
             contacts: parsedContacts
           })
@@ -456,7 +458,7 @@ export default function MassMessage() {
         let res;
         if (attachment) {
           const formData = new FormData();
-          formData.append('workspace_id', '1');
+          formData.append('workspace_id', String(workspaceId));
           formData.append('to', targetDest);
           formData.append('text', contactMsg);
           formData.append('file', attachment);
@@ -469,7 +471,7 @@ export default function MassMessage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              workspace_id: 1,
+              workspace_id: workspaceId,
               to: targetDest,
               text: contactMsg
             })

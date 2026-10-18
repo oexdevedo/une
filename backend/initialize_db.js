@@ -374,6 +374,33 @@ async function init() {
     console.log('✓ Usuário Yuri Assis (@yuri) cadastrado como Administrador!');
   }
 
+  // 4.1. Garantir Isolamento Estrito Multi-tenant: cada usuário possui seu Workspace exclusivo
+  try {
+    const allUsers = await db.all('SELECT id, workspace_id, name, username, email FROM users ORDER BY id ASC');
+    const { seedWorkspaceDefaults } = require('./workspace_seeder');
+    for (const u of allUsers) {
+      // Usuário Yuri Assis é o titular oficial do Workspace 1
+      if (u.username === 'yuri' || (u.id === 1 && !allUsers.some(x => x.username === 'yuri' && x.id !== 1))) {
+        continue;
+      }
+      // Qualquer outra conta cadastrada que esteja erroneamente no Workspace 1 ganha seu workspace próprio
+      if (u.workspace_id === 1) {
+        const wsName = `Espaço de ${u.name || u.username}`;
+        const wsRes = await db.run(
+          `INSERT INTO workspaces (name, allow_stories, allow_ephemeral, allow_groups, auto_respond_all, confirmation_enabled)
+           VALUES (?, 0, 0, 0, 1, 1)`,
+          [wsName]
+        );
+        const newWsId = wsRes.lastID;
+        await db.run('UPDATE users SET workspace_id = ?, role = "owner" WHERE id = ?', [newWsId, u.id]);
+        console.log(`🔒 [Isolamento] Usuário '${u.name}' (@${u.username}) isolado com sucesso no Workspace ${newWsId}!`);
+        await seedWorkspaceDefaults(db, newWsId, wsName);
+      }
+    }
+  } catch (isoErr) {
+    console.error('Erro na verificação de isolamento de workspaces:', isoErr.message);
+  }
+
   // 5. Seed de Agentes Oficiais (Lucas Vendas e Mariana Confirmação)
   const agentLucas = await db.get('SELECT id FROM agents WHERE id = 2 OR name LIKE ?', ['%Lucas%']);
   if (!agentLucas) {

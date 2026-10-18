@@ -17,7 +17,10 @@ import {
   Check
 } from 'pixelarticons/react';
 
+import { getWorkspaceId } from '../../utils/workspace';
+
 export default function Agents() {
+  const workspaceId = getWorkspaceId();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [agents, setAgents] = useState([]);
   const [editingAgent, setEditingAgent] = useState(null);
@@ -38,7 +41,7 @@ export default function Agents() {
     flow: '1. Cumprimentar pelo nome.\n2. Compreender a dúvida ou interesse.\n3. Oferecer horários de agendamento se solicitado.\n4. Confirmar os dados do cliente.'
   });
 
-  const [workspaceCalLink, setWorkspaceCalLink] = useState(() => localStorage.getItem('unne_cal_embed_url') || 'https://cal.com/atendimento');
+  const [workspaceCalLink, setWorkspaceCalLink] = useState(() => localStorage.getItem(`unne_cal_embed_url_ws_${workspaceId}`) || localStorage.getItem('unne_cal_embed_url') || 'https://cal.com/atendimento');
   const [remindersInfo, setRemindersInfo] = useState(null);
   const [isTriggering, setIsTriggering] = useState(false);
   const [triggerStatus, setTriggerStatus] = useState(null);
@@ -46,7 +49,7 @@ export default function Agents() {
 
   const fetchAgents = async () => {
     try {
-      const res = await fetch('/api/agents?workspace_id=1');
+      const res = await fetch(`/api/agents?workspace_id=${workspaceId}`);
       const data = await res.json();
       setAgents(data);
     } catch (err) {
@@ -56,7 +59,7 @@ export default function Agents() {
 
   const fetchCalendarSettings = async () => {
     try {
-      const res = await fetch('/api/calendar/settings?workspace_id=1');
+      const res = await fetch(`/api/calendar/settings?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (data && data.cal_link) {
         setWorkspaceCalLink(data.cal_link);
@@ -68,7 +71,7 @@ export default function Agents() {
 
   const fetchReminders = async () => {
     try {
-      const res = await fetch('/api/workspaces/1/reminders');
+      const res = await fetch(`/api/workspaces/${workspaceId}/reminders`);
       const data = await res.json();
       setRemindersInfo(data);
     } catch (e) {
@@ -87,7 +90,7 @@ export default function Agents() {
     }
     setSavingPhone(true);
     try {
-      const res = await fetch('/api/workspaces/1/reminders/booking-phone', {
+      const res = await fetch(`/api/workspaces/${workspaceId}/reminders/booking-phone`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId, attendeeName, phone: phoneInput.trim() })
@@ -111,7 +114,7 @@ export default function Agents() {
     setIsTriggering(true);
     setTriggerStatus(null);
     try {
-      const res = await fetch('/api/workspaces/1/reminders/trigger', {
+      const res = await fetch(`/api/workspaces/${workspaceId}/reminders/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -139,7 +142,7 @@ export default function Agents() {
     }
     setIsTriggering(true);
     try {
-      const res = await fetch('/api/workspaces/1/reminders/trigger', {
+      const res = await fetch(`/api/workspaces/${workspaceId}/reminders/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ forceSendBookingId: booking.id })
@@ -164,7 +167,7 @@ export default function Agents() {
       const startDate = new Date(booking.start);
       const dateFormatted = startDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       const timeFormatted = startDate.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
-      const res = await fetch('/api/workspaces/1/reminders/mark-confirmed', {
+      const res = await fetch(`/api/workspaces/${workspaceId}/reminders/mark-confirmed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,7 +193,7 @@ export default function Agents() {
     fetchAgents();
     fetchCalendarSettings();
     fetchReminders();
-  }, []);
+  }, [workspaceId]);
 
   const generateCalendarStandard = (link) => {
     return `[Padrão de Calendário e Agendamento]:
@@ -357,7 +360,7 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
         await fetch('/api/agents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, icon, role, prompt, workspace_id: 1 })
+          body: JSON.stringify({ name, icon, role, prompt, workspace_id: workspaceId })
         });
       }
 
@@ -365,7 +368,7 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
         fetch('/api/calendar/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspace_id: 1, cal_link: agentForm.calendarLink })
+          body: JSON.stringify({ workspace_id: workspaceId, cal_link: agentForm.calendarLink })
         }).catch(console.error);
       }
 

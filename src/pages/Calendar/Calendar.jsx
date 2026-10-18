@@ -12,7 +12,10 @@ import {
   Reload
 } from 'pixelarticons/react';
 
+import { getWorkspaceId } from '../../utils/workspace';
+
 export default function Calendar() {
+  const workspaceId = getWorkspaceId();
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [connections, setConnections] = useState([
     { id: 1, name: 'Cal.com (API)', type: 'calcom', status: 'connected', lastSync: 'Agora mesmo' }
@@ -20,29 +23,32 @@ export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(() => new Date()); // anchor date of the main calendar (today)
   const [viewMode, setViewMode] = useState('month'); // 'month' | 'week' | 'day'
   const [bookingMonth, setBookingMonth] = useState(() => ({ y: new Date().getFullYear(), m: new Date().getMonth() }));
-  const [embedUrl, setEmbedUrl] = useState(() => localStorage.getItem('unne_cal_embed_url') || '');
+  const [embedUrl, setEmbedUrl] = useState(() => localStorage.getItem(`unne_cal_embed_url_ws_${workspaceId}`) || localStorage.getItem('unne_cal_embed_url') || '');
   const [tempUrl, setTempUrl] = useState('');
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('unne_cal_api_key') || '');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(`unne_cal_api_key_ws_${workspaceId}`) || localStorage.getItem('unne_cal_api_key') || '');
   const [tempApiKey, setTempApiKey] = useState('');
 
   // Sincroniza configurações com o banco de dados
   useEffect(() => {
-    fetch('/api/calendar/settings?workspace_id=1')
+    fetch(`/api/calendar/settings?workspace_id=${workspaceId}`)
       .then(res => res.json())
       .then(data => {
         if (data) {
           if (data.cal_api_key) {
             setApiKey(data.cal_api_key);
-            localStorage.setItem('unne_cal_api_key', data.cal_api_key);
+            localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, data.cal_api_key);
+          } else {
+            setApiKey('');
+            localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
           }
           if (data.cal_link) {
             setEmbedUrl(data.cal_link);
-            localStorage.setItem('unne_cal_embed_url', data.cal_link);
+            localStorage.setItem(`unne_cal_embed_url_ws_${workspaceId}`, data.cal_link);
           }
         }
       })
       .catch(console.error);
-  }, []);
+  }, [workspaceId]);
 
   const daysOfWeek = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   
@@ -203,7 +209,7 @@ export default function Calendar() {
 
   // Carrega eventos manuais persistidos no banco de dados
   React.useEffect(() => {
-    fetch('/api/calendar/events?workspace_id=1')
+    fetch(`/api/calendar/events?workspace_id=${workspaceId}`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
@@ -576,11 +582,11 @@ export default function Calendar() {
                 setIsConnectModalOpen(false);
                 if (tempApiKey) {
                   setApiKey(tempApiKey);
-                  localStorage.setItem('unne_cal_api_key', tempApiKey);
+                  localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, tempApiKey);
                 }
                 if (tempUrl) {
                   setEmbedUrl(tempUrl);
-                  localStorage.setItem('unne_cal_embed_url', tempUrl);
+                  localStorage.setItem(`unne_cal_embed_url_ws_${workspaceId}`, tempUrl);
                 }
                 alert("Configurações do Cal.com salvas localmente!");
               }}>
@@ -809,7 +815,7 @@ export default function Calendar() {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
-                            workspace_id: 1,
+                            workspace_id: workspaceId,
                             title: evtTitle,
                             date: evtDate,
                             time: selectedBookingTime,

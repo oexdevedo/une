@@ -13,14 +13,17 @@ import {
   File
 } from 'pixelarticons/react';
 
+import { getWorkspaceId } from '../../utils/workspace';
+
 export default function Automations() {
+  const workspaceId = getWorkspaceId();
   const [automations, setAutomations] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [availableAgents, setAvailableAgents] = useState([]);
 
   const fetchAutomations = async () => {
     try {
-      const res = await fetch('/api/automations?workspace_id=1');
+      const res = await fetch(`/api/automations?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         const formatted = data.map(item => {
@@ -38,7 +41,7 @@ export default function Automations() {
           setActiveId(formatted[0].id);
         }
       } else {
-        const saved = localStorage.getItem('unne_automations_list');
+        const saved = localStorage.getItem(`unne_automations_list_ws_${workspaceId}`) || localStorage.getItem('unne_automations_list');
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
@@ -54,11 +57,11 @@ export default function Automations() {
 
   useEffect(() => {
     fetchAutomations();
-    fetch('/api/agents?workspace_id=1')
+    fetch(`/api/agents?workspace_id=${workspaceId}`)
       .then(res => res.json())
       .then(data => setAvailableAgents(data))
       .catch(err => console.error(err));
-  }, []);
+  }, [workspaceId]);
 
   const activeAutomation = automations.find(a => a.id === activeId);
   const nodes = activeAutomation ? activeAutomation.nodes : [];
@@ -77,7 +80,7 @@ export default function Automations() {
           nodes_json: JSON.stringify(activeAutomation.nodes || [])
         })
       });
-      localStorage.setItem('unne_automations_list', JSON.stringify(automations));
+      localStorage.setItem(`unne_automations_list_ws_${workspaceId}`, JSON.stringify(automations));
       alert('Automação salva com sucesso no banco de dados!');
     } catch (err) {
       console.error(err);
@@ -96,7 +99,7 @@ export default function Automations() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          workspace_id: 1,
+          workspace_id: workspaceId,
           name: 'Nova Automação',
           mode: 'script',
           porteiro_prompt: '',

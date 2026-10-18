@@ -1145,21 +1145,35 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Este e-mail já está cadastrado no sistema.' });
     }
 
+    // 1. Cria um Workspace exclusivo para esta conta
+    const wsName = `Espaço de ${cleanName}`;
+    const wsResult = await database.run(
+      `INSERT INTO workspaces (name, allow_stories, allow_ephemeral, allow_groups, auto_respond_all, confirmation_enabled)
+       VALUES (?, 0, 0, 0, 1, 1)`,
+      [wsName]
+    );
+    const newWorkspaceId = wsResult.lastID;
+
+    // 2. Semeia padrões isolados (Agentes, Templates, Contratos, Lista Agendados) para o novo workspace
+    const { seedWorkspaceDefaults } = require('./workspace_seeder');
+    await seedWorkspaceDefaults(database, newWorkspaceId, wsName);
+
+    // 3. Cadastra o usuário como proprietário (owner) do seu próprio workspace
     const result = await database.run(
       `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
-       VALUES (1, ?, ?, ?, ?, 'agent')`,
-      [cleanName, cleanHandle, cleanEmail, password]
+       VALUES (?, ?, ?, ?, ?, 'owner')`,
+      [newWorkspaceId, cleanName, cleanHandle, cleanEmail, password]
     );
 
     res.json({
       success: true,
       user: {
         id: result.lastID,
-        workspace_id: 1,
+        workspace_id: newWorkspaceId,
         name: cleanName,
         username: `@${cleanHandle}`,
         email: cleanEmail,
-        role: 'agent'
+        role: 'owner'
       }
     });
   } catch (error) {
@@ -1819,7 +1833,8 @@ app.get('/api/tasks/notes', async (req, res) => {
 
 app.post('/api/tasks/notes', async (req, res) => {
   try {
-    const { title, color = 'yellow', category = 'Geral', items = [], is_pinned = 0 } = req.body;
+    const { title, color = 'yellow', category = 'Geral', items = [], is_pinned = 0, workspace_id } = req.body;
+    const workspaceId = workspace_id || req.query.workspace_id || 1;
     if (!title) return res.status(400).json({ error: 'Título é obrigatório' });
 
     const database = await db.getDB();
@@ -1827,8 +1842,8 @@ app.post('/api/tasks/notes', async (req, res) => {
     
     const result = await database.run(
       `INSERT INTO task_notes (workspace_id, title, color, category, items, is_pinned)
-       VALUES (1, ?, ?, ?, ?, ?)`,
-      [title, color, category, itemsJson, is_pinned ? 1 : 0]
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [workspaceId, title, color, category, itemsJson, is_pinned ? 1 : 0]
     );
 
     const created = await database.get('SELECT * FROM task_notes WHERE id = ?', [result.lastID]);
@@ -1947,23 +1962,25 @@ app.post('/api/tasks/kanban', async (req, res) => {
       assignee_name = 'Equipe',
       assignee_avatar = 'EQ',
       checklist_total = 0,
-      checklist_done = 0
+      checklist_done = 0,
+      workspace_id
     } = req.body;
+    const workspaceId = workspace_id || req.query.workspace_id || 1;
 
     if (!title) return res.status(400).json({ error: 'Título do projeto é obrigatório' });
 
     const database = await db.getDB();
     const maxPosRow = await database.get(
-      'SELECT MAX(position) as max_pos FROM kanban_projects WHERE workspace_id = 1 AND status = ?',
-      [status]
+      'SELECT MAX(position) as max_pos FROM kanban_projects WHERE workspace_id = ? AND status = ?',
+      [workspaceId, status]
     );
     const position = (maxPosRow?.max_pos || 0) + 1;
 
     const result = await database.run(
       `INSERT INTO kanban_projects 
        (workspace_id, title, description, status, priority, due_date, tag, assignee_name, assignee_avatar, checklist_total, checklist_done, position)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [title, description, status, priority, due_date, tag, assignee_name, assignee_avatar, checklist_total, checklist_done, position]
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [workspaceId, title, description, status, priority, due_date, tag, assignee_name, assignee_avatar, checklist_total, checklist_done, position]
     );
 
     const created = await database.get('SELECT * FROM kanban_projects WHERE id = ?', [result.lastID]);
@@ -2045,8 +2062,9 @@ app.delete('/api/tasks/kanban/:id', async (req, res) => {
 app.delete('/api/tasks/kanban/column/:status', async (req, res) => {
   try {
     const { status } = req.params;
+    const workspaceId = req.query.workspace_id || req.body.workspace_id || 1;
     const database = await db.getDB();
-    await database.run('DELETE FROM kanban_projects WHERE workspace_id = 1 AND status = ?', [status]);
+    await database.run('DELETE FROM kanban_projects WHERE workspace_id = ? AND status = ?', [workspaceId, status]);
     res.json({ success: true });
   } catch (error) {
     console.error('Erro ao limpar coluna kanban:', error);
@@ -2288,11 +2306,14 @@ async function reconnectAllConnections(workspaceId = 1) {
       const waStatus = whatsappApi.getStatus(workspaceId);
       if (waStatus && waStatus.status === 'connected') {
         results.whatsapp = 'connected';
-        console.log('📱 [AutoConnect] WhatsApp já está conectado.');
-      } else {
-        console.log('📱 [AutoConnect] Conectando WhatsApp...');
+        console.log(`📱 [AutoConnect] WhatsApp já está conectado para Workspace ${workspaceId}.`);
+      } else if (whatsappApi.hasSavedCredentials(workspaceId)) {
+        console.log(`📱 [AutoConnect] Sessão salva detectada. Conectando WhatsApp para Workspace ${workspaceId}...`);
         await whatsappApi.connectToWhatsApp(workspaceId);
         results.whatsapp = 'connecting';
+      } else {
+        console.log(`ℹ️ [AutoConnect] Nenhuma credencial salva de WhatsApp para Workspace ${workspaceId}.`);
+        results.whatsapp = 'disconnected';
       }
     } catch (waErr) {
       console.error('❌ [AutoConnect] Erro ao reconectar WhatsApp:', waErr.message);
@@ -2378,9 +2399,13 @@ app.listen(PORT, async () => {
     console.error('❌ Erro na auto-inicialização do banco SQLite:', initErr);
   }
 
-  // Reconecta automaticamente todas as conexões salvas (WhatsApp, Telegram, Cal.com e Email Hostinger)
+  // Reconecta automaticamente todas as conexões salvas em todos os workspaces
   try {
-    await reconnectAllConnections(1);
+    const database = await db.getDB();
+    const workspaces = await database.all('SELECT id FROM workspaces');
+    for (const ws of workspaces) {
+      await reconnectAllConnections(ws.id);
+    }
   } catch (autoErr) {
     console.error('Erro na auto-reconexão inicial de canais:', autoErr);
   }

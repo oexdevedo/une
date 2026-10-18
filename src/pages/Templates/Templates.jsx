@@ -1,22 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './Templates.css';
 import { Plus, Trash, Save, Pencil, File } from 'pixelarticons/react';
+import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Templates() {
+  const workspaceId = getWorkspaceId();
   const [templates, setTemplates] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const textareaRef = useRef(null);
 
   const fetchTemplates = async () => {
     try {
-      const res = await fetch('/api/templates?workspace_id=1');
+      const res = await fetch(`/api/templates?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         setTemplates(data);
         if (!activeId) setActiveId(data[0].id);
       } else {
         // Fallback to local storage or defaults
-        const saved = localStorage.getItem('unne_templates');
+        const saved = localStorage.getItem(`unne_templates_ws_${workspaceId}`) || localStorage.getItem('unne_templates');
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
@@ -32,13 +34,13 @@ export default function Templates() {
 
   useEffect(() => {
     fetchTemplates();
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     if (templates.length > 0) {
-      localStorage.setItem('unne_templates', JSON.stringify(templates));
+      localStorage.setItem(`unne_templates_ws_${workspaceId}`, JSON.stringify(templates));
     }
-  }, [templates]);
+  }, [templates, workspaceId]);
 
   const activeTemplate = templates.find(t => t.id === activeId);
 
@@ -47,7 +49,7 @@ export default function Templates() {
       const res = await fetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: 1, title: 'Novo Template', content: '' })
+        body: JSON.stringify({ workspace_id: workspaceId, title: 'Novo Template', content: '' })
       });
       const data = await res.json();
       const newId = data.id || Date.now();

@@ -25,7 +25,10 @@ import {
   UserPlus
 } from 'pixelarticons/react';
 
+import { getWorkspaceId } from '../../utils/workspace';
+
 export default function Dashboard() {
+  const workspaceId = getWorkspaceId();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -40,7 +43,7 @@ export default function Dashboard() {
   const fetchSummary = async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
-      const res = await fetch('/api/dashboard/summary?workspace_id=1');
+      const res = await fetch(`/api/dashboard/summary?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (data && data.success) {
         setSummary(data);

@@ -13,20 +13,23 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import EmailConnectionCard from './EmailConnectionCard';
 import DatabaseConnectionCard from './DatabaseConnectionCard';
+import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Connections({ isSubpage = false }) {
+  const workspaceId = getWorkspaceId();
+
   const [waStatus, setWaStatus] = useState('disconnected');
   const [waQR, setWaQR] = useState('');
   const [isLoadingWA, setIsLoadingWA] = useState(false);
 
-  const [tgToken, setTgToken] = useState(() => localStorage.getItem('unne_tg_token') || '');
+  const [tgToken, setTgToken] = useState(() => localStorage.getItem(`unne_tg_token_ws_${workspaceId}`) || '');
   const [tgStatus, setTgStatus] = useState('disconnected');
   const [tgBotInfo, setTgBotInfo] = useState(null);
   const [isLoadingTG, setIsLoadingTG] = useState(false);
   const [isReconnectingAll, setIsReconnectingAll] = useState(false);
 
-  const [calToken, setCalToken] = useState(() => localStorage.getItem('unne_cal_api_key') || '');
-  const [calStatus, setCalStatus] = useState(() => localStorage.getItem('unne_cal_api_key') ? 'connected' : 'disconnected');
+  const [calToken, setCalToken] = useState(() => localStorage.getItem(`unne_cal_api_key_ws_${workspaceId}`) || '');
+  const [calStatus, setCalStatus] = useState(() => localStorage.getItem(`unne_cal_api_key_ws_${workspaceId}`) ? 'connected' : 'disconnected');
   const [isLoadingCal, setIsLoadingCal] = useState(false);
 
   const [settings, setSettings] = useState({
@@ -41,8 +44,6 @@ export default function Connections({ isSubpage = false }) {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isTestingAi, setIsTestingAi] = useState(false);
   const [aiTestResult, setAiTestResult] = useState(null);
-
-  const workspaceId = 1; // Padrão para testes
 
   // Poll WhatsApp status every 3 seconds if connecting
   useEffect(() => {
@@ -74,7 +75,10 @@ export default function Connections({ isSubpage = false }) {
       }
       if (data.token) {
         setTgToken(data.token);
-        localStorage.setItem('unne_tg_token', data.token);
+        localStorage.setItem(`unne_tg_token_ws_${workspaceId}`, data.token);
+      } else {
+        setTgToken('');
+        localStorage.removeItem(`unne_tg_token_ws_${workspaceId}`);
       }
     } catch (e) {
       console.error('Erro ao buscar status do Telegram:', e);
@@ -101,7 +105,11 @@ export default function Connections({ isSubpage = false }) {
       if (calData && calData.cal_api_key) {
         setCalToken(calData.cal_api_key);
         setCalStatus('connected');
-        localStorage.setItem('unne_cal_api_key', calData.cal_api_key);
+        localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, calData.cal_api_key);
+      } else {
+        setCalToken('');
+        setCalStatus('disconnected');
+        localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
       }
     } catch (e) {
       console.error(e);
@@ -142,7 +150,7 @@ export default function Connections({ isSubpage = false }) {
       if (data.success) {
         setTgStatus('connected');
         if (data.botInfo) setTgBotInfo(data.botInfo);
-        localStorage.setItem('unne_tg_token', tgToken.trim());
+        localStorage.setItem(`unne_tg_token_ws_${workspaceId}`, tgToken.trim());
         await fetchTGStatus();
       } else {
         alert('Erro ao conectar o Telegram: ' + (data.error || 'Token inválido'));
@@ -170,7 +178,7 @@ export default function Connections({ isSubpage = false }) {
       const data = await res.json();
       if (data.success) {
         if (clearToken) {
-          localStorage.removeItem('unne_tg_token');
+          localStorage.removeItem(`unne_tg_token_ws_${workspaceId}`);
           setTgToken('');
         }
         setTgStatus('disconnected');
@@ -197,7 +205,7 @@ export default function Connections({ isSubpage = false }) {
       });
       const data = await res.json();
       if (data.success) {
-        localStorage.setItem('unne_tg_token', tgToken.trim());
+        localStorage.setItem(`unne_tg_token_ws_${workspaceId}`, tgToken.trim());
         alert('Token do Telegram salvo no banco de dados com sucesso!');
       } else {
         alert('Erro ao salvar token: ' + (data.error || 'Erro desconhecido'));
@@ -255,7 +263,7 @@ export default function Connections({ isSubpage = false }) {
         headers: { 'Authorization': `Bearer ${calToken}`, 'cal-api-version': '2024-06-14' }
       });
       if (!res.ok) throw new Error('API Key inválida');
-      localStorage.setItem('unne_cal_api_key', calToken);
+      localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, calToken);
       
       // Persiste no banco de dados SQLite
       await fetch('/api/calendar/settings', {
@@ -505,7 +513,20 @@ export default function Connections({ isSubpage = false }) {
               <div className="success-state">
                 <CheckDouble size={48} color="#9333EA" />
                 <p>Sua API do Cal.com está conectada e pronta para agendamentos!</p>
-                <button className="btn-secondary" style={{ marginTop: '16px' }} onClick={() => { localStorage.removeItem('unne_cal_api_key'); setCalToken(''); setCalStatus('disconnected'); }}>
+                <button className="btn-secondary" style={{ marginTop: '16px' }} onClick={async () => {
+                  localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
+                  setCalToken('');
+                  setCalStatus('disconnected');
+                  try {
+                    await fetch('/api/calendar/settings', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ workspace_id: workspaceId, cal_api_key: '' })
+                    });
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}>
                   <Refresh size={16} /> Desconectar
                 </button>
               </div>
@@ -532,7 +553,7 @@ export default function Connections({ isSubpage = false }) {
         </div>
 
         {/* E-mail Hostinger Card */}
-        <EmailConnectionCard workspaceId={1} />
+        <EmailConnectionCard workspaceId={workspaceId} />
       </div>
 
       {/* Database Connection & Environment Variables Card */}

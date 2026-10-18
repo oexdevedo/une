@@ -17,8 +17,10 @@ import {
   Sliders,
   Repeat
 } from 'pixelarticons/react';
+import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Emails() {
+  const workspaceId = getWorkspaceId();
   const navigate = useNavigate();
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState(null);
@@ -51,15 +53,15 @@ export default function Emails() {
   useEffect(() => {
     fetchAccounts();
     fetchAgents();
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     fetchMessages();
-  }, [selectedAccountId, folder, search]);
+  }, [selectedAccountId, folder, search, workspaceId]);
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch(`${API}/api/emails/accounts?workspace_id=1`);
+      const res = await fetch(`${API}/api/emails/accounts?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setAccounts(data);
@@ -74,7 +76,7 @@ export default function Emails() {
 
   const fetchAgents = async () => {
     try {
-      const res = await fetch(`${API}/api/agents?workspace_id=1`);
+      const res = await fetch(`${API}/api/agents?workspace_id=${workspaceId}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setAgents(data);
@@ -87,7 +89,7 @@ export default function Emails() {
   const fetchMessages = async () => {
     setLoading(true);
     try {
-      let url = `${API}/api/emails/messages?workspace_id=1&folder=${folder}`;
+      let url = `${API}/api/emails/messages?workspace_id=${workspaceId}&folder=${folder}`;
       if (selectedAccountId) url += `&account_id=${selectedAccountId}`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
 
