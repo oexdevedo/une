@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, CheckDouble, Refresh, Close, Robot } from 'pixelarticons/react';
 
-const API = 'http://localhost:3001';
+const API = '';
 
 const emptyForm = {
   name: 'Hostinger Atendimento',

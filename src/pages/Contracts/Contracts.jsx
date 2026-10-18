@@ -59,7 +59,7 @@ export default function Contracts() {
 
   const fetchTemplates = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/contracts/templates');
+      const res = await fetch('/api/contracts/templates');
       const data = await res.json();
       setTemplates(data || []);
     } catch (err) {
@@ -69,7 +69,7 @@ export default function Contracts() {
 
   const fetchContracts = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/contracts');
+      const res = await fetch('/api/contracts');
       const data = await res.json();
       setContracts(data || []);
     } catch (err) {
@@ -79,7 +79,7 @@ export default function Contracts() {
 
   const fetchContacts = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/contacts?workspace_id=1');
+      const res = await fetch('/api/contacts?workspace_id=1');
       const data = await res.json();
       setContacts(data || []);
     } catch (err) {
@@ -89,7 +89,7 @@ export default function Contracts() {
 
   const fetchAgents = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/agents?workspace_id=1');
+      const res = await fetch('/api/agents?workspace_id=1');
       const data = await res.json();
       setAgents(data || []);
     } catch (err) {
@@ -152,13 +152,13 @@ CONTRATANTE: {{nome_cliente}}`,
     setLoading(true);
     try {
       if (editingTemplate) {
-        await fetch(`http://localhost:3001/api/contracts/templates/${editingTemplate.id}`, {
+        await fetch(`/api/contracts/templates/${editingTemplate.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(templateForm)
         });
       } else {
-        await fetch('http://localhost:3001/api/contracts/templates', {
+        await fetch('/api/contracts/templates', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...templateForm, workspace_id: 1 })
@@ -178,7 +178,7 @@ CONTRATANTE: {{nome_cliente}}`,
   const handleDeleteTemplate = async (id) => {
     if (!window.confirm('Tem certeza que deseja excluir este modelo de contrato?')) return;
     try {
-      await fetch(`http://localhost:3001/api/contracts/templates/${id}`, { method: 'DELETE' });
+      await fetch(`/api/contracts/templates/${id}`, { method: 'DELETE' });
       fetchTemplates();
     } catch (err) {
       console.error(err);
@@ -309,7 +309,7 @@ CONTRATANTE: {{nome_cliente}}`,
           return;
         }
 
-        const res = await fetch('http://localhost:3001/api/contracts/start-collection', {
+        const res = await fetch('/api/contracts/start-collection', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -333,7 +333,7 @@ CONTRATANTE: {{nome_cliente}}`,
         }
       } else {
         // Modo Manual: Gera o PDF imediatamente
-        const res = await fetch('http://localhost:3001/api/contracts/generate', {
+        const res = await fetch('/api/contracts/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -366,7 +366,7 @@ CONTRATANTE: {{nome_cliente}}`,
     if (!window.confirm('Deseja enviar o arquivo PDF deste contrato para o WhatsApp do cliente agora?')) return;
     try {
       setLoading(true);
-      const res = await fetch(`http://localhost:3001/api/contracts/${contractId}/send-whatsapp`, {
+      const res = await fetch(`/api/contracts/${contractId}/send-whatsapp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: 1 })

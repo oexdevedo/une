@@ -9,7 +9,7 @@ export default function Templates() {
 
   const fetchTemplates = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/templates?workspace_id=1');
+      const res = await fetch('/api/templates?workspace_id=1');
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         setTemplates(data);
@@ -44,7 +44,7 @@ export default function Templates() {
 
   const handleCreate = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/templates', {
+      const res = await fetch('/api/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: 1, title: 'Novo Template', content: '' })
@@ -69,7 +69,7 @@ export default function Templates() {
     const curr = updated.find(t => t.id === activeId);
     if (curr) {
       try {
-        await fetch(`http://localhost:3001/api/templates/${activeId}`, {
+        await fetch(`/api/templates/${activeId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title: curr.title, content: curr.content })
@@ -84,7 +84,7 @@ export default function Templates() {
     e.stopPropagation();
     if (window.confirm('Tem certeza que deseja apagar este template do banco de dados?')) {
       try {
-        await fetch(`http://localhost:3001/api/templates/${id}`, {
+        await fetch(`/api/templates/${id}`, {
           method: 'DELETE'
         });
       } catch (err) {

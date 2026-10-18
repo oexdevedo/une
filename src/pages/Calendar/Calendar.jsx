@@ -27,7 +27,7 @@ export default function Calendar() {
 
   // Sincroniza configurações com o banco de dados
   useEffect(() => {
-    fetch('http://localhost:3001/api/calendar/settings?workspace_id=1')
+    fetch('/api/calendar/settings?workspace_id=1')
       .then(res => res.json())
       .then(data => {
         if (data) {
@@ -203,7 +203,7 @@ export default function Calendar() {
 
   // Carrega eventos manuais persistidos no banco de dados
   React.useEffect(() => {
-    fetch('http://localhost:3001/api/calendar/events?workspace_id=1')
+    fetch('/api/calendar/events?workspace_id=1')
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
@@ -805,7 +805,7 @@ export default function Calendar() {
                         // Atualizar a grid local e persistir no banco de dados
                         const evtTitle = 'Acolhimento Financeiro - ' + bookingForm.name;
                         const evtDate = dateKey(dayDate(selectedBookingDate));
-                        fetch('http://localhost:3001/api/calendar/events', {
+                        fetch('/api/calendar/events', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({

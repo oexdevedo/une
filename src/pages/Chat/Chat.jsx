@@ -45,7 +45,7 @@ export default function Chat() {
 
   useEffect(() => {
     // 1. Agentes
-    fetch('http://localhost:3001/api/agents?workspace_id=1')
+    fetch('/api/agents?workspace_id=1')
       .then(res => res.json())
       .then(data => {
         setAgentsList([{ id: 'none', name: 'Nenhum Agente (Manual)' }, ...data]);
@@ -53,7 +53,7 @@ export default function Chat() {
       .catch(err => console.error('Error fetching agents:', err));
 
     // 2. Automações
-    fetch('http://localhost:3001/api/automations?workspace_id=1')
+    fetch('/api/automations?workspace_id=1')
       .then(res => res.json())
       .then(data => {
         let list = Array.isArray(data) ? [...data] : [];
@@ -88,7 +88,7 @@ export default function Chat() {
       });
 
     // 3. Configuração Global de Auto-resposta
-    fetch('http://localhost:3001/api/workspaces/1/auto_respond')
+    fetch('/api/workspaces/1/auto_respond')
       .then(res => res.json())
       .then(data => {
         if (data) {
@@ -100,7 +100,7 @@ export default function Chat() {
       .catch(err => console.error('Error fetching auto respond settings:', err));
 
     // 4. Atribuições individuais
-    fetch('http://localhost:3001/api/workspaces/1/chat_assignments')
+    fetch('/api/workspaces/1/chat_assignments')
       .then(res => res.json())
       .then(data => {
         setChatAgents(data || {});
@@ -126,7 +126,7 @@ export default function Chat() {
     }
 
     try {
-      await fetch('http://localhost:3001/api/workspaces/1/auto_respond', {
+      await fetch('/api/workspaces/1/auto_respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -145,7 +145,7 @@ export default function Chat() {
       setAutoRespondAll(false);
       setAutoRespondTarget('none');
       try {
-        await fetch('http://localhost:3001/api/workspaces/1/auto_respond', {
+        await fetch('/api/workspaces/1/auto_respond', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -167,7 +167,7 @@ export default function Chat() {
       setAutoRespondTarget(targetId);
 
       try {
-        await fetch('http://localhost:3001/api/workspaces/1/auto_respond', {
+        await fetch('/api/workspaces/1/auto_respond', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -185,7 +185,7 @@ export default function Chat() {
   const handleAgentChange = async (contactId, agentId) => {
     setChatAgents(prev => ({...prev, [contactId]: agentId}));
     try {
-      await fetch('http://localhost:3001/api/workspaces/1/chat_assignments', {
+      await fetch('/api/workspaces/1/chat_assignments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -240,7 +240,7 @@ export default function Chat() {
     setShowEmojiPicker(false);
 
     try {
-      await fetch('http://localhost:3001/api/messages/send', {
+      await fetch('/api/messages/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -279,7 +279,7 @@ export default function Chat() {
       formData.append('file', file);
 
       try {
-        await fetch('http://localhost:3001/api/messages/send', {
+        await fetch('/api/messages/send', {
           method: 'POST',
           body: formData
         });
@@ -316,7 +316,7 @@ export default function Chat() {
         formData.append('file', file);
 
         try {
-          await fetch('http://localhost:3001/api/messages/send', {
+          await fetch('/api/messages/send', {
             method: 'POST',
             body: formData
           });
@@ -344,7 +344,7 @@ export default function Chat() {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const res = await fetch('http://localhost:3001/api/messages?workspace_id=1');
+        const res = await fetch('/api/messages?workspace_id=1');
         if (res.ok) {
           const data = await res.json();
           
@@ -355,7 +355,7 @@ export default function Chat() {
               contactsMap[contactId] = {
                 id: contactId,
                 name: msg.pushName || contactId.split('@')[0],
-                avatar: `http://localhost:3001/api/contacts/${contactId}/avatar?workspace_id=1`,
+                avatar: `/api/contacts/${contactId}/avatar?workspace_id=1`,
                 fallbackAvatar: `https://api.dicebear.com/7.x/initials/svg?seed=${msg.pushName || contactId}`,
                 msg: msg.text,
                 time: new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -395,7 +395,7 @@ export default function Chat() {
     if (!activeContactId) return;
     if (window.confirm('Tem certeza que deseja apagar esta conversa do histórico?')) {
       try {
-        await fetch(`http://localhost:3001/api/messages/${activeContactId}?workspace_id=1`, {
+        await fetch(`/api/messages/${activeContactId}?workspace_id=1`, {
           method: 'DELETE',
         });
         

@@ -46,7 +46,7 @@ export default function Agents() {
 
   const fetchAgents = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/agents?workspace_id=1');
+      const res = await fetch('/api/agents?workspace_id=1');
       const data = await res.json();
       setAgents(data);
     } catch (err) {
@@ -56,7 +56,7 @@ export default function Agents() {
 
   const fetchCalendarSettings = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/calendar/settings?workspace_id=1');
+      const res = await fetch('/api/calendar/settings?workspace_id=1');
       const data = await res.json();
       if (data && data.cal_link) {
         setWorkspaceCalLink(data.cal_link);
@@ -68,7 +68,7 @@ export default function Agents() {
 
   const fetchReminders = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/workspaces/1/reminders');
+      const res = await fetch('/api/workspaces/1/reminders');
       const data = await res.json();
       setRemindersInfo(data);
     } catch (e) {
@@ -87,7 +87,7 @@ export default function Agents() {
     }
     setSavingPhone(true);
     try {
-      const res = await fetch('http://localhost:3001/api/workspaces/1/reminders/booking-phone', {
+      const res = await fetch('/api/workspaces/1/reminders/booking-phone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId, attendeeName, phone: phoneInput.trim() })
@@ -111,7 +111,7 @@ export default function Agents() {
     setIsTriggering(true);
     setTriggerStatus(null);
     try {
-      const res = await fetch('http://localhost:3001/api/workspaces/1/reminders/trigger', {
+      const res = await fetch('/api/workspaces/1/reminders/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -139,7 +139,7 @@ export default function Agents() {
     }
     setIsTriggering(true);
     try {
-      const res = await fetch('http://localhost:3001/api/workspaces/1/reminders/trigger', {
+      const res = await fetch('/api/workspaces/1/reminders/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ forceSendBookingId: booking.id })
@@ -164,7 +164,7 @@ export default function Agents() {
       const startDate = new Date(booking.start);
       const dateFormatted = startDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
       const timeFormatted = startDate.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
-      const res = await fetch('http://localhost:3001/api/workspaces/1/reminders/mark-confirmed', {
+      const res = await fetch('/api/workspaces/1/reminders/mark-confirmed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -348,13 +348,13 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
 
     try {
       if (editingAgent) {
-        await fetch(`http://localhost:3001/api/agents/${editingAgent.id}`, {
+        await fetch(`/api/agents/${editingAgent.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, icon, role, prompt })
         });
       } else {
-        await fetch('http://localhost:3001/api/agents', {
+        await fetch('/api/agents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, icon, role, prompt, workspace_id: 1 })
@@ -362,7 +362,7 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
       }
 
       if (agentForm.hasCalendar && agentForm.calendarLink) {
-        fetch('http://localhost:3001/api/calendar/settings', {
+        fetch('/api/calendar/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workspace_id: 1, cal_link: agentForm.calendarLink })
@@ -381,7 +381,7 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
   const handleDeleteAgent = async (id) => {
     if (!window.confirm('Tem certeza que deseja deletar este funcionário?')) return;
     try {
-      await fetch(`http://localhost:3001/api/agents/${id}`, {
+      await fetch(`/api/agents/${id}`, {
         method: 'DELETE'
       });
       fetchAgents();

@@ -147,26 +147,34 @@ async function processMessage(workspaceId, msgObj, agentId) {
     } else if (provider === 'anythingllm') {
       // Anything LLM native workspace chat API
       const safeMessage = `[INSTRUÇÕES DO AGENTE E SISTEMA]:\n${systemPrompt}\n\n[MENSAGEM DO CLIENTE]:\n${msgObj.text || ''}`;
-      const response = await fetch(`${baseUrl}/workspace/${aiModel}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        ...(fetchDispatcher ? { dispatcher: fetchDispatcher } : {}),
-        body: JSON.stringify({
-          message: safeMessage,
-          mode: 'chat'
-        })
-      });
-      
-      const data = await response.json();
-      if (data.textResponse) {
-        replyText = data.textResponse;
-        // Strip out any markdown code blocks just in case
-        replyText = replyText.replace(/```[\s\S]*?```/g, '').trim();
-      } else {
-        console.error('Anything LLM API Error:', data);
+      console.log(`🤖 [ai_handler] Chamando AnythingLLM (workspace: "${aiModel}", endpoint: ${baseUrl}/workspace/${aiModel}/chat)...`);
+      try {
+        const response = await fetch(`${baseUrl}/workspace/${aiModel}/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          ...(fetchDispatcher ? { dispatcher: fetchDispatcher } : {}),
+          body: JSON.stringify({
+            message: safeMessage,
+            mode: 'chat'
+          }),
+          signal: AbortSignal.timeout(60000)
+        });
+        
+        const data = await response.json();
+        if (data.textResponse) {
+          replyText = data.textResponse.replace(/```[\s\S]*?```/g, '').trim();
+          console.log(`✅ [ai_handler] Resposta gerada com sucesso pelo AnythingLLM.`);
+        } else {
+          console.error('❌ [ai_handler] AnythingLLM retornou erro:', data.error || data);
+          if (data.error && data.error.includes('No OpenAI API key was set')) {
+            console.error('⚠️ [ai_handler] O servidor AnythingLLM está sem chave de IA configurada nas configurações internas dele (LLM Preference)!');
+          }
+        }
+      } catch (err) {
+        console.error('❌ [ai_handler] Falha ao comunicar com AnythingLLM:', err.message);
       }
     } else if (provider === 'gemini') {
       // Gemini implementation via REST API
@@ -428,5 +436,95 @@ Por favor, escreva a resposta completa a este e-mail.`;
   }
 }
 
-module.exports = { processMessage, generateAgentResponseForEmail };
+/**
+ * Realiza um teste de conectividade com o provedor de IA e retorna o resultado ou diagnóstico de erro.
+ */
+async function testAiConnection({ workspaceId = 1, provider, apiKey, baseUrl, model }) {
+  try {
+    const database = await db.getDB();
+    const dbSettings = await database.get('SELECT ai_provider, ai_api_key, ai_base_url, ai_model FROM workspaces WHERE id = ?', [workspaceId]) || {};
+    
+    const effectiveProvider = provider || dbSettings.ai_provider || process.env.AI_PROVIDER || 'openai';
+    let effectiveApiKey = apiKey;
+    if (!effectiveApiKey || effectiveApiKey === '•••••••••••••') {
+      effectiveApiKey = dbSettings.ai_api_key || process.env.AI_API_KEY;
+    }
+    const effectiveBaseUrl = (baseUrl || dbSettings.ai_base_url || process.env.AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    const effectiveModel = model || dbSettings.ai_model || process.env.AI_MODEL || (effectiveProvider === 'anythingllm' ? 'meu-workspace' : 'gpt-4o-mini');
+
+    if (!effectiveApiKey) {
+      return { success: false, error: 'Chave de API não informada.' };
+    }
+
+    const testPrompt = 'Olá! Por favor responda em 1 frase curta confirmando que o sistema de inteligência artificial está funcionando perfeitamente.';
+
+    if (effectiveProvider === 'openai' || effectiveProvider === 'custom') {
+      const url = `${effectiveBaseUrl}/chat/completions`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${effectiveApiKey}`
+        },
+        body: JSON.stringify({
+          model: effectiveModel,
+          messages: [{ role: 'user', content: testPrompt }]
+        }),
+        signal: AbortSignal.timeout(20000)
+      });
+      const data = await res.json();
+      if (res.ok && data.choices && data.choices[0]) {
+        return { success: true, reply: data.choices[0].message.content, model: effectiveModel, provider: effectiveProvider };
+      } else {
+        return { success: false, error: data.error?.message || JSON.stringify(data) };
+      }
+    } else if (effectiveProvider === 'anythingllm') {
+      const url = `${effectiveBaseUrl}/workspace/${effectiveModel}/chat`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${effectiveApiKey}`
+        },
+        body: JSON.stringify({
+          message: testPrompt,
+          mode: 'chat'
+        }),
+        signal: AbortSignal.timeout(30000)
+      });
+      const data = await res.json();
+      if (data.textResponse) {
+        return { success: true, reply: data.textResponse, model: effectiveModel, provider: 'anythingllm' };
+      } else {
+        let errMsg = data.error || 'Nenhuma resposta retornada pelo AnythingLLM.';
+        if (typeof errMsg === 'string' && errMsg.includes('No OpenAI API key was set')) {
+          errMsg = 'O servidor AnythingLLM está sem chave de LLM configurada nas preferências internas dele (Settings > LLM Preference). Para que o AnythingLLM funcione, acesse o painel dele e informe uma chave de OpenAI, Groq, Ollama ou Gemini.';
+        }
+        return { success: false, error: errMsg };
+      }
+    } else if (effectiveProvider === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:generateContent?key=${effectiveApiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: testPrompt }] }]
+        }),
+        signal: AbortSignal.timeout(20000)
+      });
+      const data = await res.json();
+      if (res.ok && data.candidates && data.candidates[0]) {
+        return { success: true, reply: data.candidates[0].content.parts[0].text, model: effectiveModel, provider: 'gemini' };
+      } else {
+        return { success: false, error: data.error?.message || JSON.stringify(data) };
+      }
+    } else {
+      return { success: false, error: `Provedor "${effectiveProvider}" não suporta teste automático.` };
+    }
+  } catch (err) {
+    return { success: false, error: `Falha na requisição: ${err.message}` };
+  }
+}
+
+module.exports = { processMessage, generateAgentResponseForEmail, testAiConnection };
 

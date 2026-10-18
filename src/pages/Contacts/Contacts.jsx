@@ -40,14 +40,14 @@ export default function Contacts() {
 
   // Sincroniza listas e contatos com o banco de dados SQLite
   React.useEffect(() => {
-    fetch('http://localhost:3001/api/lists?workspace_id=1')
+    fetch('/api/lists?workspace_id=1')
       .then(r => r.json())
       .then(d => {
         if (Array.isArray(d) && d.length > 0) setLists(d);
       })
       .catch(console.error);
 
-    fetch('http://localhost:3001/api/contacts?workspace_id=1')
+    fetch('/api/contacts?workspace_id=1')
       .then(r => r.json())
       .then(d => {
         if (Array.isArray(d) && d.length > 0) {
@@ -89,7 +89,7 @@ export default function Contacts() {
     e.preventDefault();
     if (!newListName.trim()) return;
     try {
-      const res = await fetch('http://localhost:3001/api/lists', {
+      const res = await fetch('/api/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: 1, name: newListName })
@@ -134,7 +134,7 @@ export default function Contacts() {
     e.preventDefault();
     if (!manualContact.name || !manualContact.phone) return;
     try {
-      const res = await fetch('http://localhost:3001/api/contacts', {
+      const res = await fetch('/api/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

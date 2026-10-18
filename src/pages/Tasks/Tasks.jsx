@@ -17,7 +17,7 @@ import {
   Pencil
 } from 'pixelarticons/react';
 
-const API_BASE = 'http://localhost:3001/api/tasks';
+const API_BASE = '/api/tasks';
 
 const POSTIT_COLORS = [
   { id: 'yellow', label: 'Amarelo', bg: '#FEF08A', border: '#FDE047' },

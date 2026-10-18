@@ -9,6 +9,7 @@ require('dotenv').config();
 const db = require('./db');
 const { connectToWhatsApp, getMessages, sendMessage, getProfilePicUrl } = require('./whatsapp');
 const { connectToTelegram } = require('./telegram');
+const aiHandler = require('./ai_handler');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -64,6 +65,23 @@ app.post('/api/workspaces/:id/settings', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao salvar configurações' });
+  }
+});
+
+app.post('/api/workspaces/:id/ai/test', async (req, res) => {
+  try {
+    const { ai_provider, ai_api_key, ai_base_url, ai_model } = req.body;
+    const result = await aiHandler.testAiConnection({
+      workspaceId: req.params.id,
+      provider: ai_provider,
+      apiKey: ai_api_key,
+      baseUrl: ai_base_url,
+      model: ai_model
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Erro ao testar IA:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

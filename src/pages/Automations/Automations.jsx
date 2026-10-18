@@ -20,7 +20,7 @@ export default function Automations() {
 
   const fetchAutomations = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/automations?workspace_id=1');
+      const res = await fetch('/api/automations?workspace_id=1');
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         const formatted = data.map(item => {
@@ -54,7 +54,7 @@ export default function Automations() {
 
   useEffect(() => {
     fetchAutomations();
-    fetch('http://localhost:3001/api/agents?workspace_id=1')
+    fetch('/api/agents?workspace_id=1')
       .then(res => res.json())
       .then(data => setAvailableAgents(data))
       .catch(err => console.error(err));
@@ -66,7 +66,7 @@ export default function Automations() {
   const handleSave = async () => {
     if (!activeAutomation) return;
     try {
-      await fetch(`http://localhost:3001/api/automations/${activeAutomation.id}`, {
+      await fetch(`/api/automations/${activeAutomation.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -92,7 +92,7 @@ export default function Automations() {
   const createAutomation = async () => {
     const defaultNodes = [{ id: 1, type: 'trigger', title: 'Início', description: 'Quando receber uma nova mensagem' }];
     try {
-      const res = await fetch('http://localhost:3001/api/automations', {
+      const res = await fetch('/api/automations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -132,7 +132,7 @@ export default function Automations() {
     e.stopPropagation();
     if(window.confirm("Deseja apagar esta automação do banco de dados?")) {
       try {
-        await fetch(`http://localhost:3001/api/automations/${id}`, { method: 'DELETE' });
+        await fetch(`/api/automations/${id}`, { method: 'DELETE' });
       } catch (err) {
         console.error(err);
       }

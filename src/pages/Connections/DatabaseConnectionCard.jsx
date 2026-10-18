@@ -9,7 +9,7 @@ import {
   FileText
 } from 'pixelarticons/react';
 
-const API = 'http://localhost:3001';
+const API = '';
 
 export default function DatabaseConnectionCard() {
   const [dbConfig, setDbConfig] = useState({

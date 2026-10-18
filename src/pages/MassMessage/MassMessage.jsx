@@ -30,7 +30,7 @@ export default function MassMessage() {
 
   useEffect(() => {
     if (isTemplateModalOpen) {
-      fetch('http://localhost:3001/api/templates?workspace_id=1')
+      fetch('/api/templates?workspace_id=1')
         .then(res => res.json())
         .then(data => {
           if (Array.isArray(data) && data.length > 0) {
