@@ -3,6 +3,7 @@ dns.setDefaultResultOrder('ipv4first');
 const path = require('path');
 const fs = require('fs');
 const db = require('./db');
+const { getWhatsAppAuthDir } = require('./storage');
 
 const SHORT_DAYS = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
@@ -19,7 +20,7 @@ function getPhoneNumberFromJid(jid, workspaceId = 1) {
   }
   if (jid.endsWith('@lid')) {
     const lid = jid.replace('@lid', '');
-    const authDir = path.join(__dirname, `auth_info_baileys_${workspaceId}`);
+    const authDir = getWhatsAppAuthDir(workspaceId);
     const mappingFile = path.join(authDir, `lid-mapping-${lid}_reverse.json`);
     try {
       if (fs.existsSync(mappingFile)) {
@@ -41,7 +42,7 @@ function resolveRemoteJidForPhone(workspaceId, phone) {
   const cleanPhone = phone.replace(/\D/g, '');
   if (!cleanPhone) return null;
 
-  const authDir = path.join(__dirname, `auth_info_baileys_${workspaceId}`);
+  const authDir = getWhatsAppAuthDir(workspaceId);
   
   // 1. Verifica se existe arquivo direto lid-mapping-{cleanPhone}.json
   try {

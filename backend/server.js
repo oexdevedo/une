@@ -10,14 +10,15 @@ const db = require('./db');
 const { connectToWhatsApp, getMessages, sendMessage, getProfilePicUrl } = require('./whatsapp');
 const { connectToTelegram } = require('./telegram');
 const aiHandler = require('./ai_handler');
+const { DB_PATH, UPLOADS_DIR } = require('./storage');
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: UPLOADS_DIR });
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 // Rota de Teste (Healthcheck)
 app.get('/api/health', (req, res) => {
@@ -470,7 +471,7 @@ app.get('/api/contracts', async (req, res) => {
     res.json(rows.map(r => ({
       ...r,
       data: typeof r.data === 'string' ? JSON.parse(r.data || '{}') : r.data,
-      pdf_url: r.pdf_filename ? `http://localhost:3001/uploads/${r.pdf_filename}` : null
+      pdf_url: r.pdf_filename ? `/uploads/${r.pdf_filename}` : null
     })));
   } catch (error) {
     console.error(error);
@@ -488,7 +489,7 @@ app.post('/api/contracts/generate', async (req, res) => {
     if (!template) return res.status(404).json({ error: 'Modelo de contrato não encontrado' });
 
     const contractService = require('./contract_service');
-    const uploadsDir = path.join(__dirname, 'uploads');
+    const uploadsDir = UPLOADS_DIR;
     if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
     // Cria registro de contrato
@@ -520,7 +521,7 @@ app.post('/api/contracts/generate', async (req, res) => {
       success: true,
       contractId,
       pdfFileName,
-      pdfUrl: `http://localhost:3001/uploads/${pdfFileName}`
+      pdfUrl: `/uploads/${pdfFileName}`
     });
   } catch (error) {
     console.error(error);
@@ -1411,7 +1412,7 @@ app.put('/api/users/me', async (req, res) => {
 
 // APIs para Backup e Restauração de Banco de Dados (.sqlite)
 app.get('/api/admin/database/download', (req, res) => {
-  const dbPath = process.env.DB_PATH || path.resolve(__dirname, 'database.sqlite');
+  const dbPath = DB_PATH;
   if (!fs.existsSync(dbPath)) {
     return res.status(404).json({ error: 'Arquivo de banco de dados não encontrado.' });
   }
@@ -1425,7 +1426,7 @@ app.post('/api/admin/database/upload', upload.single('database'), async (req, re
     }
 
     const uploadedPath = req.file.path;
-    const dbPath = process.env.DB_PATH || path.resolve(__dirname, 'database.sqlite');
+    const dbPath = DB_PATH;
 
     // Valida se o arquivo é um SQLite válido checando o header 'SQLite format 3'
     const headerBuffer = Buffer.alloc(16);

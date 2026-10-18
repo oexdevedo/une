@@ -7,3 +7,4 @@ dist-ssr
 *.log
 backend/*.sqlite*
 backend/auth_info_baileys*
+backend/data/*

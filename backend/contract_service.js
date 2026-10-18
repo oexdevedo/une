@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
 const db = require('./db');
+const { UPLOADS_DIR } = require('./storage');
 
 /**
  * Substitui tags {{variavel}} pelos dados fornecidos
@@ -346,7 +347,7 @@ async function handleInboundContractAnswer(workspaceId = 1, remoteJid, answerTex
     // TODAS as variáveis foram respondidas! Finaliza a coleta e gera o PDF!
     console.log(`🎉 [ContractService] Todos os dados foram coletados para o contrato ID: ${contract.id}! Confeccionando PDF...`);
 
-    const uploadsDir = path.join(__dirname, 'uploads');
+    const uploadsDir = UPLOADS_DIR;
     if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
     const safeClient = (contract.client_name || 'cliente').replace(/[^a-zA-Z0-9]/g, '_');
@@ -407,7 +408,7 @@ async function sendContractViaWhatsapp(workspaceId = 1, contractId) {
   const template = await database.get('SELECT title FROM contract_templates WHERE id = ?', [contract.template_id]);
   const title = template ? template.title : 'Contrato';
 
-  const filePath = path.join(__dirname, 'uploads', contract.pdf_filename);
+  const filePath = path.join(UPLOADS_DIR, contract.pdf_filename);
   if (!fs.existsSync(filePath)) throw new Error('Arquivo PDF não encontrado no disco');
 
   const { resolveRemoteJidForPhone } = require('./reminder_service');

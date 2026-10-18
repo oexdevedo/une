@@ -532,6 +532,34 @@ async function importSeedData(db) {
     const raw = fs.readFileSync(seedFile, 'utf8');
     const data = JSON.parse(raw);
 
+    // 0. Sincronizar Workspace 1 (Cal.com, IA, Telegram, Auto-respond) se estiverem vazios
+    if (data.workspaces && Array.isArray(data.workspaces) && data.workspaces[0]) {
+      const ws = data.workspaces[0];
+      await db.run(
+        `UPDATE workspaces 
+         SET cal_api_key = COALESCE(cal_api_key, ?),
+             cal_link = COALESCE(cal_link, ?),
+             telegram_token = COALESCE(telegram_token, ?),
+             ai_provider = COALESCE(ai_provider, ?),
+             ai_api_key = COALESCE(ai_api_key, ?),
+             ai_base_url = COALESCE(ai_base_url, ?),
+             ai_model = COALESCE(ai_model, ?),
+             auto_respond_all = COALESCE(auto_respond_all, 1),
+             auto_respond_type = COALESCE(auto_respond_type, 'agent'),
+             auto_respond_target_id = COALESCE(auto_respond_target_id, '2')
+         WHERE id = 1`,
+        [
+          ws.cal_api_key,
+          ws.cal_link,
+          ws.telegram_token,
+          ws.ai_provider || 'anythingllm',
+          ws.ai_api_key || 'SDD1V84-F1EMHXV-H0B7XHQ-3ZT4HS5',
+          ws.ai_base_url || 'https://area-51-anything-llm.mypaeg.easypanel.host/api/v1',
+          ws.ai_model || 'meu-workspace'
+        ]
+      );
+    }
+
     // 1. Sempre garantir o usuário Yuri Assis (@yuri) e Administrador
     if (data.users && Array.isArray(data.users)) {
       for (const u of data.users) {
@@ -541,6 +569,34 @@ async function importSeedData(db) {
             `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
              VALUES (?, ?, ?, ?, ?, ?)`,
             [u.workspace_id || 1, u.name, u.username, u.email, u.password_hash, u.role || 'admin']
+          );
+        }
+      }
+    }
+
+    // 1.5 Se a tabela lists estiver vazia, importar listas de contatos
+    const listCount = await db.get('SELECT COUNT(*) as c FROM lists');
+    if (listCount.c === 0 && data.lists && Array.isArray(data.lists)) {
+      for (const l of data.lists) {
+        await db.run(
+          `INSERT INTO lists (id, workspace_id, name, created_at)
+           VALUES (?, ?, ?, ?)`,
+          [l.id, l.workspace_id || 1, l.name, l.created_at || new Date().toISOString()]
+        );
+      }
+      console.log(`✓ ${data.lists.length} listas de contatos importadas do seed.`);
+    }
+
+    // 1.8 Se tags estiver vazia, importar tags
+    const tagCount = await db.get('SELECT COUNT(*) as c FROM tags');
+    if (tagCount.c === 0 && data.tags && Array.isArray(data.tags)) {
+      for (const t of data.tags) {
+        const existingTag = await db.get('SELECT id FROM tags WHERE id = ? OR name = ?', [t.id, t.name]);
+        if (!existingTag) {
+          await db.run(
+            `INSERT INTO tags (id, workspace_id, name, color_hex, bg_hex)
+             VALUES (?, ?, ?, ?, ?)`,
+            [t.id, t.workspace_id || 1, t.name, t.color_hex, t.bg_hex]
           );
         }
       }

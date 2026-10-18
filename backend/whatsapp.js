@@ -5,6 +5,7 @@ const fs = require('fs');
 const db = require('./db');
 const { convertToOgg } = require('./audio_converter');
 const aiHandler = require('./ai_handler');
+const { getWhatsAppAuthDir, UPLOADS_DIR } = require('./storage');
 
 const sessions = {}; 
 let reconnectTimeouts = {};
@@ -20,7 +21,7 @@ async function connectToWhatsApp(workspaceId) {
   session.status = 'connecting';
   session.currentQR = '';
 
-  const authDir = path.join(__dirname, `auth_info_baileys_${workspaceId}`);
+  const authDir = getWhatsAppAuthDir(workspaceId);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
   const sock = makeWASocket({
@@ -171,8 +172,8 @@ async function connectToWhatsApp(workspaceId) {
             else if (mime.includes('pdf')) ext = '.pdf';
 
             const fileName = `${Date.now()}_${msg.key.id}${ext}`;
-            fs.writeFileSync(path.join(__dirname, 'uploads', fileName), buffer);
-            fileUrl = 'http://localhost:3001/uploads/' + fileName;
+            fs.writeFileSync(path.join(UPLOADS_DIR, fileName), buffer);
+            fileUrl = '/uploads/' + fileName;
           } catch (err) {
             console.error('Error downloading media', err);
           }
@@ -341,7 +342,7 @@ async function sendMessage(workspaceId, jid, text, file) {
       messageOptions = { document: buffer, mimetype: mimetype, fileName: file.originalname, caption: text };
       msgType = 'file';
     }
-    fileUrl = 'http://localhost:3001/uploads/' + file.filename;
+    fileUrl = '/uploads/' + file.filename;
   }
 
   const sentMsg = await session.sock.sendMessage(jid, messageOptions);

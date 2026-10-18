@@ -3,6 +3,7 @@ dns.setDefaultResultOrder('ipv4first');
 const path = require('path');
 const fs = require('fs');
 const db = require('./db');
+const { getWhatsAppAuthDir } = require('./storage');
 let fetchDispatcher = undefined;
 try {
   const { Agent } = require('undici');
@@ -25,7 +26,7 @@ function getPhoneNumberFromJid(jid, workspaceId = 1) {
   }
   if (jid.endsWith('@lid')) {
     const lid = jid.replace('@lid', '');
-    const authDir = path.join(__dirname, `auth_info_baileys_${workspaceId}`);
+    const authDir = getWhatsAppAuthDir(workspaceId);
     const mappingFile = path.join(authDir, `lid-mapping-${lid}_reverse.json`);
     try {
       if (fs.existsSync(mappingFile)) {

@@ -42,13 +42,18 @@ COPY --from=frontend-builder /app/dist /app/dist
 
 WORKDIR /app/backend
 
-# Cria pastas para uploads e persistência de dados
-RUN mkdir -p /app/backend/uploads /app/backend/data
-
-EXPOSE 3001
+# Cria pastas para persistência de dados e uploads
+RUN mkdir -p /app/backend/data /app/backend/data/uploads
 
 ENV PORT=3001
 ENV NODE_ENV=production
+ENV DATA_DIR=/app/backend/data
+ENV DB_PATH=/app/backend/data/database.sqlite
 
-# Inicia o servidor (o server.js auto-inicializa as 22 tabelas do SQLite se necessário)
+# Declaração oficial de volume persistente para Docker e Easypanel
+VOLUME ["/app/backend/data"]
+
+EXPOSE 3001
+
+# Inicia o servidor (o server.js auto-inicializa as 22 tabelas do SQLite no volume se necessário)
 CMD ["node", "server.js"]

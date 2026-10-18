@@ -41,6 +41,8 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 uploads/*
 !uploads/.gitkeep
+backend/data/*
+!backend/data/.gitkeep
 
 # Build Outputs
 dist/
