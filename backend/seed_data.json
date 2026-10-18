@@ -1,0 +1,810 @@
+{
+  "workspaces": [
+    {
+      "id": 1,
+      "name": "Meu Escritório",
+      "created_at": "2026-10-06 21:55:59",
+      "allow_stories": 0,
+      "allow_ephemeral": 0,
+      "allow_groups": 0,
+      "ai_provider": "anythingllm",
+      "ai_api_key": "SDD1V84-F1EMHXV-H0B7XHQ-3ZT4HS5",
+      "ai_base_url": "https://area-51-anything-llm.mypaeg.easypanel.host/api/v1",
+      "ai_model": "meu-workspace",
+      "auto_respond_all": 0,
+      "auto_respond_type": "automation",
+      "auto_respond_target_id": "none",
+      "cal_api_key": "cal_live_6245c4011cae2461d65f3edbc9a62a0b",
+      "cal_link": "https://cal.com/exdevedor/mentoria",
+      "telegram_token": null,
+      "confirmation_agent_id": "3",
+      "confirmation_enabled": 1
+    }
+  ],
+  "users": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "name": "Yuri Assis",
+      "email": "yuri@exdevedor.com.br",
+      "password_hash": "Gr@nd34rtun@",
+      "role": "admin",
+      "created_at": "2026-10-06 21:55:59",
+      "username": "yuri"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "name": "Administrador",
+      "email": "admin@unico.com",
+      "password_hash": "123456",
+      "role": "admin",
+      "created_at": "2026-10-15 23:58:23",
+      "username": "admin"
+    }
+  ],
+  "agents": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "name": "teste",
+      "icon": "/avatar/2.png",
+      "created_at": "2026-10-07 09:19:59",
+      "prompt": "Você é o assistente virtual de atendimento da empresa. Responda com simpatia e agilidade.",
+      "role": "Atendimento Geral"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "name": "Lucas Vendas",
+      "icon": "/avatar/1.png",
+      "created_at": "2026-10-13 18:50:36",
+      "prompt": "Você é o Lucas, funcionário virtual especialista em atendimento comercial e agendamentos.\n\n[FLUXO OBRIGATÓRIO DE AGENDAMENTO E CALENDÁRIO]:\n1. APRESENTAÇÃO DE HORÁRIOS DISPONÍVEIS:\n   - Quando o cliente demonstrar interesse em agendar, falar sobre disponibilidade ou perguntar que dias/horários você tem:\n     Apresente os cinco horários disponíveis informados pelo sistema SEMPRE em forma de lista numerada no seguinte padrão exato:\n     1 - Sáb 17/10 às 11h\n     2 - Sáb 24/10 às 08h\n     3 - Sáb 24/10 às 09h\n     4 - Sáb 24/10 às 10h\n     5 - Sáb 24/10 às 11h\n   - Pergunte qual desses horários fica bom para ele.\n\n2. DADOS OBRIGATÓRIOS ANTES DE CONFIRMAR A VAGA:\n   - Para oficializar e reservar a vaga na agenda, você DEVE OBRIGATORIAMENTE pedir:\n     a) Nome completo do cliente\n     b) Motivo do agendamento (qual assunto, dúvida ou objetivo ele deseja tratar na mentoria)\n   - Se o cliente escolher um horário (ex: \"Sábado às 11h\" ou \"1\") mas ainda não tiver informado o Nome e o Motivo, peça essas duas informações de forma simpática antes de confirmar a reserva!\n   - Se ele já informou o nome, peça apenas o motivo (e vice-versa).\n   - NUNCA confirme a reserva sem ter o Nome do cliente e o Motivo do agendamento.\n\n3. EFETIVAÇÃO E RESERVA OFICIAL NO CAL.COM:\n   - Assim que você tiver os 3 dados (Horário escolhido, Nome completo e Motivo):\n     Confirme a reserva com entusiasmo, citando a data, horário, nome e o motivo!\n     E inclua OBRIGATORIAMENTE no final da mensagem a tag de sistema:\n     [RESERVAR_CALENDARIO: {\"horario\": \"<horário escolhido, ex: Sáb 17/10 às 11h>\", \"nome\": \"<nome do cliente>\", \"motivo\": \"<motivo do agendamento>\"}]\n   - A tag será lida pelo sistema para efetivar a reserva no Cal.com e será ocultada antes de chegar ao cliente.\n\n4. SE NÃO HOUVER DISPONIBILIDADE OU O CLIENTE PREFERIR OUTRO DIA:\n   - Pergunte qual dia seria melhor e avise que verificará a disponibilidade para aquele dia e para os 3 dias seguintes.\n\n5. REGRA ESTRITA DE LINKS:\n   - NUNCA envie ou mostre links externos nem o link do cal.com. Jamais envie links. O agendamento é feito 100% diretamente com você por aqui.\n\n- Tom de voz: Acolhedor, prestativo, educado e ágil.\n- Responda de forma natural e humana no chat (máximo 2 a 3 frases curtas por balão).",
+      "role": "Consultor Comercial e Agendamentos"
+    },
+    {
+      "id": 3,
+      "workspace_id": 1,
+      "name": "Mariana Confirmação",
+      "icon": "/avatar/2.png",
+      "created_at": "2026-10-14 09:30:12",
+      "prompt": "Você é a Mariana, funcionária virtual especialista em confirmação de agendamentos e lembretes de reuniões e mentorias.\n\n[MISSÃO E OBJETIVO PRINCIPAL]:\nSeu papel é confirmar a presença do cliente agendado com 24h de antecedência, acolhê-lo com simpatia, tirar dúvidas rápidas sobre o encontro ou ajudá-lo a remarcar caso não possa comparecer.\n\n[FLUXO E REGRAS DE ATENDIMENTO]:\n1. CONFIRMAÇÃO DE PRESENÇA:\n   - Quando o cliente confirmar a presença (ex: \"Sim\", \"Confirmo\", \"Vou sim\", \"Estarei lá\", \"Com certeza\", \"Combinado\", \"Ok\", \"Perfeito\"):\n     Responda com entusiasmo, cordialidade e acolhimento!\n     Exemplo: \"Excelente, [Nome]! Sua presença está confirmada com sucesso para nosso encontro. Qualquer dúvida até lá, estamos por aqui. Tenha um ótimo dia!\"\n     Transmita total segurança e prontidão.\n\n2. IMPOSSIBILIDADE DE COMPARECER OU PEDIDO DE REMARCAÇÃO:\n   - Quando o cliente disser que não poderá comparecer, que teve um imprevisto ou pedir para remarcar (ex: \"Não vou conseguir\", \"Preciso remarcar\", \"Surgiu um imprevisto\", \"Pode ser outro dia?\", \"Não vai dar\"):\n     Demonstre empatia e compreensão imediata (imprevistos acontecem!).\n     Apresente os cinco horários disponíveis informados pelo sistema na lista numerada no seguinte padrão exato:\n     1 - Sáb 24/10 às 08h\n     2 - Sáb 24/10 às 09h\n     3 - Sáb 24/10 às 10h\n     4 - Sáb 24/10 às 11h\n     5 - Sáb 24/10 às 12h\n     Pergunte: \"Qual desses horários fica melhor para você?\"\n   - Assim que o cliente escolher o novo horário, confirme a remarcação e inclua OBRIGATORIAMENTE no final da mensagem a tag de sistema:\n     [RESERVAR_CALENDARIO: {\"horario\": \"<novo horário escolhido>\", \"nome\": \"<nome do cliente>\", \"motivo\": \"Remarcação de mentoria\"}]\n\n3. CANCELAMENTO DEFINITIVO:\n   - Se o cliente solicitar cancelar sem interesse em remarcar (ex: \"Quero cancelar\", \"Não quero mais agendar\"):\n     Agradeça a gentileza de avisar, confirme o cancelamento com serenidade e avise que as portas estarão sempre abertas quando ele desejar retornar.\n\n4. REGRA ESTRITA DE LINKS:\n   - NUNCA envie ou mostre links externos nem o link do cal.com. Jamais envie links. Todo o suporte, confirmação e remarcação são feitos diretamente aqui com você no WhatsApp.\n\n5. TOM DE VOZ E ESTILO:\n   - Empática, educada, prestativa e calorosa.\n   - Responda como uma pessoa real no WhatsApp (máximo 2 a 3 frases curtas por balão).",
+      "role": "Confirmação de Agendamentos e Lembretes (24h)"
+    }
+  ],
+  "lists": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "name": "Leads VIP Outubro",
+      "created_at": "2026-10-06 21:55:59"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "name": "Inscritos Webinar",
+      "created_at": "2026-10-06 21:55:59"
+    }
+  ],
+  "tags": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "name": "Quente",
+      "color_hex": "#EF4444",
+      "bg_hex": "#FEE2E2",
+      "created_at": "2026-10-06 21:55:59"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "name": "VIP",
+      "color_hex": "#F59E0B",
+      "bg_hex": "#FEF3C7",
+      "created_at": "2026-10-06 21:55:59"
+    }
+  ],
+  "contacts": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "list_id": 1,
+      "name": "João Silva",
+      "phone": "(11) 99999-9999",
+      "status": "Novo",
+      "created_at": "2026-10-13 19:11:06"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "list_id": 1,
+      "name": "Maria Souza",
+      "phone": "(11) 98888-8888",
+      "status": "Em Atendimento",
+      "created_at": "2026-10-13 19:11:06"
+    },
+    {
+      "id": 3,
+      "workspace_id": 1,
+      "list_id": 2,
+      "name": "Carlos Pereira",
+      "phone": "(21) 97777-7777",
+      "status": "Convertido",
+      "created_at": "2026-10-13 19:11:06"
+    },
+    {
+      "id": 4,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Viviane Galeano da Silva",
+      "phone": "",
+      "status": "Agendado",
+      "created_at": "2026-10-14 10:54:22"
+    },
+    {
+      "id": 5,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Eric Patrick Chaves Alves",
+      "phone": "",
+      "status": "Agendado",
+      "created_at": "2026-10-14 10:54:22"
+    },
+    {
+      "id": 6,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Yuri Assis",
+      "phone": "+556181684300",
+      "status": "Agendado",
+      "created_at": "2026-10-14 10:54:22"
+    },
+    {
+      "id": 7,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Marcos Costa",
+      "phone": "",
+      "status": "Agendado",
+      "created_at": "2026-10-14 10:54:22"
+    },
+    {
+      "id": 8,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "phone": "",
+      "status": "Agendado",
+      "created_at": "2026-10-14 10:54:22"
+    },
+    {
+      "id": 9,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Yuri",
+      "phone": "+556181684300",
+      "status": "Agendado",
+      "created_at": "2026-10-14 10:54:22"
+    },
+    {
+      "id": 10,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Tutu - Assistente 💰",
+      "phone": "(61) 8182-0360",
+      "status": "Novo",
+      "created_at": "2026-10-14 12:16:27"
+    },
+    {
+      "id": 11,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Nayara Miranda",
+      "phone": "(61) 9228-7012",
+      "status": "Novo",
+      "created_at": "2026-10-14 12:16:27"
+    },
+    {
+      "id": 12,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Carlos Souza",
+      "phone": "(61) 98111-2222",
+      "status": "Agendado",
+      "created_at": "2026-10-14 12:17:27"
+    },
+    {
+      "id": 13,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Bruno Oliveira",
+      "phone": "(61) 8287-7327",
+      "status": "Novo",
+      "created_at": "2026-10-14 19:43:56"
+    },
+    {
+      "id": 14,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Hulda Rode",
+      "phone": "(61) 8310-7306",
+      "status": "Novo",
+      "created_at": "2026-10-15 16:04:30"
+    },
+    {
+      "id": 15,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Patrick",
+      "phone": "(85) 9985-0673",
+      "status": "Novo",
+      "created_at": "2026-10-15 16:40:21"
+    },
+    {
+      "id": 16,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Joãum",
+      "phone": "(21) 99454-6246",
+      "status": "Novo",
+      "created_at": "2026-10-16 13:01:21"
+    },
+    {
+      "id": 17,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Vivi",
+      "phone": "(21) 99754-8120",
+      "status": "Novo",
+      "created_at": "2026-10-16 17:37:08"
+    },
+    {
+      "id": 18,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "edinalva silva",
+      "phone": "(61) 9267-2767",
+      "status": "Novo",
+      "created_at": "2026-10-18 11:15:17"
+    },
+    {
+      "id": 19,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Marcos Costa Escrita",
+      "phone": "(61) 8450-2857",
+      "status": "Novo",
+      "created_at": "2026-10-18 11:15:17"
+    },
+    {
+      "id": 20,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Lamonica 🔰",
+      "phone": "(21) 97352-8903",
+      "status": "Novo",
+      "created_at": "2026-10-18 11:15:17"
+    },
+    {
+      "id": 21,
+      "workspace_id": 1,
+      "list_id": null,
+      "name": "Júlia Rodrigues",
+      "phone": "(21) 96746-2241",
+      "status": "Novo",
+      "created_at": "2026-10-18 11:15:17"
+    }
+  ],
+  "contact_tags": [],
+  "automations": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "name": "teste orquestra",
+      "mode": "orchestra",
+      "porteiro_prompt": "Você é o recepcionista inteligente do Unico CRM. Atenda o cliente com cordialidade, rapidez e eficiência.",
+      "agents_json": "[{\"id\":1792169748162,\"name\":\"Lucas Vendas\",\"prompt\":\"\",\"agentId\":\"2\"},{\"id\":1792169763113,\"name\":\"Mariana Confirmação\",\"prompt\":\"\",\"agentId\":\"3\"}]",
+      "created_at": "2026-10-13 17:00:43",
+      "nodes_json": "[{\"id\":1,\"type\":\"trigger\",\"title\":\"Início\",\"description\":\"Quando receber uma nova mensagem\"}]"
+    }
+  ],
+  "templates": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "title": "Boas-vindas",
+      "content": "# Olá!\n\nSeja bem-vindo(a) ao nosso atendimento.\nComo posso ajudar hoje?",
+      "created_at": "2026-10-13 19:11:06"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "title": "Agendamento Confirmado",
+      "content": "Olá {primeiro_nome}! Sua reunião foi confirmada com sucesso em nossa agenda. Até breve!",
+      "created_at": "2026-10-13 19:11:06"
+    }
+  ],
+  "calendar_events": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "title": "Mentoria - Carlos Souza (planejamento financeiro e inve)",
+      "date": "2026-10-17",
+      "time": "11:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 09:02:11",
+      "attendee_name": "Carlos Souza",
+      "attendee_phone": "(61) 98111-2222"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "title": "Mentoria - Yuri Assis (organização financeira e dívid)",
+      "date": "2026-10-17",
+      "time": "11:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 09:11:46",
+      "attendee_name": null,
+      "attendee_phone": null
+    },
+    {
+      "id": 3,
+      "workspace_id": 1,
+      "title": "Mentoria - Yuri Assis (renegociação de dívidas bancár)",
+      "date": "2026-10-24",
+      "time": "08:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 09:16:23",
+      "attendee_name": "Yuri Assis",
+      "attendee_phone": "+556181684300"
+    },
+    {
+      "id": 4,
+      "workspace_id": 1,
+      "title": "Mentoria - Yuri (sair das dívidas)",
+      "date": "2026-10-24",
+      "time": "09:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 09:30:18",
+      "attendee_name": "Yuri",
+      "attendee_phone": "+556181684300"
+    },
+    {
+      "id": 5,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e Viviane Galeano da Silva",
+      "date": "2026-10-17",
+      "time": "09:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "Viviane Galeano da Silva",
+      "attendee_phone": ""
+    },
+    {
+      "id": 6,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e Eric Patrick Chaves Alves",
+      "date": "2026-10-17",
+      "time": "10:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "Eric Patrick Chaves Alves",
+      "attendee_phone": ""
+    },
+    {
+      "id": 7,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e Marcos Costa",
+      "date": "2026-10-17",
+      "time": "13:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "Marcos Costa",
+      "attendee_phone": ""
+    },
+    {
+      "id": 8,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-10-22",
+      "time": "20:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 9,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-10-29",
+      "time": "20:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 10,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-11-07",
+      "time": "11:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 11,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-11-21",
+      "time": "11:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 12,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-11-26",
+      "time": "20:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 13,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-12-03",
+      "time": "20:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 14,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-12-17",
+      "time": "20:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 15,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e PAULO ALBERTO LEITE CERQUEIRA",
+      "date": "2026-12-29",
+      "time": "20:00",
+      "type": "event-work",
+      "created_at": "2026-10-14 10:54:22",
+      "attendee_name": "PAULO ALBERTO LEITE CERQUEIRA",
+      "attendee_phone": ""
+    },
+    {
+      "id": 16,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e Eric Patrick Chaves Alves",
+      "date": "2026-10-24",
+      "time": "10:00",
+      "type": "event-work",
+      "created_at": "2026-10-18 11:14:51",
+      "attendee_name": "Eric Patrick Chaves Alves",
+      "attendee_phone": ""
+    },
+    {
+      "id": 17,
+      "workspace_id": 1,
+      "title": "Mentoria Yuri entre Ex Devedor e Marcos Costa",
+      "date": "2026-10-31",
+      "time": "11:00",
+      "type": "event-work",
+      "created_at": "2026-10-18 11:14:51",
+      "attendee_name": "Marcos Costa",
+      "attendee_phone": ""
+    }
+  ],
+  "contract_templates": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "title": "Contrato de Mentoria Financeira - Ex Devedor",
+      "description": "Modelo oficial de mentoria financeira individual da Ex Devedor Tecnologia Educacional Ltda.",
+      "content": "CONTRATO DE PRESTAÇÃO DE SERVIÇOS\n\nEste documento visa clarificar e regular a nossa relação de Mentoria financeira, a favor da transparência, libertando-nos para aquilo que de fato importa.  \nSeguem-se algumas informações importantes sobre o serviço a ser prestado. Por favor, leia e responda por e-mail assinado digitalmente.\n\nCONTRATANTE: {{nome_cliente}}, CPF {{cpf}}, RG {{rg}}, residente e domiciliado em {{endereco}}. E-mail: {{email}}\n\nCONTRATADA: Ex Devedor Tecnologia Educacional Ltda, CNPJ: 29.238.426.0001-60, com sede na SCN Quadra 01, Bloco A, Sala 1102, Parte nº 123, Pavmto: 11, Edif: Corp. Number One, Asa Norte, Brasília-DF, CEP 70711-900.  \nAs partes têm entre si justo e contratado a prestação de serviços abaixo descrita, com suas cláusulas e condições a seguir:\n\nCLÁUSULA 1ª - DO OBJETO\nPor meio deste contrato, a CONTRATADA se compromete a prestar ao CONTRATANTE os seguintes serviços:\n• Mínimo de 18 sessões de mentoria individuais, durante 10 meses via chamada de vídeo (podendo ser por Meet, Skype ou Zoom);  \n• As sessões têm duração de aproximadamente 1 hora, podendo durar mais tempo ou menos tempo conforme a demanda da sessão do dia;  \n• Acesso por WhatsApp com a CONTRATADA para tirar dúvidas.\n\nCLÁUSULA 2ª - DO PRAZO\nO presente contrato terá validade de 10 (dez) meses, podendo ser renovado mediante concordância das partes por meio da celebração de termo aditivo.\n\nCLÁUSULA 3ª - DA RETRIBUIÇÃO\nComo contraprestação pelos serviços prestados, a CONTRATADA receberá a quantia total de {{valor_total}}, a ser paga pelo CONTRATANTE à CONTRATADA em {{parcelas_info}}, com vencimento todo dia {{dia_vencimento}} de cada mês, a partir de {{primeiro_vencimento}}.\n\nO pagamento será efetuado por meio de transferência PIX para a chave pix@exdevedor.com.br, de titularidade de Ex Devedor.  \nO CONTRATANTE deverá enviar o comprovante de pagamento para o e-mail exdevedor@exdevedor.com.br ou no WhatsApp (61) 99567-8329 no mesmo dia da realização da transferência.\n\nCLÁUSULA 4ª – TOLERÂNCIA PARA ATRASOS\nA CONTRATADA e o CONTRATANTE irão tolerar até 15 (quinze) minutos de atraso.  \nCaso o CONTRATANTE ultrapasse o tempo de 15 (quinze) minutos e não apresentar o seu parecer, a sessão será marcada como concluída.\n\nCLÁUSULA 5ª – PARA REMARCAR A SESSÃO\nO CONTRATANTE deve informar à CONTRATADA sobre a necessidade de remarcar uma sessão com pelo menos 12 (doze) horas de antecedência para que um novo horário possa ser agendado.\n\nCLÁUSULA 6ª - DAS GARANTIAS\nA CONTRATADA se compromete em ensinar para o CONTRATANTE sobre como ministrar mentorias de mindset financeiro, finanças pessoais, formas de sair das dívidas e investimentos.  \n§ 1º. É obrigação do CONTRATANTE comunicar à CONTRATADA qualquer alteração de fatos que influencie sua vida financeira, a título de assertividade do objetivo proposto.  \n§ 2º. O CONTRATANTE tem ciência de que, para a mentoria ter sucesso, deve fazer todas as tarefas propostas pela CONTRATADA para que possa alcançar as metas propostas.  \n§ 3º. O CONTRATANTE terá o direito de solicitar a devolução total do valor pago, caso decida desistir dos serviços contratados, desde que essa solicitação seja realizada dentro de um prazo de 7 (sete) dias corridos a partir da data da assinatura deste contrato.\n\nPara efetuar a solicitação, o CONTRATANTE deverá enviar um e-mail formalizando a desistência, e a CONTRATADA se compromete a processar o reembolso integral no prazo de 10 (dez) dias úteis após a confirmação da solicitação.\n\nCLÁUSULA 7ª - DAS OBRIGAÇÕES LEGAIS\nAs obrigações das referidas partes e suas responsabilidades:  \n§ 1º. É obrigação da CONTRATADA providenciar todos os meios, materiais e equipamentos necessários à correta execução dos serviços;  \n§ 2º. É obrigação da CONTRATADA sempre buscar métodos que funcionem para o CONTRATANTE;  \n§ 3º. É obrigação do CONTRATANTE deixar a CONTRATADA ciente de todas as coisas que acontecerem em sua vida pessoal ou profissional que afetem a sua vida financeira;  \n§ 4º. É obrigação do CONTRATANTE o fornecimento de toda e qualquer informação que julgue necessária a fim de assertividade do objetivo proposto;  \n§ 5º. É obrigação do CONTRATANTE e da CONTRATADA manter o zelo pelo respeito e dignidade durante as sessões.\n\nCLÁUSULA 8ª - DO CANCELAMENTO, DA INTERRUPÇÃO E DA SUSPENSÃO DOS SERVIÇOS\nCaso o CONTRATANTE ou a CONTRATADA deseje rescindir o presente contrato, deverá fazê-lo formalmente, por escrito, e enviá-lo via e-mail exdevedor@exdevedor.com.br, com antecedência de 15 (quinze) dias úteis.  \n§ 1º. Em caso de descumprimento das obrigações contratuais, a parte que causar o descumprimento se compromete a indenizar a parte inocente no montante correspondente a 15% do valor residual do contrato.\n\nCLÁUSULA 9ª - DA CONFIDENCIALIDADE\nAs informações comerciais e contratuais são de cunho confidencial, bem como as transações financeiras realizadas, saldos e demais movimentações em conta corrente.  \nDeste modo, a CONTRATADA e o CONTRATANTE lidarão com as informações pertinentes ao referido acordo de maneira sigilosa, não podendo em hipótese alguma divulgar qualquer dado/informação sensível.\n\nCLÁUSULA 10ª – INÍCIO E TÉRMINO\nA consultoria financeira pessoal entre a CONTRATADA e o CONTRATANTE terá início no dia {{data_inicio}} e tem como término de contrato o dia {{data_termino}}. Caso ambas as partes decidam prorrogar as consultorias, será emitido um novo contrato e este deixará de ser vigente.\n\nCLÁUSULA 11ª - DO SIGILO E DA CIÊNCIA LEGAL MÚTUA\nTodos os assuntos tratados durante a mentoria são considerados sigilosos. Nesse sentido, não podem ser divulgados sem a permissão do CONTRATANTE.  \nPARÁGRAFO ÚNICO: A CONTRATADA se compromete a não enviar, transmitir, reproduzir e/ou aplicar qualquer outro modo de difusão das informações trocadas durante as reuniões on-line e as interlocuções por mensageiros eletrônicos (WhatsApp, e-mail, etc.), exceto mediante autorização expressa e por escrito do CONTRATANTE.  \nO descumprimento desta obrigação poderá resultar nas penalidades previstas nas seguintes legislações e respectivos artigos:  \n\nLei Geral de Proteção de Dados Pessoais (LGPD) – Lei nº 13.709/2018:\n• Art. 42: O tratamento de dados pessoais em desacordo com a LGPD poderá gerar a responsabilização civil da CONTRATADA, sujeitando-a à reparação de danos patrimoniais, morais, individuais ou coletivos.  \n• Art. 44: O tratamento irregular de dados pode acarretar a aplicação de sanções administrativas, incluindo advertências e multas.\n\nCódigo Civil – Lei nº 10.406/2002:\n• Art. 186: Aquele que, por ação ou omissão voluntária, negligência ou imprudência, violar direito ou causar dano a outrem, comete ato ilícito, sendo obrigado a reparar os danos causados.  \n• Art. 927: Aquele que causar dano a outrem, por ato ilícito, fica obrigado a repará-lo.\n\nMarco Civil da Internet – Lei nº 12.965/2014:\n• Art. 7º, inciso I: O usuário tem direito à inviolabilidade e ao sigilo de suas comunicações privadas pela internet, salvo por ordem judicial.  \n• Art. 10: A guarda e o fornecimento de registros de comunicação eletrônica devem respeitar a proteção à privacidade e à intimidade, sob pena de sanções civis e penais.\n\nLei de Propriedade Intelectual – Lei nº 9.610/1998:\n• Art. 7º: Protege as obras intelectuais, incluindo o conteúdo trocado em reuniões, que são consideradas propriedade intelectual, sendo proibida a reprodução não autorizada.\n\nEssas legislações garantem a proteção da privacidade, confidencialidade e integridade das informações trocadas entre as partes, com previsão de sanções no caso de descumprimento, estando CONTRATADA e CONTRATANTE cientes das supracitadas leis, em específico.\n\nCLÁUSULA 12ª - DO FORO\nFica já eleito o foro da comarca de Brasília, DF, para serem resolvidas eventuais pendências decorrentes deste contrato.\n\nBrasília/DF, {{data_atual}}.\n\n____________________________________________\n{{nome_cliente}}\nCONTRATANTE\n\n____________________________________________\nEx Devedor Tecnologia Educacional Ltda\nCONTRATADA",
+      "variables": "[{\"key\":\"nome_cliente\",\"label\":\"Nome Completo do Contratante\",\"prompt\":\"Para começarmos a confecção do seu contrato de mentoria, qual é o seu *nome completo*?\",\"type\":\"text\",\"required\":true},{\"key\":\"cpf\",\"label\":\"CPF do Contratante\",\"prompt\":\"Perfeito! Qual é o seu número de *CPF*?\",\"type\":\"text\",\"required\":true},{\"key\":\"rg\",\"label\":\"RG do Contratante\",\"prompt\":\"Poderia me informar o seu *RG* (número e órgão expedidor)?\",\"type\":\"text\",\"required\":true},{\"key\":\"endereco\",\"label\":\"Endereço Completo com CEP\",\"prompt\":\"Qual é o seu *endereço completo* (com rua/quadra, número, complemento, bairro, cidade e CEP)?\",\"type\":\"text\",\"required\":true},{\"key\":\"email\",\"label\":\"E-mail de Contato\",\"prompt\":\"Qual o seu melhor *e-mail* para envio do contrato e comunicações?\",\"type\":\"text\",\"required\":true},{\"key\":\"valor_total\",\"label\":\"Valor Total da Mentoria\",\"prompt\":\"Qual é o *valor total* acordado da sua mentoria (ex: R$ 2.200,00)?\",\"type\":\"text\",\"required\":true},{\"key\":\"parcelas_info\",\"label\":\"Forma de Parcelamento\",\"prompt\":\"Como será o parcelamento das parcelas (ex: 10 parcelas mensais de R$ 220,00 ou à vista)?\",\"type\":\"text\",\"required\":true},{\"key\":\"dia_vencimento\",\"label\":\"Dia do Vencimento Mensal\",\"prompt\":\"Qual o melhor *dia de vencimento* mensal (ex: dia 10, dia 20 ou dia 28)?\",\"type\":\"text\",\"required\":true},{\"key\":\"primeiro_vencimento\",\"label\":\"Data da Primeira Parcela\",\"prompt\":\"Qual a data de vencimento da *primeira parcela* (ex: 28/10/2026)?\",\"type\":\"text\",\"required\":true},{\"key\":\"data_inicio\",\"label\":\"Data de Início da Mentoria\",\"prompt\":\"A partir de qual data iniciaremos as consultorias (ex: 17/10/2026)?\",\"type\":\"text\",\"required\":true},{\"key\":\"data_termino\",\"label\":\"Data de Término da Mentoria\",\"prompt\":\"Qual a data de término prevista do contrato (ex: 17/08/2027)?\",\"type\":\"text\",\"required\":true}]",
+      "agent_id": "3",
+      "active": 1,
+      "created_at": "2026-10-14 13:16:56",
+      "updated_at": "2026-10-14 14:00:50"
+    }
+  ],
+  "contracts": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "template_id": 1,
+      "client_name": "João Silva",
+      "client_phone": "(11) 99999-9999",
+      "remote_jid": "5511999999999@s.whatsapp.net",
+      "data": "{\"nome_cliente\":\"João Silva\"}",
+      "status": "collecting",
+      "pdf_filename": null,
+      "created_at": "2026-10-14 13:37:14",
+      "updated_at": "2026-10-14 13:37:14"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "template_id": 1,
+      "client_name": "Yuri Assis",
+      "client_phone": "+556181684300",
+      "remote_jid": "38633281183998@lid",
+      "data": "{\"nome_cliente\":\"Yuri Assis\",\"cpf\":\"Quero fazer meu contrato\",\"rg\":\"559577 Comaer\",\"endereco\":\"Qrc 18, casa 29, Brasília df, 20930003\",\"email\":\"Wyllkens@gmail.com\",\"valor_total\":\"2200\",\"parcelas_info\":\"10x\",\"dia_vencimento\":\"5\",\"primeiro_vencimento\":\"01/11/26\",\"data_inicio\":\"17/10\",\"data_termino\":\"17/08/2027\"}",
+      "status": "sent",
+      "pdf_filename": "contrato_2_Yuri_Assis.pdf",
+      "created_at": "2026-10-14 13:37:37",
+      "updated_at": "2026-10-16 12:25:06"
+    },
+    {
+      "id": 3,
+      "workspace_id": 1,
+      "template_id": 1,
+      "client_name": "Yuri Assis",
+      "client_phone": "556181684300",
+      "remote_jid": null,
+      "data": "{\"nome_cliente\":\"Yuri Assis\",\"cpf\":\"12288637765\",\"rg\":\"559577\",\"endereco\":\"Quadra QRC 18\",\"email\":\"wyllkens@gmail.com\",\"valor_total\":\"R$ 2.200,00\",\"parcelas_info\":\"10x de R$ 220,00\",\"dia_vencimento\":\"5\",\"primeiro_vencimento\":\"01/11/2026\",\"data_inicio\":\"01/11/2026\",\"data_termino\":\"01/11/2027\"}",
+      "status": "completed",
+      "pdf_filename": "contrato_3_Yuri_Assis.pdf",
+      "created_at": "2026-10-14 14:17:53",
+      "updated_at": "2026-10-14 14:17:53"
+    },
+    {
+      "id": 4,
+      "workspace_id": 1,
+      "template_id": 1,
+      "client_name": "João Silva",
+      "client_phone": "(11) 99999-9999",
+      "remote_jid": null,
+      "data": "{\"nome_cliente\":\"João Silva\",\"cpf\":\"12288637765\",\"rg\":\"559577\",\"endereco\":\"Quadra QRC 18\",\"email\":\"wyllkens@gmail.com\",\"valor_total\":\"\",\"parcelas_info\":\"10\",\"dia_vencimento\":\"01\",\"primeiro_vencimento\":\"01/11/2026\",\"data_inicio\":\"01/11/2026\",\"data_termino\":\"01/01/2027\"}",
+      "status": "completed",
+      "pdf_filename": "contrato_4_Jo_o_Silva.pdf",
+      "created_at": "2026-10-14 14:23:33",
+      "updated_at": "2026-10-14 14:23:33"
+    },
+    {
+      "id": 5,
+      "workspace_id": 1,
+      "template_id": 1,
+      "client_name": "João Silva",
+      "client_phone": "(11) 99999-9999",
+      "remote_jid": null,
+      "data": "{\"nome_cliente\":\"João Silva\",\"cpf\":\"1228867337\",\"rg\":\"559577\",\"endereco\":\"Quadra QRC 18\",\"email\":\"wyllkens@gmail.com\",\"valor_total\":\"\",\"parcelas_info\":\"1x\",\"dia_vencimento\":\"01\",\"primeiro_vencimento\":\"01/10/26\",\"data_inicio\":\"01/10/26\",\"data_termino\":\"01/12/26\"}",
+      "status": "completed",
+      "pdf_filename": "contrato_5_Jo_o_Silva.pdf",
+      "created_at": "2026-10-14 14:55:44",
+      "updated_at": "2026-10-14 14:55:44"
+    }
+  ],
+  "task_notes": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "title": "⚡ Metas da Semana",
+      "color": "yellow",
+      "category": "Prioritário",
+      "items": "[{\"id\":\"1\",\"text\":\"Ajustar prompt do agente Lucas Vendas\",\"completed\":true},{\"id\":\"2\",\"text\":\"Revisar contratos pendentes de assinatura\",\"completed\":true},{\"id\":\"3\",\"text\":\"Ligar para clientes quentes do WhatsApp\",\"completed\":true},{\"id\":\"4\",\"text\":\"Configurar auto-resposta da Hostinger\",\"completed\":true}]",
+      "is_pinned": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-16 12:01:53"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "title": "💡 Ideias para Automação",
+      "color": "pink",
+      "category": "Inovação",
+      "items": "[{\"id\":\"1\",\"text\":\"Disparo de lembrete 1h antes da mentoria\",\"completed\":false},{\"id\":\"3\",\"text\":\"Pesquisa de satisfação pós-atendimento\",\"completed\":false}]",
+      "is_pinned": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 19:34:06"
+    },
+    {
+      "id": 3,
+      "workspace_id": 1,
+      "title": "🎯 Reunião de Alinhamento",
+      "color": "green",
+      "category": "Estratégia",
+      "items": "[{\"id\":\"1\",\"text\":\"Apresentar métricas de conversão do mês\",\"completed\":false},{\"id\":\"2\",\"text\":\"Validar novo fluxo de vendas com a equipe\",\"completed\":false},{\"id\":\"3\",\"text\":\"Definir orçamento para tráfego pago\",\"completed\":false}]",
+      "is_pinned": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    },
+    {
+      "id": 4,
+      "workspace_id": 1,
+      "title": "📋 Onboarding Novos Clientes",
+      "color": "blue",
+      "category": "Operações",
+      "items": "[{\"id\":\"1\",\"text\":\"Enviar termo de adesão assinado\",\"completed\":true},{\"id\":\"2\",\"text\":\"Liberar acesso à plataforma Unico\",\"completed\":true},{\"id\":\"3\",\"text\":\"Agendar sessão de boas-vindas com mentor\",\"completed\":false}]",
+      "is_pinned": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    },
+    {
+      "id": 5,
+      "workspace_id": 1,
+      "title": "⚙️ Tarefas Administrativas",
+      "color": "purple",
+      "category": "Financeiro",
+      "items": "[{\"id\":\"1\",\"text\":\"Emitir notas fiscais dos contratos fechados\",\"completed\":true},{\"id\":\"2\",\"text\":\"Conciliar extrato bancário da empresa\",\"completed\":false},{\"id\":\"3\",\"text\":\"Renovar assinatura dos servidores em nuvem\",\"completed\":false}]",
+      "is_pinned": 1,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-16 12:01:59"
+    },
+    {
+      "id": 6,
+      "workspace_id": 1,
+      "title": "🚀 Lançamento Mentoria VIP",
+      "color": "orange",
+      "category": "Marketing",
+      "items": "[{\"id\":\"1\",\"text\":\"Gravar vídeo de boas-vindas para o grupo\",\"completed\":false},{\"id\":\"2\",\"text\":\"Disparar mensagens em massa no WhatsApp\",\"completed\":false},{\"id\":\"3\",\"text\":\"Organizar links de materiais no Notion\",\"completed\":false}]",
+      "is_pinned": 1,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-16 12:02:00"
+    }
+  ],
+  "kanban_projects": [
+    {
+      "id": 1,
+      "workspace_id": 1,
+      "title": "Novo fluxo de nutrição de Leads",
+      "description": "Construir sequências automáticas com mensagens educativas e convites para mentoria.",
+      "status": "in_progress",
+      "priority": "high",
+      "due_date": "2026-10-25",
+      "tag": "Marketing",
+      "assignee_name": "Yuri Assis",
+      "assignee_avatar": "YA",
+      "checklist_total": 4,
+      "checklist_done": 1,
+      "position": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 18:38:35"
+    },
+    {
+      "id": 2,
+      "workspace_id": 1,
+      "title": "Integração Webhook com Gateway de Pagamento",
+      "description": "Receber confirmação de PIX e cartão para atualizar status do contrato em tempo real.",
+      "status": "todo",
+      "priority": "medium",
+      "due_date": "2026-10-30",
+      "tag": "Dev & API",
+      "assignee_name": "Wyllkens",
+      "assignee_avatar": "W",
+      "checklist_total": 3,
+      "checklist_done": 0,
+      "position": 1,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    },
+    {
+      "id": 3,
+      "workspace_id": 1,
+      "title": "Treinamento do Agente Lucas Vendas",
+      "description": "Aprimorar o contexto com objeções reais de clientes e novos produtos financeiros.",
+      "status": "in_progress",
+      "priority": "urgent",
+      "due_date": "2026-10-18",
+      "tag": "IA & Agentes",
+      "assignee_name": "Lucas IA",
+      "assignee_avatar": "🤖",
+      "checklist_total": 5,
+      "checklist_done": 3,
+      "position": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    },
+    {
+      "id": 4,
+      "workspace_id": 1,
+      "title": "Refatoração dos Modelos de Contratos em PDF",
+      "description": "Padronizar cabeçalho, alinhamento justificado e cláusulas de rescisão com assinaturas.",
+      "status": "in_progress",
+      "priority": "high",
+      "due_date": "2026-10-20",
+      "tag": "Jurídico",
+      "assignee_name": "Yuri Assis",
+      "assignee_avatar": "YA",
+      "checklist_total": 6,
+      "checklist_done": 4,
+      "position": 1,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    },
+    {
+      "id": 5,
+      "workspace_id": 1,
+      "title": "Página de Agendamentos e Calendário",
+      "description": "Interface responsiva integrada ao Cal.com com disparos de lembretes automáticos.",
+      "status": "review",
+      "priority": "medium",
+      "due_date": "2026-10-16",
+      "tag": "Frontend",
+      "assignee_name": "Wyllkens",
+      "assignee_avatar": "W",
+      "checklist_total": 5,
+      "checklist_done": 5,
+      "position": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    },
+    {
+      "id": 6,
+      "workspace_id": 1,
+      "title": "Configuração do E-mail Hostinger (IMAP & SMTP)",
+      "description": "Conexão validada em porta 465 SSL com auto-resposta inteligente do agente.",
+      "status": "done",
+      "priority": "high",
+      "due_date": "2026-10-14",
+      "tag": "Infra & E-mail",
+      "assignee_name": "Equipe TI",
+      "assignee_avatar": "TI",
+      "checklist_total": 3,
+      "checklist_done": 3,
+      "position": 0,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    },
+    {
+      "id": 7,
+      "workspace_id": 1,
+      "title": "Disparo de Mensagens em Massa de Pré-Lançamento",
+      "description": "Envio programado com tags personalizadas e controle de intervalo anti-bloqueio.",
+      "status": "done",
+      "priority": "high",
+      "due_date": "2026-10-12",
+      "tag": "Vendas",
+      "assignee_name": "Lucas IA",
+      "assignee_avatar": "🤖",
+      "checklist_total": 4,
+      "checklist_done": 4,
+      "position": 1,
+      "created_at": "2026-10-15 16:24:39",
+      "updated_at": "2026-10-15 16:24:39"
+    }
+  ],
+  "email_accounts": [
+    {
+      "id": 3,
+      "workspace_id": 1,
+      "name": "Hostinger Atendimento",
+      "email_address": "exdevedor@exdevedor.com.br",
+      "display_name": "Equipe de Atendimento",
+      "imap_host": "imap.hostinger.com",
+      "imap_port": 993,
+      "imap_secure": 1,
+      "smtp_host": "smtp.hostinger.com",
+      "smtp_port": 465,
+      "smtp_secure": 1,
+      "username": "exdevedor@exdevedor.com.br",
+      "password": "Gr@nd34rtun@",
+      "agent_id": null,
+      "auto_reply_enabled": 0,
+      "sync_interval_minutes": 5,
+      "last_sync_at": "2026-10-18 11:23:48",
+      "status": "connected",
+      "status_message": "Sincronizado com sucesso",
+      "created_at": "2026-10-14 17:05:37"
+    }
+  ]
+}

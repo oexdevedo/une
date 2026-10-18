@@ -8,6 +8,8 @@ import {
   Save,
   Shield,
   Logout,
+  Download,
+  Upload,
   Link as LinkIcon
 } from 'pixelarticons/react';
 import Connections from '../Connections/Connections';
@@ -36,6 +38,7 @@ export default function Settings({ initialTab }) {
     setSearchParams({ tab });
   };
 
+  const [uploadingDb, setUploadingDb] = useState(false);
   const [formData, setFormData] = useState(() => {
     try {
       const u = JSON.parse(localStorage.getItem('unne_user') || 'null');
@@ -149,6 +152,40 @@ export default function Settings({ initialTab }) {
     } catch (err) {
       console.error(err);
       alert('Erro de conexão ao salvar no banco de dados.');
+    }
+  };
+
+  const handleUploadDatabase = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!window.confirm(`Tem certeza que deseja restaurar o banco de dados com o arquivo "${file.name}"? Todos os dados serão sincronizados com este arquivo.`)) {
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingDb(true);
+    const formDataUpload = new FormData();
+    formDataUpload.append('database', file);
+
+    try {
+      const res = await fetch('/api/admin/database/upload', {
+        method: 'POST',
+        body: formDataUpload
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Banco de dados importado com sucesso! A página será recarregada.');
+        window.location.reload();
+      } else {
+        alert('Erro ao importar banco: ' + (data.error || 'Falha no processamento.'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro de conexão ao enviar o arquivo de banco de dados.');
+    } finally {
+      setUploadingDb(false);
+      e.target.value = '';
     }
   };
 
@@ -294,6 +331,45 @@ export default function Settings({ initialTab }) {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Gerenciamento do Banco de Dados & Backup */}
+          <div className="settings-section">
+            <div className="section-header">
+              <div className="section-icon">
+                <Download size={20} />
+              </div>
+              <div className="section-title-wrap">
+                <h2>Banco de Dados & Backup</h2>
+                <p>Baixe o backup local ou restaure no Easypanel para sincronizar todos os contatos e mensagens.</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
+              <a 
+                href="/api/admin/database/download" 
+                download="database.sqlite" 
+                className="btn-light" 
+                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#F4F4F5', fontWeight: 600, color: 'var(--text-main)' }}
+              >
+                <Download size={18} />
+                <span>Baixar Backup (.sqlite)</span>
+              </a>
+
+              <label 
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '8px', background: 'var(--primary)', color: '#18181B', fontWeight: 600, cursor: uploadingDb ? 'not-allowed' : 'pointer' }}
+              >
+                <Upload size={18} />
+                <span>{uploadingDb ? 'Importando...' : 'Restaurar / Importar (.sqlite)'}</span>
+                <input 
+                  type="file" 
+                  accept=".sqlite,.db" 
+                  onChange={handleUploadDatabase} 
+                  disabled={uploadingDb} 
+                  style={{ display: 'none' }} 
+                />
+              </label>
             </div>
           </div>
 

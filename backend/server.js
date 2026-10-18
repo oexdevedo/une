@@ -1367,6 +1367,57 @@ app.put('/api/users/me', async (req, res) => {
   }
 });
 
+// APIs para Backup e Restauração de Banco de Dados (.sqlite)
+app.get('/api/admin/database/download', (req, res) => {
+  const dbPath = process.env.DB_PATH || path.resolve(__dirname, 'database.sqlite');
+  if (!fs.existsSync(dbPath)) {
+    return res.status(404).json({ error: 'Arquivo de banco de dados não encontrado.' });
+  }
+  res.download(dbPath, 'database.sqlite');
+});
+
+app.post('/api/admin/database/upload', upload.single('database'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado.' });
+    }
+
+    const uploadedPath = req.file.path;
+    const dbPath = process.env.DB_PATH || path.resolve(__dirname, 'database.sqlite');
+
+    // Valida se o arquivo é um SQLite válido checando o header 'SQLite format 3'
+    const headerBuffer = Buffer.alloc(16);
+    const fd = fs.openSync(uploadedPath, 'r');
+    fs.readSync(fd, headerBuffer, 0, 16, 0);
+    fs.closeSync(fd);
+    const headerStr = headerBuffer.toString('utf8');
+
+    if (!headerStr.startsWith('SQLite format 3')) {
+      fs.unlinkSync(uploadedPath);
+      return res.status(400).json({ success: false, error: 'O arquivo enviado não é um banco de dados SQLite válido.' });
+    }
+
+    // Faz backup de segurança do arquivo atual se existir
+    if (fs.existsSync(dbPath)) {
+      const backupPath = `${dbPath}.bak_${Date.now()}`;
+      fs.copyFileSync(dbPath, backupPath);
+    }
+
+    // Substitui o banco pelo arquivo enviado
+    fs.copyFileSync(uploadedPath, dbPath);
+    fs.unlinkSync(uploadedPath);
+
+    // Re-executa verificação de tabelas
+    const initDbModule = require('./initialize_db');
+    await initDbModule.init();
+
+    res.json({ success: true, message: 'Banco de dados restaurado e sincronizado com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao importar banco de dados:', error);
+    res.status(500).json({ success: false, error: 'Erro ao processar importação do banco de dados.' });
+  }
+});
+
 
 // APIs para Configuração e Padrão de Calendário
 app.get('/api/calendar/settings', async (req, res) => {

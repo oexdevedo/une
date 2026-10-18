@@ -7,6 +7,8 @@
  * - Seguro para rodar em produção (Hostinger / VPS) ou em desenvolvimento local.
  */
 const { getDB } = require('./db');
+const fs = require('fs');
+const path = require('path');
 
 async function ensureColumn(db, tableName, columnName, columnDefinition) {
   try {
@@ -363,6 +365,15 @@ async function init() {
     console.log('✓ Usuário admin padrão criado (@admin / admin@unico.com / 123456)');
   }
 
+  const yuri = await db.get('SELECT id FROM users WHERE username = ? OR email = ?', ['yuri', 'yuri@exdevedor.com.br']);
+  if (!yuri) {
+    await db.run(
+      `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
+       VALUES (1, 'Yuri Assis', 'yuri', 'yuri@exdevedor.com.br', 'Gr@nd34rtun@', 'admin');`
+    );
+    console.log('✓ Usuário Yuri Assis (@yuri) cadastrado como Administrador!');
+  }
+
   // 5. Seed de Agentes Oficiais (Lucas Vendas e Mariana Confirmação)
   const agentLucas = await db.get('SELECT id FROM agents WHERE id = 2 OR name LIKE ?', ['%Lucas%']);
   if (!agentLucas) {
@@ -507,7 +518,123 @@ Início em {{data_inicio}} e término previsto para {{data_termino}}.`;
     console.log('✓ Tags padrão criadas');
   }
 
+  // 9. Importação de dados completos do seed_data.json (se existirem e tabelas estiverem vazias)
+  await importSeedData(db);
+
   console.log('🎉 Banco SQLite configurado com sucesso e 100% pronto para uso!');
+}
+
+async function importSeedData(db) {
+  const seedFile = path.resolve(__dirname, 'seed_data.json');
+  if (!fs.existsSync(seedFile)) return;
+
+  try {
+    const raw = fs.readFileSync(seedFile, 'utf8');
+    const data = JSON.parse(raw);
+
+    // 1. Sempre garantir o usuário Yuri Assis (@yuri) e Administrador
+    if (data.users && Array.isArray(data.users)) {
+      for (const u of data.users) {
+        const existing = await db.get('SELECT id FROM users WHERE email = ? OR username = ?', [u.email, u.username]);
+        if (!existing) {
+          await db.run(
+            `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [u.workspace_id || 1, u.name, u.username, u.email, u.password_hash, u.role || 'admin']
+          );
+        }
+      }
+    }
+
+    // 2. Se a tabela contacts estiver vazia, importar contatos do seed
+    const contactCount = await db.get('SELECT COUNT(*) as c FROM contacts');
+    if (contactCount.c === 0 && data.contacts && Array.isArray(data.contacts)) {
+      for (const c of data.contacts) {
+        await db.run(
+          `INSERT INTO contacts (id, workspace_id, list_id, name, phone, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [c.id, c.workspace_id || 1, c.list_id, c.name, c.phone, c.status, c.created_at]
+        );
+      }
+      console.log(`✓ ${data.contacts.length} contatos importados do seed.`);
+    }
+
+    // 3. Se a tabela agents tiver menos de 3, importar agentes do seed
+    if (data.agents && Array.isArray(data.agents)) {
+      for (const a of data.agents) {
+        const existing = await db.get('SELECT id FROM agents WHERE name = ?', [a.name]);
+        if (!existing) {
+          await db.run(
+            `INSERT INTO agents (workspace_id, name, icon, prompt, role, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [a.workspace_id || 1, a.name, a.icon, a.prompt, a.role, a.created_at]
+          );
+        }
+      }
+    }
+
+    // 4. Se kanban_projects estiver vazia, importar tarefas
+    const kanbanCount = await db.get('SELECT COUNT(*) as c FROM kanban_projects');
+    if (kanbanCount.c === 0 && data.kanban_projects && Array.isArray(data.kanban_projects)) {
+      for (const k of data.kanban_projects) {
+        await db.run(
+          `INSERT INTO kanban_projects (workspace_id, title, description, status, priority, due_date, tag, assignee_name, position, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [k.workspace_id || 1, k.title, k.description, k.status, k.priority, k.due_date, k.tag, k.assignee_name, k.position, k.created_at]
+        );
+      }
+    }
+
+    // 5. Se task_notes estiver vazia, importar post-its
+    const notesCount = await db.get('SELECT COUNT(*) as c FROM task_notes');
+    if (notesCount.c === 0 && data.task_notes && Array.isArray(data.task_notes)) {
+      for (const n of data.task_notes) {
+        await db.run(
+          `INSERT INTO task_notes (workspace_id, title, color, category, items, is_pinned, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [n.workspace_id || 1, n.title, n.color, n.category, n.items, n.is_pinned, n.created_at]
+        );
+      }
+    }
+
+    // 6. Se contracts estiver vazia, importar contratos
+    const contractCount = await db.get('SELECT COUNT(*) as c FROM contracts');
+    if (contractCount.c === 0 && data.contracts && Array.isArray(data.contracts)) {
+      for (const ct of data.contracts) {
+        await db.run(
+          `INSERT INTO contracts (workspace_id, template_id, client_name, client_phone, remote_jid, data, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [ct.workspace_id || 1, ct.template_id, ct.client_name, ct.client_phone, ct.remote_jid, ct.data, ct.status, ct.created_at]
+        );
+      }
+    }
+
+    // 7. Se calendar_events estiver vazia, importar eventos da agenda
+    const calCount = await db.get('SELECT COUNT(*) as c FROM calendar_events');
+    if (calCount.c === 0 && data.calendar_events && Array.isArray(data.calendar_events)) {
+      for (const ev of data.calendar_events) {
+        await db.run(
+          `INSERT INTO calendar_events (workspace_id, title, date, time, type, attendee_name, attendee_phone, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [ev.workspace_id || 1, ev.title, ev.date, ev.time, ev.type, ev.attendee_name, ev.attendee_phone, ev.created_at]
+        );
+      }
+    }
+
+    // 8. Se email_accounts estiver vazia, importar contas de e-mail
+    const emailAccCount = await db.get('SELECT COUNT(*) as c FROM email_accounts');
+    if (emailAccCount.c === 0 && data.email_accounts && Array.isArray(data.email_accounts)) {
+      for (const ea of data.email_accounts) {
+        await db.run(
+          `INSERT INTO email_accounts (workspace_id, name, email_address, display_name, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password, auto_reply_enabled, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [ea.workspace_id || 1, ea.name, ea.email_address, ea.display_name, ea.imap_host, ea.imap_port, ea.imap_secure, ea.smtp_host, ea.smtp_port, ea.smtp_secure, ea.username, ea.password, ea.auto_reply_enabled, ea.status]
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('Aviso ao importar seed_data.json:', err.message);
+  }
 }
 
 if (require.main === module) {
