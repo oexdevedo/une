@@ -1070,6 +1070,206 @@ app.get('/api/users/check-username/:username', async (req, res) => {
   }
 });
 
+// API de Resumo Completo do Dashboard (Visão Geral do Sistema)
+app.get('/api/dashboard/summary', async (req, res) => {
+  try {
+    const workspaceId = Number(req.query.workspace_id || 1);
+    const database = await db.getDB();
+
+    // 1. Mensagens e Conversas
+    const msgStats = await database.get(`
+      SELECT 
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN from_me = 1 THEN 1 ELSE 0 END), 0) as sent,
+        COALESCE(SUM(CASE WHEN from_me = 0 THEN 1 ELSE 0 END), 0) as received,
+        COUNT(DISTINCT remote_jid) as active_chats
+      FROM messages
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+
+    const recentMessages = await database.all(`
+      SELECT remote_jid, push_name, text, timestamp, from_me, type
+      FROM messages
+      WHERE workspace_id = ?
+      ORDER BY timestamp DESC
+      LIMIT 5
+    `, [workspaceId]);
+
+    // 2. Contatos
+    const contactStats = await database.get(`
+      SELECT 
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN status = 'Novo' THEN 1 ELSE 0 END), 0) as new_contacts,
+        COALESCE(SUM(CASE WHEN status = 'Qualificado' THEN 1 ELSE 0 END), 0) as qualified_contacts
+      FROM contacts
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+
+    const listsCount = await database.get('SELECT COUNT(*) as total FROM lists WHERE workspace_id = ?', [workspaceId]);
+
+    // 3. Agentes de IA
+    const agents = await database.all(`
+      SELECT id, name, icon, role, created_at
+      FROM agents
+      WHERE workspace_id = ?
+      ORDER BY id ASC
+    `, [workspaceId]);
+
+    // 4. Tarefas e Kanban
+    const kanbanStats = await database.get(`
+      SELECT 
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END), 0) as todo,
+        COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END), 0) as in_progress,
+        COALESCE(SUM(CASE WHEN status = 'review' THEN 1 ELSE 0 END), 0) as review,
+        COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) as done
+      FROM kanban_projects
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+
+    const recentKanban = await database.all(`
+      SELECT id, title, status, priority, due_date, tag, assignee_name
+      FROM kanban_projects
+      WHERE workspace_id = ?
+      ORDER BY updated_at DESC
+      LIMIT 4
+    `, [workspaceId]);
+
+    const notesCount = await database.get('SELECT COUNT(*) as total FROM task_notes WHERE workspace_id = ?', [workspaceId]);
+
+    // 5. Contratos
+    const contractStats = await database.get(`
+      SELECT 
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) as draft,
+        COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) as active,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) as completed
+      FROM contracts
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+
+    const recentContracts = await database.all(`
+      SELECT c.id, c.client_name, c.client_phone, c.status, c.created_at, ct.title as template_title
+      FROM contracts c
+      LEFT JOIN contract_templates ct ON ct.id = c.template_id
+      WHERE c.workspace_id = ?
+      ORDER BY c.created_at DESC
+      LIMIT 4
+    `, [workspaceId]);
+
+    // 6. E-mails
+    const emailStats = await database.get(`
+      SELECT 
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) as unread,
+        COALESCE(SUM(CASE WHEN ai_replied = 1 THEN 1 ELSE 0 END), 0) as ai_replied
+      FROM email_messages
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+
+    const emailAccounts = await database.all(`
+      SELECT id, name, email_address, status
+      FROM email_accounts
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+
+    const recentEmails = await database.all(`
+      SELECT id, sender, sender_name, subject, date, is_read, ai_replied
+      FROM email_messages
+      WHERE workspace_id = ?
+      ORDER BY date DESC
+      LIMIT 4
+    `, [workspaceId]);
+
+    // 7. Agenda & Calendário
+    const calendarStats = await database.get(`
+      SELECT COUNT(*) as total
+      FROM calendar_events
+      WHERE workspace_id = ?
+    `, [workspaceId]);
+
+    const upcomingEvents = await database.all(`
+      SELECT id, title, date, time, attendee_name
+      FROM calendar_events
+      WHERE workspace_id = ?
+      ORDER BY date ASC, time ASC
+      LIMIT 4
+    `, [workspaceId]);
+
+    // 8. Conexões Status
+    let waStatus = { status: 'disconnected' };
+    try {
+      const whatsappApi = require('./whatsapp');
+      waStatus = whatsappApi.getStatus(workspaceId);
+    } catch (e) {}
+
+    const ws = await database.get(`
+      SELECT ai_provider, ai_model, telegram_token, cal_link
+      FROM workspaces
+      WHERE id = ?
+    `, [workspaceId]);
+
+    res.json({
+      success: true,
+      workspace_id: workspaceId,
+      messages: {
+        total: msgStats?.total || 0,
+        sent: msgStats?.sent || 0,
+        received: msgStats?.received || 0,
+        active_chats: msgStats?.active_chats || 0,
+        recent: recentMessages || []
+      },
+      contacts: {
+        total: contactStats?.total || 0,
+        new: contactStats?.new_contacts || 0,
+        qualified: contactStats?.qualified_contacts || 0,
+        lists_total: listsCount?.total || 0
+      },
+      agents: {
+        total: agents?.length || 0,
+        list: agents || []
+      },
+      tasks: {
+        total: kanbanStats?.total || 0,
+        todo: kanbanStats?.todo || 0,
+        in_progress: kanbanStats?.in_progress || 0,
+        review: kanbanStats?.review || 0,
+        done: kanbanStats?.done || 0,
+        notes_total: notesCount?.total || 0,
+        recent: recentKanban || []
+      },
+      contracts: {
+        total: contractStats?.total || 0,
+        draft: contractStats?.draft || 0,
+        active: contractStats?.active || 0,
+        completed: contractStats?.completed || 0,
+        recent: recentContracts || []
+      },
+      emails: {
+        total: emailStats?.total || 0,
+        unread: emailStats?.unread || 0,
+        ai_replied: emailStats?.ai_replied || 0,
+        accounts: emailAccounts || [],
+        recent: recentEmails || []
+      },
+      calendar: {
+        total: calendarStats?.total || 0,
+        upcoming: upcomingEvents || []
+      },
+      connections: {
+        whatsapp: waStatus?.status || 'disconnected',
+        telegram: ws?.telegram_token ? 'connected' : 'disconnected',
+        email: emailAccounts?.some(a => a.status === 'connected') ? 'connected' : 'disconnected',
+        ai_provider: ws?.ai_provider || 'openai',
+        ai_model: ws?.ai_model || ''
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao buscar resumo do dashboard:', error);
+    res.status(500).json({ success: false, error: 'Erro ao buscar dados do dashboard' });
+  }
+});
+
 // APIs para Usuário / Perfil
 app.get('/api/users/me', async (req, res) => {
   try {
