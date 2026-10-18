@@ -892,6 +892,53 @@ app.delete('/api/lists/:id', async (req, res) => {
   }
 });
 
+app.post('/api/lists/:id/import-channel-contacts', async (req, res) => {
+  try {
+    const listId = req.params.id;
+    const { workspace_id, channel } = req.body;
+    const workspaceId = workspace_id || 1;
+    const database = await db.getDB();
+
+    let query = '';
+    let params = [workspaceId];
+    if (channel === 'telegram') {
+      query = `SELECT DISTINCT remote_jid, push_name FROM messages WHERE workspace_id = ? AND remote_jid LIKE '%@telegram'`;
+    } else {
+      query = `SELECT DISTINCT remote_jid, push_name FROM messages WHERE workspace_id = ? AND remote_jid NOT LIKE '%@telegram'`;
+    }
+
+    const rows = await database.all(query, params);
+    let count = 0;
+    for (const row of rows) {
+      let phone = '';
+      if (channel === 'telegram') {
+        phone = row.remote_jid.replace('@telegram', '');
+      } else {
+        phone = row.remote_jid.replace(/@.*$/, '').replace(/\D/g, '');
+      }
+      if (!phone) continue;
+
+      const name = row.push_name || (channel === 'telegram' ? `Telegram ${phone}` : `Lead ${phone}`);
+
+      const exists = await database.get(
+        'SELECT id FROM contacts WHERE workspace_id = ? AND list_id = ? AND phone = ?',
+        [workspaceId, listId, phone]
+      );
+      if (!exists) {
+        await database.run(
+          'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
+          [workspaceId, listId, name, phone, 'Novo']
+        );
+        count++;
+      }
+    }
+    res.json({ success: true, count });
+  } catch (err) {
+    console.error('Erro ao importar contatos do canal:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/contacts', async (req, res) => {
   try {
     const workspaceId = req.query.workspace_id || 1;

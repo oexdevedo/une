@@ -18,11 +18,19 @@ import {
   Check,
   Close,
   WarningDiamond,
-  Trash
+  Trash,
+  Telegram,
+  Smartphone
 } from 'pixelarticons/react';
 
 export default function MassMessage() {
   const [activeTab, setActiveTab] = useState('mensagem');
+  const [channel, setChannel] = useState('whatsapp'); // 'whatsapp' | 'telegram'
+  const [waStatus, setWaStatus] = useState('disconnected');
+  const [tgStatus, setTgStatus] = useState('disconnected');
+  const [tgBotInfo, setTgBotInfo] = useState(null);
+  const [isImportingChannel, setIsImportingChannel] = useState(false);
+
   const [messageText, setMessageText] = useState('Oi {primeiro_nome}! {Tudo bem?|Como vai?}\n\nAqui é a equipe Unne, passando para avisar sobre a nossa novidade.');
   const [previewText, setPreviewText] = useState('');
   
@@ -104,8 +112,29 @@ export default function MassMessage() {
     }
   };
 
+  const fetchChannelStatuses = async () => {
+    try {
+      const [waRes, tgRes] = await Promise.all([
+        fetch('/api/connections/whatsapp?workspace_id=1'),
+        fetch('/api/connections/telegram?workspace_id=1')
+      ]);
+      const waData = await waRes.json();
+      const tgData = await tgRes.json();
+      setWaStatus(waData.status || 'disconnected');
+      setTgStatus(tgData.status || 'disconnected');
+      if (tgData.botInfo) {
+        setTgBotInfo(tgData.botInfo);
+      }
+    } catch (e) {
+      console.error('Erro ao verificar status das conexões:', e);
+    }
+  };
+
   useEffect(() => {
     fetchLists();
+    fetchChannelStatuses();
+    const interval = setInterval(fetchChannelStatuses, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -115,6 +144,36 @@ export default function MassMessage() {
       setContacts([]);
     }
   }, [selectedListId]);
+
+  // Importar contatos das conversas do WhatsApp ou Telegram para a lista selecionada
+  const handleImportChannelContacts = async (targetChannel) => {
+    if (!selectedListId) {
+      alert('Selecione ou crie uma lista antes de importar contatos.');
+      return;
+    }
+    const channelName = targetChannel === 'telegram' ? 'Telegram' : 'WhatsApp';
+    setIsImportingChannel(true);
+    try {
+      const res = await fetch(`/api/lists/${selectedListId}/import-channel-contacts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: 1, channel: targetChannel })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ ${data.count} contato(s) do ${channelName} importado(s) para a lista com sucesso!`);
+        fetchLists(selectedListId);
+        fetchContacts(selectedListId);
+      } else {
+        alert('Erro ao importar contatos: ' + (data.error || 'Erro desconhecido'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Falha ao importar contatos do canal.');
+    } finally {
+      setIsImportingChannel(false);
+    }
+  };
 
   // Carrega Templates salvos
   useEffect(() => {
@@ -309,7 +368,7 @@ export default function MassMessage() {
     setPreviewText(parseSpintax(messageText));
   };
 
-  // Motor de Disparo em Massa
+  // Motor de Disparo em Massa Multi-Canal (WhatsApp e Telegram)
   const handleStartDispatch = async () => {
     if (contacts.length === 0) {
       alert('A lista selecionada não possui contatos cadastrados para envio.');
@@ -321,7 +380,20 @@ export default function MassMessage() {
     }
     if (isDispatching) return;
 
-    if (!confirm(`Deseja iniciar o disparo em massa para ${contacts.length} contatos da lista?`)) return;
+    const channelName = channel === 'telegram' ? 'Telegram' : 'WhatsApp';
+
+    // Validação preventiva de conexão do canal selecionado
+    if (channel === 'telegram' && tgStatus !== 'connected') {
+      if (!confirm('Atenção: O Telegram está desconectado no momento. Deseja tentar iniciar o disparo mesmo assim?')) {
+        return;
+      }
+    } else if (channel === 'whatsapp' && waStatus !== 'connected') {
+      if (!confirm('Atenção: O WhatsApp está desconectado no momento. Deseja tentar iniciar o disparo mesmo assim?')) {
+        return;
+      }
+    }
+
+    if (!confirm(`Deseja iniciar o disparo em massa para ${contacts.length} contatos via ${channelName}?`)) return;
 
     setIsDispatching(true);
     setActiveTab('logs');
@@ -332,7 +404,7 @@ export default function MassMessage() {
       setDispatchLogs(prev => [...prev, { id: Date.now() + Math.random(), time, type, text }]);
     };
 
-    addLog('info', `🚀 Campanha iniciada para ${contacts.length} contatos da lista.`);
+    addLog('info', `🚀 Campanha iniciada via ${channelName} para ${contacts.length} contatos da lista.`);
 
     let sentCount = 0;
     let failCount = 0;
@@ -344,7 +416,7 @@ export default function MassMessage() {
       if (i > 0 && i % batchSize === 0) {
         addLog('warning', `⏸️ Pausa anti-ban acionada: aguardando ${batchPause} segundos após ${batchSize} envios...`);
         await new Promise(r => setTimeout(r, batchPause * 1000));
-        addLog('info', `▶️ Retomando envios...`);
+        addLog('info', `▶️ Retomando envios via ${channelName}...`);
       }
 
       try {
@@ -354,34 +426,62 @@ export default function MassMessage() {
         contactMsg = contactMsg.replace(/{nome}/g, contact.name || 'Cliente');
         contactMsg = contactMsg.replace(/{email}/g, contact.email || '');
 
-        let targetPhone = String(contact.phone || '').replace(/\D/g, '');
-        if (!targetPhone.includes('@')) {
-          targetPhone = `${targetPhone}@s.whatsapp.net`;
+        let targetDest = '';
+        if (channel === 'telegram') {
+          let raw = String(contact.phone || contact.remote_jid || '').trim();
+          if (raw.endsWith('@telegram')) {
+            targetDest = raw;
+          } else {
+            let clean = raw.replace('@telegram', '').trim();
+            targetDest = `${clean}@telegram`;
+          }
+        } else {
+          let cleanPhone = String(contact.phone || '').replace(/\D/g, '');
+          if (!cleanPhone.includes('@')) {
+            targetDest = `${cleanPhone}@s.whatsapp.net`;
+          } else {
+            targetDest = cleanPhone;
+          }
         }
 
-        addLog('info', `[${i + 1}/${contacts.length}] Enviando para ${contact.name} (${contact.phone})...`);
+        const displayDest = targetDest.replace('@s.whatsapp.net', '').replace('@telegram', '');
+        addLog('info', `[${i + 1}/${contacts.length}] [${channelName.toUpperCase()}] Enviando para ${contact.name} (${displayDest})...`);
 
-        const res = await fetch('/api/messages/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workspace_id: 1,
-            to: targetPhone,
-            text: contactMsg
-          })
-        });
+        let res;
+        if (attachment) {
+          const formData = new FormData();
+          formData.append('workspace_id', '1');
+          formData.append('to', targetDest);
+          formData.append('text', contactMsg);
+          formData.append('file', attachment);
+          res = await fetch('/api/messages/send', {
+            method: 'POST',
+            body: formData
+          });
+        } else {
+          res = await fetch('/api/messages/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workspace_id: 1,
+              to: targetDest,
+              text: contactMsg
+            })
+          });
+        }
+
         const data = await res.json();
 
         if (data.success) {
           sentCount++;
-          addLog('success', `✓ Enviado com sucesso para ${contact.name} (${contact.phone})`);
+          addLog('success', `✓ [${channelName.toUpperCase()}] Enviado com sucesso para ${contact.name} (${displayDest})`);
         } else {
           failCount++;
-          addLog('error', `✗ Falha ao enviar para ${contact.name}: ${data.error || 'Erro na resposta do servidor'}`);
+          addLog('error', `✗ [${channelName.toUpperCase()}] Falha ao enviar para ${contact.name}: ${data.error || 'Erro na resposta do servidor'}`);
         }
       } catch (e) {
         failCount++;
-        addLog('error', `✗ Erro no envio para ${contact.name}: ${e.message}`);
+        addLog('error', `✗ [${channelName.toUpperCase()}] Erro no envio para ${contact.name}: ${e.message}`);
       }
 
       setStats({ total: contacts.length, sent: sentCount, failed: failCount });
@@ -393,7 +493,7 @@ export default function MassMessage() {
       }
     }
 
-    addLog('success', `🎉 Disparo finalizado! Total: ${contacts.length} | Enviados: ${sentCount} | Falhas: ${failCount}`);
+    addLog('success', `🎉 Disparo via ${channelName} finalizado! Total: ${contacts.length} | Enviados: ${sentCount} | Falhas: ${failCount}`);
     setIsDispatching(false);
   };
 
@@ -437,8 +537,40 @@ export default function MassMessage() {
           </button>
         </div>
         <div className="tab-nav-right">
-          <div className="nav-badges">
-            <span className="badge success">WhatsApp Conectado</span>
+          <div className="nav-badges" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <span 
+              className={`badge ${waStatus === 'connected' ? 'success' : 'light'}`}
+              style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+              title="Clique para alternar envio para WhatsApp"
+              onClick={() => setChannel('whatsapp')}
+            >
+              <Smartphone size={14} />
+              WhatsApp {waStatus === 'connected' ? 'Conectado' : 'Desconectado'}
+            </span>
+            <span 
+              className={`badge ${tgStatus === 'connected' ? 'info' : 'light'}`}
+              style={{ 
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                color: tgStatus === 'connected' ? '#0369a1' : undefined, 
+                backgroundColor: tgStatus === 'connected' ? '#e0f2fe' : undefined 
+              }}
+              title="Clique para alternar envio para Telegram"
+              onClick={() => setChannel('telegram')}
+            >
+              <Telegram size={14} />
+              Telegram {tgStatus === 'connected' ? (tgBotInfo?.username ? `@${tgBotInfo.username}` : 'Conectado') : 'Desconectado'}
+            </span>
+            <span 
+              className="badge" 
+              style={{ 
+                backgroundColor: channel === 'whatsapp' ? '#16a34a' : '#0284c7', 
+                color: '#ffffff', 
+                fontWeight: 700 
+              }}
+            >
+              Canal: {channel === 'whatsapp' ? 'WhatsApp' : 'Telegram'}
+            </span>
           </div>
         </div>
       </div>
@@ -448,6 +580,69 @@ export default function MassMessage() {
         {/* TAB 1: MENSAGEM */}
         {activeTab === 'mensagem' && (
           <div className="tab-pane active animated-fade">
+            
+            {/* SELETOR DE CANAL (WHATSAPP vs TELEGRAM) */}
+            <div className="premium-card" style={{ marginBottom: '24px' }}>
+              <div className="card-header" style={{ marginBottom: '16px' }}>
+                <div className="card-title">
+                  <Send size={20} /> Canal de Disparo da Campanha
+                </div>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                  Selecione se a mensagem em massa sairá pelo WhatsApp ou pelo Telegram
+                </span>
+              </div>
+
+              <div className="channel-selector-grid">
+                {/* Opção WhatsApp */}
+                <div 
+                  className={`channel-card ${channel === 'whatsapp' ? 'active-whatsapp' : ''}`}
+                  onClick={() => setChannel('whatsapp')}
+                >
+                  <div className="channel-info">
+                    <div className="channel-icon whatsapp">
+                      <Smartphone size={24} />
+                    </div>
+                    <div className="channel-meta">
+                      <h4>WhatsApp</h4>
+                      <p>Disparo direto para números de telefone com DDI e DDD</p>
+                      <span className={`channel-status-pill ${waStatus === 'connected' ? 'connected' : 'disconnected'}`}>
+                        {waStatus === 'connected' ? '● WhatsApp Conectado' : '○ Desconectado (Conectar na aba Conexões)'}
+                      </span>
+                    </div>
+                  </div>
+                  {channel === 'whatsapp' && (
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: '#22c55e', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Check size={18} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Opção Telegram */}
+                <div 
+                  className={`channel-card ${channel === 'telegram' ? 'active-telegram' : ''}`}
+                  onClick={() => setChannel('telegram')}
+                >
+                  <div className="channel-info">
+                    <div className="channel-icon telegram">
+                      <Telegram size={24} />
+                    </div>
+                    <div className="channel-meta">
+                      <h4>Telegram Bot</h4>
+                      <p>Disparo via Bot do Telegram para Chat IDs ou @usuários</p>
+                      <span className={`channel-status-pill ${tgStatus === 'connected' ? 'connected-tg' : 'disconnected'}`}>
+                        {tgStatus === 'connected' ? `● ${tgBotInfo?.username ? '@' + tgBotInfo.username : 'Bot Conectado'}` : '○ Desconectado (Conectar na aba Conexões)'}
+                      </span>
+                    </div>
+                  </div>
+                  {channel === 'telegram' && (
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: '#0284c7', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Check size={18} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="mass-dashboard-2col">
               
               <div className="premium-card">
@@ -478,12 +673,12 @@ export default function MassMessage() {
                   </select>
                 </div>
                 
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
                   <span style={{fontSize: '0.85rem', color: '#a1a5b7'}}>
                     {isLoadingContacts ? 'Carregando contatos...' : `${contacts.length} contato(s) carregado(s)`}
                   </span>
                   
-                  <div style={{display: 'flex', gap: '8px'}}>
+                  <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
                     <input 
                       type="file" 
                       ref={csvInputRef} 
@@ -491,11 +686,43 @@ export default function MassMessage() {
                       accept=".csv,.txt"
                       onChange={handleImportCSV} 
                     />
-                    <button className="btn-pill btn-light" onClick={() => csvInputRef.current?.click()}>
-                      <Plus size={14}/> Importar CSV
+                    <button className="btn-pill btn-light" onClick={() => csvInputRef.current?.click()} title="Importar arquivo CSV com contatos">
+                      <Plus size={14}/> CSV
+                    </button>
+                    <button 
+                      className="btn-pill btn-light" 
+                      onClick={() => handleImportChannelContacts('whatsapp')}
+                      disabled={isImportingChannel || !selectedListId}
+                      title="Puxar contatos que interagiram pelo WhatsApp para esta lista"
+                    >
+                      <Smartphone size={14}/> Puxar WhatsApp
+                    </button>
+                    <button 
+                      className="btn-pill btn-light" 
+                      onClick={() => handleImportChannelContacts('telegram')}
+                      disabled={isImportingChannel || !selectedListId}
+                      title="Puxar contatos que interagiram pelo Telegram para esta lista"
+                    >
+                      <Telegram size={14}/> Puxar Telegram
                     </button>
                   </div>
                 </div>
+
+                {channel === 'telegram' ? (
+                  <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd', fontSize: '0.82rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Telegram size={20} style={{ flexShrink: 0 }} />
+                    <div>
+                      <strong>Dica Telegram:</strong> Os destinatários desta lista devem conter o Chat ID numérico ou @username, e precisam ter iniciado o bot <strong>{tgBotInfo?.username ? `@${tgBotInfo.username}` : ''}</strong> (/start).
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', fontSize: '0.82rem', color: '#15803d', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Smartphone size={20} style={{ flexShrink: 0 }} />
+                    <div>
+                      <strong>Dica WhatsApp:</strong> Os destinatários desta lista devem ter número de telefone com DDI e DDD (ex: 5511999999999).
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="premium-card" style={{gridColumn: '1 / -1'}}>
@@ -532,7 +759,7 @@ export default function MassMessage() {
                     {attachment ? (
                       <span style={{color: 'var(--primary-dark)', wordBreak: 'break-all'}}>{attachment.name}</span>
                     ) : (
-                      <span>Anexar Arquivo (Mídia/Documento)</span>
+                      <span>Anexar Arquivo (Mídia/Documento para WhatsApp e Telegram)</span>
                     )}
                   </div>
                   <input 
@@ -567,11 +794,11 @@ export default function MassMessage() {
           <div className="tab-pane active animated-fade">
             <div className="premium-card" style={{maxWidth: '800px', margin: '0 auto'}}>
               <div className="card-header">
-                <div className="card-title"><Sliders size={20} /> Configurações de Motor Anti-Ban</div>
+                <div className="card-title"><Sliders size={20} /> Configurações de Motor Anti-Ban & Rate Limits</div>
               </div>
               
               <p style={{color: '#a1a5b7', marginBottom: '32px', fontSize: '0.95rem'}}>
-                Configure o comportamento do disparo para simular o uso humano e evitar bloqueios na sua conta de WhatsApp.
+                Configure o comportamento do disparo para simular o uso humano e evitar bloqueios na sua conta de WhatsApp ou limites no Telegram.
               </p>
               
               <div className="form-row">
@@ -581,7 +808,7 @@ export default function MassMessage() {
                     type="number" 
                     className="modern-input" 
                     value={minDelay}
-                    onChange={(e) => setMinDelay(Math.max(5, Number(e.target.value)))} 
+                    onChange={(e) => setMinDelay(Math.max(1, Number(e.target.value)))} 
                   />
                 </div>
                 <div className="form-group flex-1">
@@ -611,24 +838,60 @@ export default function MassMessage() {
                     type="number" 
                     className="modern-input" 
                     value={batchPause}
-                    onChange={(e) => setBatchPause(Math.max(10, Number(e.target.value)))} 
+                    onChange={(e) => setBatchPause(Math.max(5, Number(e.target.value)))} 
                   />
                 </div>
               </div>
 
               <div className="form-group">
-                <label>Linha de WhatsApp Remetente</label>
-                <select className="modern-input">
-                  <option>Linha 1 (Principal) - Conectado</option>
-                  <option>Revezamento (Round-Robin Múltiplas Linhas)</option>
-                </select>
+                <label>Canal e Linha de Remetente Ativa</label>
+                <div style={{ display: 'flex', gap: '14px', alignItems: 'center', padding: '16px 20px', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                  {channel === 'whatsapp' ? (
+                    <>
+                      <div className="channel-icon whatsapp" style={{ width: 38, height: 38 }}>
+                        <Smartphone size={20} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, color: '#1e1e2d' }}>Linha WhatsApp (Principal)</div>
+                        <div style={{ fontSize: '0.8rem', color: waStatus === 'connected' ? '#16a34a' : '#ef4444' }}>
+                          ● {waStatus === 'connected' ? 'Sessão Baileys Conectada e Pronta' : 'Desconectado - Conecte na página Conexões'}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="channel-icon telegram" style={{ width: 38, height: 38 }}>
+                        <Telegram size={20} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, color: '#1e1e2d' }}>Bot Telegram {tgBotInfo?.username ? `(@${tgBotInfo.username})` : ''}</div>
+                        <div style={{ fontSize: '0.8rem', color: tgStatus === 'connected' ? '#0284c7' : '#ef4444' }}>
+                          ● {tgStatus === 'connected' ? `Conectado como ${tgBotInfo?.first_name || 'Bot'}` : 'Desconectado - Conecte na página Conexões'}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  <button className="btn-pill btn-light" onClick={() => setChannel(channel === 'whatsapp' ? 'telegram' : 'whatsapp')} style={{ fontSize: '0.8rem' }}>
+                    Alternar para {channel === 'whatsapp' ? 'Telegram' : 'WhatsApp'}
+                  </button>
+                </div>
               </div>
               
-              <div style={{marginTop: '24px', padding: '16px', backgroundColor: '#fff8db', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'flex-start'}}>
-                <WarningDiamond size={24} color="#b48300" style={{flexShrink: 0}} />
+              <div style={{marginTop: '24px', padding: '16px', backgroundColor: channel === 'telegram' ? '#f0f9ff' : '#fff8db', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'flex-start', border: channel === 'telegram' ? '1px solid #bae6fd' : '1px solid #fef08a'}}>
+                {channel === 'telegram' ? (
+                  <Telegram size={24} color="#0284c7" style={{flexShrink: 0}} />
+                ) : (
+                  <WarningDiamond size={24} color="#b48300" style={{flexShrink: 0}} />
+                )}
                 <div>
-                  <h4 style={{margin: '0 0 4px 0', color: '#b48300', fontSize: '0.95rem'}}>Recomendação de Segurança</h4>
-                  <p style={{margin: 0, color: '#8c6600', fontSize: '0.85rem'}}>Para listas frias, não recomendamos enviar mais de 100 mensagens por dia por linha. Use spintax ativamente e mantenha uma variação alta no delay.</p>
+                  <h4 style={{margin: '0 0 4px 0', color: channel === 'telegram' ? '#0369a1' : '#b48300', fontSize: '0.95rem'}}>
+                    {channel === 'telegram' ? 'Diretrizes de Segurança Telegram' : 'Recomendação de Segurança WhatsApp'}
+                  </h4>
+                  <p style={{margin: 0, color: channel === 'telegram' ? '#0c4a6e' : '#8c6600', fontSize: '0.85rem'}}>
+                    {channel === 'telegram'
+                      ? 'O Telegram Bot API permite até 30 mensagens por segundo em broadcasts globais e cerca de 1 mensagem por segundo por chat individual para evitar erros 429 Too Many Requests.'
+                      : 'Para listas frias no WhatsApp, recomendamos enviar com intervalos de 15 a 40 segundos por mensagem e utilizar spintax ativamente para evitar denúncias ou bloqueios temporários.'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -643,15 +906,21 @@ export default function MassMessage() {
               {/* Preview Box */}
               <div className="premium-card">
                  <div className="card-header">
-                   <div className="card-title"><FileText size={20} /> Preview da Mensagem</div>
+                   <div className="card-title">
+                     <FileText size={20} /> Preview da Mensagem ({channel === 'telegram' ? 'Telegram' : 'WhatsApp'})
+                   </div>
                  </div>
                  
-                 <div className="preview-window">
+                 <div className={`preview-window ${channel === 'telegram' ? 'telegram' : ''}`}>
                     <div className="preview-top">
                       <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                        <div style={{width: 36, height: 36, borderRadius: '50%', backgroundColor: 'white', color: '#075E54', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'}}>M</div>
+                        <div style={{width: 36, height: 36, borderRadius: '50%', backgroundColor: 'white', color: channel === 'telegram' ? '#229ED9' : '#075E54', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'}}>
+                          {channel === 'telegram' ? 'TG' : 'WA'}
+                        </div>
                         <div>
-                          <div style={{fontWeight: 600, fontSize: '0.95rem'}}>Exemplo de Lead</div>
+                          <div style={{fontWeight: 600, fontSize: '0.95rem'}}>
+                            {channel === 'telegram' ? (tgBotInfo?.first_name || 'Bot Telegram') : 'Exemplo de Lead'}
+                          </div>
                           <div style={{fontSize: '0.75rem', opacity: 0.9}}>online</div>
                         </div>
                       </div>
@@ -678,31 +947,38 @@ export default function MassMessage() {
               <div style={{display: 'flex', flexDirection: 'column', gap: '24px'}}>
                 <div className="premium-card">
                   <div className="card-header">
-                    <div className="card-title"><Clock size={20} /> Agendamento</div>
+                    <div className="card-title"><Clock size={20} /> Agendamento & Canal</div>
                   </div>
-                  <p style={{fontSize: '0.9rem', color: '#a1a5b7', marginBottom: '16px'}}>
+                  <p style={{fontSize: '0.9rem', color: '#a1a5b7', marginBottom: '8px'}}>
                     Lista selecionada: <strong>{currentList ? currentList.name : 'Nenhuma'}</strong>
+                  </p>
+                  <p style={{fontSize: '0.9rem', color: '#a1a5b7', marginBottom: '16px'}}>
+                    Canal ativo: <strong style={{ color: channel === 'telegram' ? '#0284c7' : '#16a34a' }}>{channel === 'telegram' ? 'Telegram Bot' : 'WhatsApp'}</strong>
                   </p>
                   <input type="datetime-local" className="modern-input" />
                 </div>
                 
                 <div className="premium-card" style={{flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center'}}>
-                  <div style={{textAlign: 'center', marginBottom: '32px'}}>
+                  <div style={{textAlign: 'center', marginBottom: '24px'}}>
                     <div style={{fontSize: '3rem', fontWeight: 800, color: '#1e1e2d'}}>
                       {contacts.length}
                     </div>
                     <div style={{fontSize: '0.9rem', color: '#a1a5b7', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em'}}>
                       Contatos Prontos Para Envio
                     </div>
+                    <div style={{ marginTop: '12px', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', borderRadius: '20px', backgroundColor: channel === 'telegram' ? '#e0f2fe' : '#dcfce7', color: channel === 'telegram' ? '#0369a1' : '#15803d', fontWeight: 700, fontSize: '0.85rem' }}>
+                      {channel === 'telegram' ? <Telegram size={16}/> : <Smartphone size={16}/>}
+                      Disparo configurado via {channel === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                    </div>
                   </div>
                   
                   <button 
-                    className="btn-huge btn-primary"
+                    className={`btn-huge ${channel === 'telegram' ? 'btn-telegram' : 'btn-whatsapp'}`}
                     onClick={handleStartDispatch}
                     disabled={isDispatching || contacts.length === 0}
                     style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1 }}
                   >
-                    <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : 'INICIAR DISPARO'}
+                    <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : `INICIAR DISPARO VIA ${channel.toUpperCase()}`}
                   </button>
                 </div>
               </div>
