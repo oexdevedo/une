@@ -234,6 +234,10 @@ export default function MassMessage() {
 
   // Exclusão de Lista
   const handleDeleteList = async (id, name) => {
+    if (name === 'Agendados') {
+      alert('A lista automática "Agendados" é gerenciada pelo sistema e não pode ser excluída.');
+      return;
+    }
     if (!confirm(`Deseja realmente excluir a lista "${name}" e todos os seus contatos?`)) return;
     try {
       const res = await fetch(`/api/lists/${id}`, { method: 'DELETE' });
@@ -243,6 +247,8 @@ export default function MassMessage() {
           setSelectedListId('');
         }
         fetchLists();
+      } else {
+        alert(data.error || 'Erro ao excluir lista.');
       }
     } catch (err) {
       console.error(err);
@@ -666,7 +672,7 @@ export default function MassMessage() {
                     ) : (
                       lists.map(list => (
                         <option key={list.id} value={list.id}>
-                          {list.name} ({list.count || 0} contatos)
+                          {list.is_system || list.name === 'Agendados' ? `📅 [Automática] ${list.name}` : list.name} ({list.count || 0} contatos)
                         </option>
                       ))
                     )}
@@ -1106,8 +1112,15 @@ export default function MassMessage() {
                           setIsListModalOpen(false);
                         }}
                       >
-                        <div>
-                          <strong style={{ color: 'var(--text-main)', fontSize: '0.95rem' }}>{l.name}</strong>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <strong style={{ color: 'var(--text-main)', fontSize: '0.95rem' }}>{l.name}</strong>
+                            {(l.is_system || l.name === 'Agendados') && (
+                              <span style={{ fontSize: '0.7rem', background: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+                                Automática • Agenda
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                             {l.count || 0} contato(s)
                           </div>
@@ -1123,14 +1136,16 @@ export default function MassMessage() {
                           >
                             Selecionar
                           </button>
-                          <button 
-                            className="btn-icon" 
-                            title="Excluir lista"
-                            onClick={() => handleDeleteList(l.id, l.name)}
-                            style={{ color: '#EF4444', padding: '6px' }}
-                          >
-                            <Trash size={16} />
-                          </button>
+                          {!(l.is_system || l.name === 'Agendados') && (
+                            <button 
+                              className="btn-icon" 
+                              title="Excluir lista"
+                              onClick={() => handleDeleteList(l.id, l.name)}
+                              style={{ color: '#EF4444', padding: '6px' }}
+                            >
+                              <Trash size={16} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
