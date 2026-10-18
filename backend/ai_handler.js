@@ -3,13 +3,17 @@ dns.setDefaultResultOrder('ipv4first');
 const path = require('path');
 const fs = require('fs');
 const db = require('./db');
-const { Agent } = require('undici');
-
-const fetchDispatcher = new Agent({
-  headersTimeout: 180000,
-  bodyTimeout: 180000,
-  connectTimeout: 45000
-});
+let fetchDispatcher = undefined;
+try {
+  const { Agent } = require('undici');
+  fetchDispatcher = new Agent({
+    headersTimeout: 180000,
+    bodyTimeout: 180000,
+    connectTimeout: 45000
+  });
+} catch (e) {
+  // undici é opcional; caso não esteja disponível, o fetch nativo do Node.js usa seus timeouts padrão
+}
 
 function getPhoneNumberFromJid(jid, workspaceId = 1) {
   if (!jid) return '';
@@ -149,7 +153,7 @@ async function processMessage(workspaceId, msgObj, agentId) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
         },
-        dispatcher: fetchDispatcher,
+        ...(fetchDispatcher ? { dispatcher: fetchDispatcher } : {}),
         body: JSON.stringify({
           message: safeMessage,
           mode: 'chat'
@@ -385,7 +389,7 @@ Por favor, escreva a resposta completa a este e-mail.`;
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
         },
-        dispatcher: fetchDispatcher,
+        ...(fetchDispatcher ? { dispatcher: fetchDispatcher } : {}),
         body: JSON.stringify({
           message: safeMessage,
           mode: 'chat'
