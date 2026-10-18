@@ -926,6 +926,30 @@ app.post('/api/contacts', async (req, res) => {
   }
 });
 
+app.post('/api/contacts/bulk', async (req, res) => {
+  try {
+    const { workspace_id, list_id, contacts } = req.body;
+    const workspaceId = workspace_id || 1;
+    if (!Array.isArray(contacts) || contacts.length === 0) {
+      return res.status(400).json({ error: 'Lista de contatos vazia ou inválida' });
+    }
+    const database = await db.getDB();
+    let inserted = 0;
+    for (const c of contacts) {
+      if (!c.phone && !c.name) continue;
+      await database.run(
+        'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
+        [workspaceId, list_id || null, c.name || 'Sem nome', c.phone || '', c.status || 'Novo']
+      );
+      inserted++;
+    }
+    res.json({ success: true, count: inserted });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao importar contatos em lote' });
+  }
+});
+
 app.delete('/api/contacts/:id', async (req, res) => {
   try {
     const database = await db.getDB();

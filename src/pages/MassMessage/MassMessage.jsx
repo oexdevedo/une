@@ -17,7 +17,8 @@ import {
   ChartBarBig,
   Check,
   Close,
-  WarningDiamond
+  WarningDiamond,
+  Trash
 } from 'pixelarticons/react';
 
 export default function MassMessage() {
@@ -25,9 +26,97 @@ export default function MassMessage() {
   const [messageText, setMessageText] = useState('Oi {primeiro_nome}! {Tudo bem?|Como vai?}\n\nAqui é a equipe Unne, passando para avisar sobre a nossa novidade.');
   const [previewText, setPreviewText] = useState('');
   
+  // Listas e Contatos reais do banco
+  const [lists, setLists] = useState([]);
+  const [selectedListId, setSelectedListId] = useState('');
+  const [contacts, setContacts] = useState([]);
+  const [isLoadingLists, setIsLoadingLists] = useState(false);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+
+  // Modal de Listas Salvas
+  const [isListModalOpen, setIsListModalOpen] = useState(false);
+  const [newListName, setNewListName] = useState('');
+  const [isCreatingList, setIsCreatingList] = useState(false);
+
+  // Modal de Templates
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [savedTemplates, setSavedTemplates] = useState([]);
 
+  // Anexo e CSV
+  const [attachment, setAttachment] = useState(null);
+  const fileInputRef = useRef(null);
+  const csvInputRef = useRef(null);
+
+  // Configurações Anti-Ban
+  const [minDelay, setMinDelay] = useState(15);
+  const [maxDelay, setMaxDelay] = useState(40);
+  const [batchSize, setBatchSize] = useState(15);
+  const [batchPause, setBatchPause] = useState(60);
+
+  // Disparo e Logs
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchLogs, setDispatchLogs] = useState([
+    { id: 1, time: new Date().toLocaleTimeString('pt-BR'), type: 'info', text: 'Sistema pronto. Selecione uma lista de contatos e inicie o disparo.' }
+  ]);
+  const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0 });
+
+  // 1. Carrega as Listas do Workspace
+  const fetchLists = async (preferredId) => {
+    setIsLoadingLists(true);
+    try {
+      const res = await fetch('/api/lists?workspace_id=1');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setLists(data);
+        if (preferredId) {
+          setSelectedListId(String(preferredId));
+        } else if (data.length > 0 && !selectedListId) {
+          setSelectedListId(String(data[0].id));
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao buscar listas:', err);
+    } finally {
+      setIsLoadingLists(false);
+    }
+  };
+
+  // 2. Carrega os Contatos da Lista Selecionada
+  const fetchContacts = async (listId) => {
+    if (!listId) {
+      setContacts([]);
+      return;
+    }
+    setIsLoadingContacts(true);
+    try {
+      const res = await fetch(`/api/contacts?workspace_id=1&list_id=${listId}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setContacts(data);
+      } else {
+        setContacts([]);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar contatos da lista:', err);
+      setContacts([]);
+    } finally {
+      setIsLoadingContacts(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLists();
+  }, []);
+
+  useEffect(() => {
+    if (selectedListId) {
+      fetchContacts(selectedListId);
+    } else {
+      setContacts([]);
+    }
+  }, [selectedListId]);
+
+  // Carrega Templates salvos
   useEffect(() => {
     if (isTemplateModalOpen) {
       fetch('/api/templates?workspace_id=1')
@@ -56,9 +145,132 @@ export default function MassMessage() {
     setMessageText(content);
     setIsTemplateModalOpen(false);
   };
-  
-  const [attachment, setAttachment] = useState(null);
-  const fileInputRef = useRef(null);
+
+  // Criação rápida de Lista
+  const handleCreateList = async (e) => {
+    if (e) e.preventDefault();
+    if (!newListName.trim()) return;
+    setIsCreatingList(true);
+    try {
+      const res = await fetch('/api/lists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: 1, name: newListName.trim() })
+      });
+      const data = await res.json();
+      if (data.success && data.id) {
+        const createdId = data.id;
+        setNewListName('');
+        await fetchLists(createdId);
+        setIsListModalOpen(false);
+        alert('Lista criada com sucesso!');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao criar lista.');
+    } finally {
+      setIsCreatingList(false);
+    }
+  };
+
+  // Exclusão de Lista
+  const handleDeleteList = async (id, name) => {
+    if (!confirm(`Deseja realmente excluir a lista "${name}" e todos os seus contatos?`)) return;
+    try {
+      const res = await fetch(`/api/lists/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        if (String(selectedListId) === String(id)) {
+          setSelectedListId('');
+        }
+        fetchLists();
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir lista.');
+    }
+  };
+
+  // Importação de CSV para a Lista Selecionada
+  const handleImportCSV = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (!selectedListId) {
+      alert('Por favor, selecione ou crie uma lista antes de importar contatos.');
+      e.target.value = null;
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+        if (lines.length === 0) {
+          alert('O arquivo selecionado está vazio.');
+          return;
+        }
+
+        const parsedContacts = [];
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (i === 0 && /(nome|phone|telefone|contato|celular)/i.test(line)) {
+            continue;
+          }
+
+          const parts = line.split(/[;,\t]/).map(p => p.trim().replace(/^["']|["']$/g, ''));
+          let name = '';
+          let phone = '';
+
+          if (parts.length >= 2) {
+            if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
+              phone = parts[0].replace(/\D/g, '');
+              name = parts[1];
+            } else {
+              name = parts[0];
+              phone = parts[1].replace(/\D/g, '');
+            }
+          } else if (parts.length === 1) {
+            phone = parts[0].replace(/\D/g, '');
+            name = 'Contato ' + (i + 1);
+          }
+
+          if (phone && phone.length >= 8) {
+            parsedContacts.push({ name: name || 'Lead', phone });
+          }
+        }
+
+        if (parsedContacts.length === 0) {
+          alert('Nenhum contato com telefone válido foi encontrado no arquivo.');
+          return;
+        }
+
+        const res = await fetch('/api/contacts/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workspace_id: 1,
+            list_id: selectedListId,
+            contacts: parsedContacts
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`✅ ${data.count || parsedContacts.length} contatos importados com sucesso!`);
+          fetchLists(selectedListId);
+          fetchContacts(selectedListId);
+        } else {
+          alert('Erro ao importar contatos: ' + (data.error || 'Erro desconhecido'));
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Erro ao processar arquivo: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
+  };
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -70,12 +282,10 @@ export default function MassMessage() {
 
   const parseSpintax = (text) => {
     let parsed = text;
-    // Mock variable replacement
     parsed = parsed.replace(/{primeiro_nome}/g, 'João');
     parsed = parsed.replace(/{nome}/g, 'João Silva');
     parsed = parsed.replace(/{saudacao}/g, 'Bom dia');
     
-    // Spintax {a|b|c} replacement
     const spintaxRegex = /\{([^{}]*)\}/g;
     parsed = parsed.replace(spintaxRegex, (match, contents) => {
       if (!contents.includes('|')) return match;
@@ -98,6 +308,96 @@ export default function MassMessage() {
   const handleTestSpintax = () => {
     setPreviewText(parseSpintax(messageText));
   };
+
+  // Motor de Disparo em Massa
+  const handleStartDispatch = async () => {
+    if (contacts.length === 0) {
+      alert('A lista selecionada não possui contatos cadastrados para envio.');
+      return;
+    }
+    if (!messageText.trim()) {
+      alert('Escreva uma mensagem antes de iniciar o disparo.');
+      return;
+    }
+    if (isDispatching) return;
+
+    if (!confirm(`Deseja iniciar o disparo em massa para ${contacts.length} contatos da lista?`)) return;
+
+    setIsDispatching(true);
+    setActiveTab('logs');
+    setStats({ total: contacts.length, sent: 0, failed: 0 });
+
+    const addLog = (type, text) => {
+      const time = new Date().toLocaleTimeString('pt-BR');
+      setDispatchLogs(prev => [...prev, { id: Date.now() + Math.random(), time, type, text }]);
+    };
+
+    addLog('info', `🚀 Campanha iniciada para ${contacts.length} contatos da lista.`);
+
+    let sentCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < contacts.length; i++) {
+      const contact = contacts[i];
+
+      // Pausa Anti-Ban a cada lote
+      if (i > 0 && i % batchSize === 0) {
+        addLog('warning', `⏸️ Pausa anti-ban acionada: aguardando ${batchPause} segundos após ${batchSize} envios...`);
+        await new Promise(r => setTimeout(r, batchPause * 1000));
+        addLog('info', `▶️ Retomando envios...`);
+      }
+
+      try {
+        let contactMsg = parseSpintax(messageText);
+        const firstName = contact.name ? contact.name.split(' ')[0] : 'Cliente';
+        contactMsg = contactMsg.replace(/{primeiro_nome}/g, firstName);
+        contactMsg = contactMsg.replace(/{nome}/g, contact.name || 'Cliente');
+        contactMsg = contactMsg.replace(/{email}/g, contact.email || '');
+
+        let targetPhone = String(contact.phone || '').replace(/\D/g, '');
+        if (!targetPhone.includes('@')) {
+          targetPhone = `${targetPhone}@s.whatsapp.net`;
+        }
+
+        addLog('info', `[${i + 1}/${contacts.length}] Enviando para ${contact.name} (${contact.phone})...`);
+
+        const res = await fetch('/api/messages/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workspace_id: 1,
+            to: targetPhone,
+            text: contactMsg
+          })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          sentCount++;
+          addLog('success', `✓ Enviado com sucesso para ${contact.name} (${contact.phone})`);
+        } else {
+          failCount++;
+          addLog('error', `✗ Falha ao enviar para ${contact.name}: ${data.error || 'Erro na resposta do servidor'}`);
+        }
+      } catch (e) {
+        failCount++;
+        addLog('error', `✗ Erro no envio para ${contact.name}: ${e.message}`);
+      }
+
+      setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+
+      if (i < contacts.length - 1) {
+        const delaySec = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+        addLog('info', `⏳ Intervalo de segurança: aguardando ${delaySec}s...`);
+        await new Promise(r => setTimeout(r, delaySec * 1000));
+      }
+    }
+
+    addLog('success', `🎉 Disparo finalizado! Total: ${contacts.length} | Enviados: ${sentCount} | Falhas: ${failCount}`);
+    setIsDispatching(false);
+  };
+
+  const currentList = lists.find(l => String(l.id) === String(selectedListId));
 
   return (
     <div className="mass-container">
@@ -145,8 +445,7 @@ export default function MassMessage() {
 
       <div className="mass-content-area">
         
-        {/* TABS CONTENT */}
-        
+        {/* TAB 1: MENSAGEM */}
         {activeTab === 'mensagem' && (
           <div className="tab-pane active animated-fade">
             <div className="mass-dashboard-2col">
@@ -154,20 +453,48 @@ export default function MassMessage() {
               <div className="premium-card">
                 <div className="card-header">
                   <div className="card-title"><Users size={20} /> Destinatários da Campanha</div>
-                  <button className="btn-pill btn-light"><Bulletlist size={14}/> Listas Salvas</button>
+                  <button className="btn-pill btn-light" onClick={() => setIsListModalOpen(true)}>
+                    <Bulletlist size={14}/> Listas Salvas
+                  </button>
                 </div>
                 
                 <div className="form-group">
                   <label>Selecionar Lista de Contatos:</label>
-                  <select className="modern-input">
-                    <option>Frios (0 contatos)</option>
-                    <option>Clientes Base (142 contatos)</option>
-                    <option>Leads Campanha Ads (85 contatos)</option>
+                  <select 
+                    className="modern-input"
+                    value={selectedListId}
+                    onChange={(e) => setSelectedListId(e.target.value)}
+                    disabled={isLoadingLists}
+                  >
+                    {lists.length === 0 ? (
+                      <option value="">Nenhuma lista cadastrada (clique em Listas Salvas para criar)</option>
+                    ) : (
+                      lists.map(list => (
+                        <option key={list.id} value={list.id}>
+                          {list.name} ({list.count || 0} contatos)
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
+                
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                  <span style={{fontSize: '0.85rem', color: '#a1a5b7'}}>0 contato(s) carregado(s)</span>
-                  <button className="btn-pill btn-light"><Plus size={14}/> Importar CSV</button>
+                  <span style={{fontSize: '0.85rem', color: '#a1a5b7'}}>
+                    {isLoadingContacts ? 'Carregando contatos...' : `${contacts.length} contato(s) carregado(s)`}
+                  </span>
+                  
+                  <div style={{display: 'flex', gap: '8px'}}>
+                    <input 
+                      type="file" 
+                      ref={csvInputRef} 
+                      style={{display: 'none'}} 
+                      accept=".csv,.txt"
+                      onChange={handleImportCSV} 
+                    />
+                    <button className="btn-pill btn-light" onClick={() => csvInputRef.current?.click()}>
+                      <Plus size={14}/> Importar CSV
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -235,6 +562,7 @@ export default function MassMessage() {
           </div>
         )}
 
+        {/* TAB 2: CONFIGURAÇÃO */}
         {activeTab === 'config' && (
           <div className="tab-pane active animated-fade">
             <div className="premium-card" style={{maxWidth: '800px', margin: '0 auto'}}>
@@ -249,22 +577,42 @@ export default function MassMessage() {
               <div className="form-row">
                 <div className="form-group flex-1">
                   <label>Atraso Mínimo entre mensagens (segundos)</label>
-                  <input type="number" className="modern-input" defaultValue={20} />
+                  <input 
+                    type="number" 
+                    className="modern-input" 
+                    value={minDelay}
+                    onChange={(e) => setMinDelay(Math.max(5, Number(e.target.value)))} 
+                  />
                 </div>
                 <div className="form-group flex-1">
                   <label>Atraso Máximo (segundos)</label>
-                  <input type="number" className="modern-input" defaultValue={50} />
+                  <input 
+                    type="number" 
+                    className="modern-input" 
+                    value={maxDelay}
+                    onChange={(e) => setMaxDelay(Math.max(minDelay, Number(e.target.value)))} 
+                  />
                 </div>
               </div>
 
               <div className="form-row">
                 <div className="form-group flex-1">
                   <label>Pausar envio a cada (qtd de mensagens)</label>
-                  <input type="number" className="modern-input" defaultValue={15} />
+                  <input 
+                    type="number" 
+                    className="modern-input" 
+                    value={batchSize}
+                    onChange={(e) => setBatchSize(Math.max(1, Number(e.target.value)))} 
+                  />
                 </div>
                 <div className="form-group flex-1">
                   <label>Tempo de pausa em lote (segundos)</label>
-                  <input type="number" className="modern-input" defaultValue={90} />
+                  <input 
+                    type="number" 
+                    className="modern-input" 
+                    value={batchPause}
+                    onChange={(e) => setBatchPause(Math.max(10, Number(e.target.value)))} 
+                  />
                 </div>
               </div>
 
@@ -287,6 +635,7 @@ export default function MassMessage() {
           </div>
         )}
 
+        {/* TAB 3: DISPARO */}
         {activeTab === 'disparo' && (
           <div className="tab-pane active animated-fade">
             <div className="mass-dashboard-2col" style={{gridTemplateColumns: '1fr 1fr'}}>
@@ -332,19 +681,28 @@ export default function MassMessage() {
                     <div className="card-title"><Clock size={20} /> Agendamento</div>
                   </div>
                   <p style={{fontSize: '0.9rem', color: '#a1a5b7', marginBottom: '16px'}}>
-                    Selecione uma data e hora para que o sistema inicie o disparo automaticamente. Deixe em branco para começar no momento do clique.
+                    Lista selecionada: <strong>{currentList ? currentList.name : 'Nenhuma'}</strong>
                   </p>
                   <input type="datetime-local" className="modern-input" />
                 </div>
                 
                 <div className="premium-card" style={{flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center'}}>
                   <div style={{textAlign: 'center', marginBottom: '32px'}}>
-                    <div style={{fontSize: '3rem', fontWeight: 800, color: '#1e1e2d'}}>0</div>
-                    <div style={{fontSize: '0.9rem', color: '#a1a5b7', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em'}}>Contatos Prontos Para Envio</div>
+                    <div style={{fontSize: '3rem', fontWeight: 800, color: '#1e1e2d'}}>
+                      {contacts.length}
+                    </div>
+                    <div style={{fontSize: '0.9rem', color: '#a1a5b7', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em'}}>
+                      Contatos Prontos Para Envio
+                    </div>
                   </div>
                   
-                  <button className="btn-huge btn-primary">
-                    <Send size={24} /> INICIAR DISPARO
+                  <button 
+                    className="btn-huge btn-primary"
+                    onClick={handleStartDispatch}
+                    disabled={isDispatching || contacts.length === 0}
+                    style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1 }}
+                  >
+                    <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : 'INICIAR DISPARO'}
                   </button>
                 </div>
               </div>
@@ -353,28 +711,28 @@ export default function MassMessage() {
           </div>
         )}
 
+        {/* TAB 4: RELATÓRIOS E LOGS */}
         {activeTab === 'logs' && (
           <div className="tab-pane active animated-fade">
             <div className="premium-card" style={{marginBottom: '24px'}}>
               <div className="card-header">
-                <div className="card-title"><ChartBarBig size={20} /> Desempenho da Última Campanha</div>
-                <select className="modern-input" style={{width: 'auto', padding: '8px 16px', minHeight: 'auto'}}>
-                  <option>Campanha Atual</option>
-                  <option>Disparo Mães (Semana Passada)</option>
-                </select>
+                <div className="card-title"><ChartBarBig size={20} /> Desempenho da Campanha</div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  {currentList ? currentList.name : 'Campanha Atual'}
+                </div>
               </div>
               
               <div className="stats-grid">
                 <div className="stat-box">
-                  <div className="stat-value">0</div>
-                  <div className="stat-label">Total Processado</div>
+                  <div className="stat-value">{stats.total || contacts.length}</div>
+                  <div className="stat-label">Total de Contatos</div>
                 </div>
                 <div className="stat-box success">
-                  <div className="stat-value">0</div>
+                  <div className="stat-value">{stats.sent}</div>
                   <div className="stat-label">Enviadas <Check size={14}/></div>
                 </div>
                 <div className="stat-box error">
-                  <div className="stat-value">0</div>
+                  <div className="stat-value">{stats.failed}</div>
                   <div className="stat-label">Falhas <Close size={14}/></div>
                 </div>
               </div>
@@ -383,14 +741,29 @@ export default function MassMessage() {
             <div className="premium-card">
               <div className="card-header">
                 <div className="card-title">Console de Logs em Tempo Real</div>
-                <button className="btn-pill btn-light">Exportar CSV</button>
+                <button 
+                  className="btn-pill btn-light"
+                  onClick={() => {
+                    const csvContent = "data:text/csv;charset=utf-8," + dispatchLogs.map(l => `"${l.time}","${l.type}","${l.text}"`).join("\n");
+                    const encodedUri = encodeURI(csvContent);
+                    const link = document.createElement("a");
+                    link.setAttribute("href", encodedUri);
+                    link.setAttribute("download", "logs_disparo.csv");
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                  }}
+                >
+                  Exportar CSV
+                </button>
               </div>
               
               <div className="logs-terminal">
-                <div className="log-entry info">[10:00:00] Sistema pronto. Aguardando inicialização da campanha...</div>
-                {/* Simulated future logs */}
-                {/* <div className="log-entry success">[10:01:23] Enviado com sucesso para +55 11 9999-9999</div> */}
-                {/* <div className="log-entry warning">[10:01:24] Pausa de 45 segundos acionada (Anti-ban)...</div> */}
+                {dispatchLogs.map(log => (
+                  <div key={log.id} className={`log-entry ${log.type}`}>
+                    [{log.time}] {log.text}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -398,6 +771,103 @@ export default function MassMessage() {
 
       </div>
 
+      {/* MODAL DE LISTAS SALVAS */}
+      {isListModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsListModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '540px' }}>
+            <div className="modal-header">
+              <h2>Gerenciar Listas de Contatos</h2>
+              <button className="btn-icon" onClick={() => setIsListModalOpen(false)}>
+                <Close size={24} />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Formulário de Criação Rápida */}
+              <form onSubmit={handleCreateList} style={{ display: 'flex', gap: '10px' }}>
+                <input 
+                  type="text" 
+                  className="modern-input" 
+                  placeholder="Nome da nova lista (ex: Leads Instagram)" 
+                  value={newListName}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button 
+                  type="submit" 
+                  className="btn-primary" 
+                  disabled={isCreatingList || !newListName.trim()}
+                  style={{ padding: '0 20px', whiteSpace: 'nowrap' }}
+                >
+                  {isCreatingList ? 'Criando...' : '+ Criar Lista'}
+                </button>
+              </form>
+
+              {/* Lista de Listas Salvas */}
+              <div>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Listas Disponíveis:</h4>
+                {lists.length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '16px' }}>
+                    Nenhuma lista cadastrada ainda. Crie uma acima!
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {lists.map(l => (
+                      <div 
+                        key={l.id} 
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '12px 16px',
+                          border: String(selectedListId) === String(l.id) ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          borderRadius: '8px',
+                          backgroundColor: String(selectedListId) === String(l.id) ? '#F0FDF4' : 'var(--surface)',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => {
+                          setSelectedListId(String(l.id));
+                          setIsListModalOpen(false);
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: 'var(--text-main)', fontSize: '0.95rem' }}>{l.name}</strong>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {l.count || 0} contato(s)
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                          <button 
+                            className="btn-pill btn-light"
+                            onClick={() => {
+                              setSelectedListId(String(l.id));
+                              setIsListModalOpen(false);
+                            }}
+                            style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                          >
+                            Selecionar
+                          </button>
+                          <button 
+                            className="btn-icon" 
+                            title="Excluir lista"
+                            onClick={() => handleDeleteList(l.id, l.name)}
+                            style={{ color: '#EF4444', padding: '6px' }}
+                          >
+                            <Trash size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE TEMPLATES */}
       {isTemplateModalOpen && (
         <div className="modal-overlay" onClick={() => setIsTemplateModalOpen(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
