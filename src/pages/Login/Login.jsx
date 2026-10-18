@@ -36,7 +36,7 @@ export default function Login() {
     }
 
     try {
-      const res = await fetch(`http://localhost:3001/api/users/check-username/${clean}`);
+      const res = await fetch(`/api/users/check-username/${clean}`);
       const data = await res.json();
       if (data.available) {
         setUsernameStatus({ available: true, message: 'Disponível' });
@@ -55,7 +55,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('http://localhost:3001/api/auth/login', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword })
@@ -100,7 +100,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('http://localhost:3001/api/auth/register', {
+      const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

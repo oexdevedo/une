@@ -1073,22 +1073,43 @@ app.get('/api/users/check-username/:username', async (req, res) => {
 // APIs para Usuário / Perfil
 app.get('/api/users/me', async (req, res) => {
   try {
-    const database = await db.getDB();
-    const user = await database.get('SELECT id, workspace_id, name, username, email, role, created_at FROM users WHERE id = 1');
-    if (user) {
-      user.username = user.username ? `@${user.username.replace(/^@+/, '')}` : '';
+    const userId = req.headers['x-user-id'] || req.query.user_id || req.query.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Usuário não autenticado.' });
     }
-    res.json(user || { name: 'Admin', username: '@admin', email: 'admin@unico.com' });
+
+    const database = await db.getDB();
+    const user = await database.get(
+      'SELECT id, workspace_id, name, username, email, role, created_at FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
+
+    user.username = user.username ? `@${user.username.replace(/^@+/, '')}` : '';
+    res.json(user);
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao buscar dados do usuário:', error);
     res.status(500).json({ error: 'Erro ao buscar dados do usuário' });
   }
 });
 
 app.put('/api/users/me', async (req, res) => {
   try {
+    const userId = req.headers['x-user-id'] || req.body.user_id || req.body.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Usuário não autenticado.' });
+    }
+
     const { name, username, email, password } = req.body;
     const database = await db.getDB();
+
+    const currentUser = await database.get('SELECT id FROM users WHERE id = ?', [userId]);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
 
     let cleanHandle = null;
     if (username) {
@@ -1099,14 +1120,21 @@ app.put('/api/users/me', async (req, res) => {
       cleanHandle = handleCheck.clean;
 
       // Verifica se outro usuário já usa esse username
-      const existing = await database.get('SELECT id FROM users WHERE LOWER(username) = ? AND id != 1', [cleanHandle]);
+      const existing = await database.get(
+        'SELECT id FROM users WHERE LOWER(username) = ? AND id != ?',
+        [cleanHandle, userId]
+      );
       if (existing) {
         return res.status(400).json({ success: false, error: `O @${cleanHandle} já pertence a outra conta.` });
       }
     }
 
     if (email) {
-      const existingEmail = await database.get('SELECT id FROM users WHERE LOWER(email) = ? AND id != 1', [email.trim().toLowerCase()]);
+      const cleanEmail = email.trim().toLowerCase();
+      const existingEmail = await database.get(
+        'SELECT id FROM users WHERE LOWER(email) = ? AND id != ?',
+        [cleanEmail, userId]
+      );
       if (existingEmail) {
         return res.status(400).json({ success: false, error: 'Este e-mail já pertence a outra conta.' });
       }
@@ -1114,27 +1142,27 @@ app.put('/api/users/me', async (req, res) => {
 
     if (password && password.trim()) {
       await database.run(
-        'UPDATE users SET name = ?, username = ?, email = ?, password_hash = ? WHERE id = 1',
-        [name, cleanHandle, email, password]
+        'UPDATE users SET name = ?, username = ?, email = ?, password_hash = ? WHERE id = ?',
+        [name, cleanHandle, email, password, userId]
       );
     } else {
       await database.run(
-        'UPDATE users SET name = ?, username = ?, email = ? WHERE id = 1',
-        [name, cleanHandle, email]
+        'UPDATE users SET name = ?, username = ?, email = ? WHERE id = ?',
+        [name, cleanHandle, email, userId]
       );
     }
 
     res.json({
       success: true,
       user: {
-        id: 1,
+        id: Number(userId),
         name,
         username: cleanHandle ? `@${cleanHandle}` : '',
         email
       }
     });
   } catch (error) {
-    console.error(error);
+    console.error('Erro ao atualizar dados do usuário:', error);
     res.status(500).json({ success: false, error: 'Erro ao atualizar dados do usuário' });
   }
 });

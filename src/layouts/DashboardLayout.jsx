@@ -45,15 +45,45 @@ export default function DashboardLayout() {
   });
 
   React.useEffect(() => {
-    fetch('http://localhost:3001/api/users/me')
-      .then(r => r.json())
+    const syncUser = () => {
+      try {
+        const u = JSON.parse(localStorage.getItem('unne_user') || 'null');
+        if (u) setCurrentUser(u);
+      } catch (e) {}
+    };
+
+    window.addEventListener('user-updated', syncUser);
+    window.addEventListener('storage', syncUser);
+
+    const cached = currentUser;
+    if (!cached || !cached.id) return;
+
+    fetch('/api/users/me', {
+      headers: {
+        'x-user-id': cached.id
+      }
+    })
+      .then(r => {
+        if (r.status === 401 || r.status === 404) {
+          localStorage.removeItem('unne_user');
+          window.location.href = '/login';
+          return null;
+        }
+        return r.json();
+      })
       .then(data => {
         if (data && data.name) {
-          setCurrentUser(data);
-          localStorage.setItem('unne_user', JSON.stringify(data));
+          const updated = { ...cached, ...data };
+          setCurrentUser(updated);
+          localStorage.setItem('unne_user', JSON.stringify(updated));
         }
       })
       .catch(console.error);
+
+    return () => {
+      window.removeEventListener('user-updated', syncUser);
+      window.removeEventListener('storage', syncUser);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -169,7 +199,7 @@ export default function DashboardLayout() {
                 </div>
                 <div className="topbar-user-details">
                   <span className="topbar-user-name">{currentUser?.name || 'Usuário'}</span>
-                  <span className="topbar-user-handle">{currentUser?.username || '@admin'}</span>
+                  <span className="topbar-user-handle">{currentUser?.username || ''}</span>
                 </div>
               </Link>
               <button 

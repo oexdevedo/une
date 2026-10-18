@@ -36,20 +36,51 @@ export default function Settings({ initialTab }) {
     setSearchParams({ tab });
   };
 
-  const [formData, setFormData] = useState({
-    name: '',
-    username: '',
-    email: '',
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: ''
+  const [formData, setFormData] = useState(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('unne_user') || 'null');
+      return {
+        name: u?.name || '',
+        username: (u?.username || '').replace(/^@+/, ''),
+        email: u?.email || '',
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      };
+    } catch {
+      return {
+        name: '',
+        username: '',
+        email: '',
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      };
+    }
   });
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/users/me')
-      .then(r => r.json())
+    const cachedUser = JSON.parse(localStorage.getItem('unne_user') || 'null');
+    if (!cachedUser || !cachedUser.id) {
+      window.location.href = '/login';
+      return;
+    }
+
+    fetch('/api/users/me', {
+      headers: {
+        'x-user-id': cachedUser.id
+      }
+    })
+      .then(r => {
+        if (r.status === 401 || r.status === 404) {
+          localStorage.removeItem('unne_user');
+          window.location.href = '/login';
+          return null;
+        }
+        return r.json();
+      })
       .then(data => {
-        if (data) {
+        if (data && data.name) {
           setFormData(prev => ({
             ...prev,
             name: data.name || '',
@@ -71,11 +102,23 @@ export default function Settings({ initialTab }) {
       alert('A nova senha e a confirmação não batem.');
       return;
     }
+
+    const cachedUser = JSON.parse(localStorage.getItem('unne_user') || 'null');
+    if (!cachedUser || !cachedUser.id) {
+      alert('Sessão expirada. Faça login novamente.');
+      window.location.href = '/login';
+      return;
+    }
+
     try {
-      const res = await fetch('http://localhost:3001/api/users/me', {
+      const res = await fetch('/api/users/me', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': cachedUser.id
+        },
         body: JSON.stringify({
+          user_id: cachedUser.id,
           name: formData.name,
           username: formData.username,
           email: formData.email,
@@ -84,14 +127,21 @@ export default function Settings({ initialTab }) {
       });
       const data = await res.json();
       if (data.success) {
-        alert('Configurações da conta salvas no banco de dados com sucesso!');
+        alert('Configurações da conta salvas com sucesso!');
         // Atualiza cache local
-        const cachedUser = JSON.parse(localStorage.getItem('unne_user') || '{}');
-        localStorage.setItem('unne_user', JSON.stringify({
+        const updatedUser = {
           ...cachedUser,
           name: formData.name,
           username: `@${formData.username.replace(/^@+/, '')}`,
           email: formData.email
+        };
+        localStorage.setItem('unne_user', JSON.stringify(updatedUser));
+        window.dispatchEvent(new Event('user-updated'));
+        setFormData(prev => ({
+          ...prev,
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: ''
         }));
       } else {
         alert('Erro ao salvar: ' + (data.error || 'Verifique os dados informados'));

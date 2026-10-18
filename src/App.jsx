@@ -25,13 +25,59 @@ function PlaceholderPage({ title }) {
   );
 }
 
+function ProtectedRoute({ children }) {
+  const userStr = localStorage.getItem('unne_user');
+  let user = null;
+  try {
+    user = JSON.parse(userStr);
+  } catch {
+    user = null;
+  }
+
+  if (!user || !user.id) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
+
+function PublicRoute({ children }) {
+  const userStr = localStorage.getItem('unne_user');
+  let user = null;
+  try {
+    user = JSON.parse(userStr);
+  } catch {
+    user = null;
+  }
+
+  if (user && user.id) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route 
+          path="/login" 
+          element={
+            <PublicRoute>
+              <Login />
+            </PublicRoute>
+          } 
+        />
         
-        <Route path="/" element={<DashboardLayout />}>
+        <Route 
+          path="/" 
+          element={
+            <ProtectedRoute>
+              <DashboardLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<Dashboard />} />
           <Route path="mensagens" element={<Chat />} />
           <Route path="contatos" element={<Contacts />} />
