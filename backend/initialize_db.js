@@ -615,6 +615,18 @@ async function importSeedData(db) {
       console.log(`✓ ${data.contacts.length} contatos importados do seed.`);
     }
 
+    // 2.5 Garante que a lista de sistema "Agendados" existe e contatos de agenda pertençam a ela
+    let agendadosList = await db.get('SELECT id FROM lists WHERE workspace_id = ? AND name = ?', [1, 'Agendados']);
+    if (!agendadosList) {
+      const res = await db.run('INSERT INTO lists (workspace_id, name) VALUES (?, ?)', [1, 'Agendados']);
+      agendadosList = { id: res.lastID };
+      console.log(`✓ Lista "Agendados" inicializada com sucesso.`);
+    }
+    await db.run(
+      'UPDATE contacts SET list_id = ? WHERE workspace_id = ? AND status = ? AND (list_id IS NULL OR list_id != ?)',
+      [agendadosList.id, 1, 'Agendado', agendadosList.id]
+    );
+
     // 3. Se a tabela agents tiver menos de 3, importar agentes do seed
     if (data.agents && Array.isArray(data.agents)) {
       for (const a of data.agents) {

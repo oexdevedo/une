@@ -853,17 +853,42 @@ app.get('/api/lists', async (req, res) => {
   try {
     const workspaceId = req.query.workspace_id || 1;
     const database = await db.getDB();
+
+    // Sincroniza e garante a existência da lista automática "Agendados"
+    try {
+      const reminderService = require('./reminder_service');
+      await reminderService.syncAgendaToAgendadosList(workspaceId);
+    } catch (syncErr) {
+      console.warn('Aviso ao sincronizar lista Agendados:', syncErr.message);
+    }
+
     const rows = await database.all(`
-      SELECT l.*, COUNT(c.id) as count 
+      SELECT l.*, COUNT(c.id) as count,
+        CASE WHEN l.name = 'Agendados' THEN 1 ELSE 0 END as is_system
       FROM lists l 
       LEFT JOIN contacts c ON c.list_id = l.id 
       WHERE l.workspace_id = ? 
       GROUP BY l.id
+      ORDER BY is_system DESC, l.created_at DESC
     `, [workspaceId]);
     res.json(rows);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar listas' });
+  }
+});
+
+app.post('/api/lists/sync-agenda', async (req, res) => {
+  try {
+    const workspaceId = req.body.workspace_id || 1;
+    const reminderService = require('./reminder_service');
+    const listId = await reminderService.syncAgendaToAgendadosList(workspaceId);
+    const database = await db.getDB();
+    const countRow = await database.get('SELECT COUNT(id) as count FROM contacts WHERE workspace_id = ? AND list_id = ?', [workspaceId, listId]);
+    res.json({ success: true, listId, count: countRow?.count || 0 });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao sincronizar lista de agendados' });
   }
 });
 
@@ -883,6 +908,10 @@ app.post('/api/lists', async (req, res) => {
 app.delete('/api/lists/:id', async (req, res) => {
   try {
     const database = await db.getDB();
+    const list = await database.get('SELECT name FROM lists WHERE id = ?', [req.params.id]);
+    if (list && list.name === 'Agendados') {
+      return res.status(400).json({ error: 'A lista "Agendados" é uma lista automática de sistema e não pode ser excluída.' });
+    }
     await database.run('DELETE FROM contacts WHERE list_id = ?', [req.params.id]);
     await database.run('DELETE FROM lists WHERE id = ?', [req.params.id]);
     res.json({ success: true });

@@ -145,6 +145,90 @@ async function autoRegisterContact(workspaceId = 1, { jid, pushName, text }) {
 }
 
 /**
+ * Obtém ou cria automaticamente a lista de sistema "Agendados"
+ */
+async function getOrCreateAgendadosList(database, workspaceId = 1) {
+  let list = await database.get('SELECT id, name FROM lists WHERE workspace_id = ? AND name = ?', [workspaceId, 'Agendados']);
+  if (!list) {
+    const res = await database.run(
+      'INSERT INTO lists (workspace_id, name) VALUES (?, ?)',
+      [workspaceId, 'Agendados']
+    );
+    list = { id: res.lastID, name: 'Agendados' };
+    console.log(`📋 Lista automática "Agendados" criada no banco (ID: ${list.id})`);
+  }
+  return list.id;
+}
+
+/**
+ * Sincroniza todos os contatos da agenda (Cal.com e calendar_events) para a lista Agendados
+ */
+async function syncAgendaToAgendadosList(workspaceId = 1) {
+  try {
+    const database = await db.getDB();
+    const agendadosListId = await getOrCreateAgendadosList(database, workspaceId);
+
+    // 1. Move qualquer contato com status 'Agendado' para a lista Agendados
+    await database.run(
+      'UPDATE contacts SET list_id = ? WHERE workspace_id = ? AND status = ? AND (list_id IS NULL OR list_id != ?)',
+      [agendadosListId, workspaceId, 'Agendado', agendadosListId]
+    );
+
+    // 2. Extrai participantes de calendar_events e cadastra/atualiza na lista Agendados
+    const events = await database.all(
+      'SELECT DISTINCT attendee_name, attendee_phone, title FROM calendar_events WHERE workspace_id = ?',
+      [workspaceId]
+    );
+    for (const evt of events) {
+      let name = (evt.attendee_name || '').trim();
+      if (!name || name === 'Cliente') {
+        const m = (evt.title || '').match(/Mentoria\s*(?:Yuri entre [^e]+e\s*|-\s*)([^(]+)/i);
+        if (m && m[1]) name = m[1].trim();
+      }
+      if (!name || name === 'Cliente') continue;
+
+      const phone = (evt.attendee_phone || '').trim();
+      const existing = await database.get(
+        'SELECT id, list_id FROM contacts WHERE workspace_id = ? AND (name = ? OR (phone != "" AND phone = ?))',
+        [workspaceId, name, phone]
+      );
+      if (!existing) {
+        await database.run(
+          'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
+          [workspaceId, agendadosListId, name, phone, 'Agendado']
+        );
+      } else if (existing.list_id !== agendadosListId) {
+        await database.run(
+          'UPDATE contacts SET list_id = ?, status = ? WHERE id = ?',
+          [agendadosListId, 'Agendado', existing.id]
+        );
+      }
+    }
+
+    // 3. Atualiza também a partir dos overrides de booking
+    const overrides = await database.all('SELECT attendee_name, phone FROM booking_contact_overrides WHERE workspace_id = ?', [workspaceId]);
+    for (const ov of overrides) {
+      if (ov.attendee_name && ov.attendee_name !== 'Cliente') {
+        const existing = await database.get('SELECT id FROM contacts WHERE workspace_id = ? AND name = ?', [workspaceId, ov.attendee_name]);
+        if (existing) {
+          await database.run('UPDATE contacts SET phone = ?, list_id = ?, status = ? WHERE id = ?', [ov.phone, agendadosListId, 'Agendado', existing.id]);
+        } else {
+          await database.run(
+            'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
+            [workspaceId, agendadosListId, ov.attendee_name, ov.phone, 'Agendado']
+          );
+        }
+      }
+    }
+
+    return agendadosListId;
+  } catch (err) {
+    console.error('Erro ao sincronizar contatos com lista Agendados:', err);
+    return null;
+  }
+}
+
+/**
  * Salva ou edita manualmente o telefone de um agendamento
  */
 async function saveBookingPhone(workspaceId = 1, { bookingId, attendeeName, phone }) {
@@ -163,21 +247,22 @@ async function saveBookingPhone(workspaceId = 1, { bookingId, attendeeName, phon
   );
   console.log(`💾 Telefone salvo manualmente para booking [${bookingId}]: ${cleanPhone}`);
 
-  // 2. Atualiza ou cadastra em contacts
+  // 2. Atualiza ou cadastra em contacts na lista Agendados
   if (attendeeName && attendeeName !== 'Cliente') {
+    const agendadosListId = await getOrCreateAgendadosList(database, workspaceId);
     const contact = await database.get(
       'SELECT id, phone FROM contacts WHERE workspace_id = ? AND (name LIKE ? OR name = ?)',
       [workspaceId, `%${attendeeName}%`, attendeeName]
     );
     if (contact) {
-      await database.run('UPDATE contacts SET phone = ? WHERE id = ?', [cleanPhone, contact.id]);
-      console.log(`👤 Telefone do contato [${attendeeName}] atualizado em contacts para: ${cleanPhone}`);
+      await database.run('UPDATE contacts SET phone = ?, list_id = ?, status = ? WHERE id = ?', [cleanPhone, agendadosListId, 'Agendado', contact.id]);
+      console.log(`👤 Telefone do contato [${attendeeName}] atualizado na lista Agendados para: ${cleanPhone}`);
     } else {
       await database.run(
-        `INSERT INTO contacts (workspace_id, name, phone, status) VALUES (?, ?, ?, 'Agendado')`,
-        [workspaceId, attendeeName, cleanPhone]
+        `INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, 'Agendado')`,
+        [workspaceId, agendadosListId, attendeeName, cleanPhone]
       );
-      console.log(`👤 Novo contato [${attendeeName}] cadastrado em contacts com telefone: ${cleanPhone}`);
+      console.log(`👤 Novo contato [${attendeeName}] cadastrado na lista Agendados com telefone: ${cleanPhone}`);
     }
   }
 
@@ -283,20 +368,23 @@ async function getUpcomingBookings(workspaceId = 1) {
             console.error('Erro ao auto-cadastrar na agenda local:', syncErr.message);
           }
 
-          // 1.4 [AUTO-CADASTRO EM CONTATOS]: se o cliente não estiver em contacts, cadastra automaticamente!
+          // 1.4 [AUTO-CADASTRO EM CONTATOS NA LISTA AGENDADOS]
           if (attendeeName && attendeeName !== 'Cliente') {
-            const existsInContacts = allContacts.some(c => 
+            const agendadosListId = await getOrCreateAgendadosList(database, workspaceId);
+            const existsInContacts = allContacts.find(c => 
               c.name.toLowerCase() === attendeeName.toLowerCase()
             );
             if (!existsInContacts) {
               try {
                 await database.run(
-                  `INSERT INTO contacts (workspace_id, name, phone, status) VALUES (?, ?, ?, 'Agendado')`,
-                  [workspaceId, attendeeName, attendeePhone || '']
+                  `INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, 'Agendado')`,
+                  [workspaceId, agendadosListId, attendeeName, attendeePhone || '']
                 );
-                console.log(`👤 Participante cadastrado automaticamente em Contatos: ${attendeeName} (${attendeePhone})`);
-                allContacts.push({ name: attendeeName, phone: attendeePhone || '' });
+                console.log(`👤 Participante cadastrado automaticamente na lista Agendados: ${attendeeName} (${attendeePhone})`);
+                allContacts.push({ name: attendeeName, phone: attendeePhone || '', list_id: agendadosListId, status: 'Agendado' });
               } catch (cErr) {}
+            } else if (existsInContacts.list_id !== agendadosListId) {
+              await database.run('UPDATE contacts SET list_id = ?, status = ? WHERE id = ?', [agendadosListId, 'Agendado', existsInContacts.id]);
             }
           }
 
@@ -629,6 +717,8 @@ module.exports = {
   getUpcomingBookings,
   checkAndSend24hReminders,
   startReminderService,
-  stopReminderService
+  stopReminderService,
+  getOrCreateAgendadosList,
+  syncAgendaToAgendadosList
 };
 

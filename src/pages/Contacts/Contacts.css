@@ -598,3 +598,74 @@
 .dropdown-item.danger:hover {
   background: #FEF2F2;
 }
+
+/* Agendados System Card & Banner */
+.list-card.system-card {
+  border: 2px solid #38BDF8;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F0F9FF 100%);
+  position: relative;
+}
+
+.system-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #E0F2FE;
+  color: #0369A1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-top: 6px;
+}
+
+.agenda-banner {
+  background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%);
+  border: 1px solid #BAE6FD;
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.agenda-banner-text {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #0369A1;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.empty-leads-box {
+  background-color: #FFFFFF;
+  border: 1px dashed #D4D4D8;
+  border-radius: 12px;
+  padding: 64px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.empty-leads-box h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #18181B;
+  margin: 0;
+}
+
+.empty-leads-box p {
+  font-size: 0.9rem;
+  color: #71717A;
+  margin: 0;
+  max-width: 420px;
+}
+

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './Contacts.css';
 import {
   Upload,
@@ -10,58 +10,30 @@ import {
   Close,
   UserPlus,
   ArrowLeft,
-  Label
+  Label,
+  Calendar,
+  Refresh,
+  Trash,
+  Check
 } from 'pixelarticons/react';
 
 export default function Contacts() {
-  const [lists, setLists] = useState([
-    { id: 1, name: 'Leads VIP Outubro', count: 1250, date: '05 out. 2026' },
-    { id: 2, name: 'Clientes Inativos', count: 320, date: '12 set. 2026' },
-    { id: 3, name: 'Inscritos Webinar', count: 890, date: '01 out. 2026' },
-  ]);
+  const [lists, setLists] = useState([]);
+  const [isLoadingLists, setIsLoadingLists] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newListName, setNewListName] = useState('');
   
   const [activeList, setActiveList] = useState(null);
+  const [leads, setLeads] = useState([]);
+  const [isLoadingLeads, setIsLoadingLeads] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSyncingAgenda, setIsSyncingAgenda] = useState(false);
+
   const [isAddManualOpen, setIsAddManualOpen] = useState(false);
   const [manualContact, setManualContact] = useState({ name: '', phone: '' });
   
   const [activeDropdownList, setActiveDropdownList] = useState(null);
   const [activeDropdownLead, setActiveDropdownLead] = useState(null);
-
-  React.useEffect(() => {
-    const handleClickOutside = () => {
-      setActiveDropdownList(null);
-      setActiveDropdownLead(null);
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  // Sincroniza listas e contatos com o banco de dados SQLite
-  React.useEffect(() => {
-    fetch('/api/lists?workspace_id=1')
-      .then(r => r.json())
-      .then(d => {
-        if (Array.isArray(d) && d.length > 0) setLists(d);
-      })
-      .catch(console.error);
-
-    fetch('/api/contacts?workspace_id=1')
-      .then(r => r.json())
-      .then(d => {
-        if (Array.isArray(d) && d.length > 0) {
-          setLeads(d.map(c => ({
-            id: c.id,
-            name: c.name,
-            phone: c.phone,
-            status: c.status || 'Novo',
-            tags: [1]
-          })));
-        }
-      })
-      .catch(console.error);
-  }, []);
 
   // Label Management
   const [availableTags, setAvailableTags] = useState([
@@ -72,19 +44,100 @@ export default function Contacts() {
   ]);
   const [tagModalLead, setTagModalLead] = useState(null);
   const [newTagName, setNewTagName] = useState('');
+  const [isGlobalTagModalOpen, setIsGlobalTagModalOpen] = useState(false);
+  const [newGlobalTagName, setNewGlobalTagName] = useState('');
 
-  const [leads, setLeads] = useState([]);
-  
   const fileInputRef = useRef(null);
   const listFileInputRef = useRef(null);
 
-  const handleFileUpload = (e) => {
-    if (e.target.files.length > 0) {
-      alert(`Planilha "${e.target.files[0].name}" importada com sucesso e nova lista gerada!`);
-      e.target.value = null;
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setActiveDropdownList(null);
+      setActiveDropdownLead(null);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // 1. Carrega todas as listas do workspace
+  const fetchLists = async () => {
+    setIsLoadingLists(true);
+    try {
+      const res = await fetch('/api/lists?workspace_id=1');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setLists(data);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar listas:', err);
+    } finally {
+      setIsLoadingLists(false);
     }
   };
 
+  useEffect(() => {
+    fetchLists();
+  }, []);
+
+  // 2. Carrega EXCLUSIVAMENTE os contatos da lista selecionada
+  const fetchContactsForList = async (listId) => {
+    setIsLoadingLeads(true);
+    try {
+      const res = await fetch(`/api/contacts?workspace_id=1&list_id=${listId}`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setLeads(data.map(c => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          status: c.status || 'Novo',
+          tags: [1]
+        })));
+      } else {
+        setLeads([]);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar contatos da lista:', err);
+      setLeads([]);
+    } finally {
+      setIsLoadingLeads(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeList) {
+      fetchContactsForList(activeList.id);
+    } else {
+      setLeads([]);
+      setSearchQuery('');
+    }
+  }, [activeList?.id]);
+
+  // Sincronização manual com a Agenda / Cal.com
+  const handleSyncAgenda = async () => {
+    setIsSyncingAgenda(true);
+    try {
+      const res = await fetch('/api/lists/sync-agenda', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: 1 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (activeList?.name === 'Agendados') {
+          await fetchContactsForList(activeList.id);
+        }
+        await fetchLists();
+        alert(`✅ Agenda sincronizada! Total de ${data.count} contato(s) na lista Agendados.`);
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar agenda:', e);
+    } finally {
+      setIsSyncingAgenda(false);
+    }
+  };
+
+  // Criação de Nova Lista (limpa, sem contatos da agenda)
   const handleCreateList = async (e) => {
     e.preventDefault();
     if (!newListName.trim()) return;
@@ -92,74 +145,223 @@ export default function Contacts() {
       const res = await fetch('/api/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: 1, name: newListName })
+        body: JSON.stringify({ workspace_id: 1, name: newListName.trim() })
       });
       const data = await res.json();
-      const newList = {
-        id: data.id || Date.now(),
-        name: newListName,
-        count: 0,
-        date: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
-      };
-      setLists([newList, ...lists]); 
-      setNewListName('');
-      setIsModalOpen(false);
+      if (data.success) {
+        setNewListName('');
+        setIsModalOpen(false);
+        await fetchLists();
+      }
     } catch (err) {
       console.error(err);
-      const newList = {
-        id: Date.now(),
-        name: newListName,
-        count: 0,
-        date: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
-      };
-      setLists([newList, ...lists]); 
-      setNewListName('');
-      setIsModalOpen(false);
+      alert('Erro ao criar lista.');
     }
   };
 
+  // Importar planilha CSV para criar nova lista
+  const handleFileUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+        if (lines.length === 0) return;
+
+        // 1. Cria a lista com o nome do arquivo
+        const listRes = await fetch('/api/lists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspace_id: 1, name: baseName })
+        });
+        const listData = await listRes.json();
+        if (!listData.success || !listData.id) return;
+
+        // 2. Extrai contatos
+        const parsedContacts = [];
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (i === 0 && /(nome|phone|telefone|contato|celular)/i.test(line)) continue;
+          const parts = line.split(/[;,\t]/).map(p => p.trim().replace(/^["']|["']$/g, ''));
+          let name = '';
+          let phone = '';
+          if (parts.length >= 2) {
+            if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
+              phone = parts[0].replace(/\D/g, '');
+              name = parts[1];
+            } else {
+              name = parts[0];
+              phone = parts[1].replace(/\D/g, '');
+            }
+          } else if (parts.length === 1) {
+            phone = parts[0].replace(/\D/g, '');
+            name = 'Contato ' + (i + 1);
+          }
+          if (phone && phone.length >= 8) {
+            parsedContacts.push({ name: name || 'Lead', phone });
+          }
+        }
+
+        if (parsedContacts.length > 0) {
+          await fetch('/api/contacts/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workspace_id: 1,
+              list_id: listData.id,
+              contacts: parsedContacts
+            })
+          });
+        }
+
+        alert(`✅ Lista "${baseName}" criada com ${parsedContacts.length} contatos!`);
+        await fetchLists();
+      } catch (err) {
+        console.error(err);
+        alert('Erro ao importar arquivo.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
+  };
+
+  // Importar planilha CSV para a lista ativa
   const handleListFileUpload = (e) => {
-    if (e.target.files.length > 0) {
-      const addedCount = Math.floor(Math.random() * 50) + 10;
-      alert(`Upload concluído! ${addedCount} contatos foram extraídos e adicionados à lista "${activeList.name}".`);
-      
-      const updatedLists = lists.map(l => l.id === activeList.id ? {...l, count: l.count + addedCount} : l);
-      setLists(updatedLists);
-      setActiveList(updatedLists.find(l => l.id === activeList.id));
-      e.target.value = null;
-    }
+    const file = e.target.files && e.target.files[0];
+    if (!file || !activeList) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
+        if (lines.length === 0) {
+          alert('Arquivo vazio.');
+          return;
+        }
+
+        const parsedContacts = [];
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (i === 0 && /(nome|phone|telefone|contato|celular)/i.test(line)) continue;
+          const parts = line.split(/[;,\t]/).map(p => p.trim().replace(/^["']|["']$/g, ''));
+          let name = '';
+          let phone = '';
+          if (parts.length >= 2) {
+            if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
+              phone = parts[0].replace(/\D/g, '');
+              name = parts[1];
+            } else {
+              name = parts[0];
+              phone = parts[1].replace(/\D/g, '');
+            }
+          } else if (parts.length === 1) {
+            phone = parts[0].replace(/\D/g, '');
+            name = 'Contato ' + (i + 1);
+          }
+          if (phone && phone.length >= 8) {
+            parsedContacts.push({ name: name || 'Lead', phone });
+          }
+        }
+
+        if (parsedContacts.length === 0) {
+          alert('Nenhum telefone válido encontrado.');
+          return;
+        }
+
+        const res = await fetch('/api/contacts/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workspace_id: 1,
+            list_id: activeList.id,
+            contacts: parsedContacts
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`✅ ${data.count || parsedContacts.length} contatos adicionados à lista "${activeList.name}"!`);
+          await fetchContactsForList(activeList.id);
+          await fetchLists();
+        } else {
+          alert('Erro ao importar contatos: ' + (data.error || 'Erro'));
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Erro ao processar arquivo: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
   };
 
+  // Adicionar Contato Manualmente na lista ativa
   const handleAddManual = async (e) => {
     e.preventDefault();
-    if (!manualContact.name || !manualContact.phone) return;
+    if (!manualContact.name || !manualContact.phone || !activeList) return;
     try {
       const res = await fetch('/api/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: 1,
-          list_id: activeList?.id || null,
-          name: manualContact.name,
-          phone: manualContact.phone,
+          list_id: activeList.id,
+          name: manualContact.name.trim(),
+          phone: manualContact.phone.trim(),
           status: 'Novo'
         })
       });
       const data = await res.json();
-      const newContact = {
-        id: data.id || Date.now(),
-        name: manualContact.name,
-        phone: manualContact.phone,
-        status: 'Novo',
-        tags: []
-      };
-      setLeads([newContact, ...leads]);
-      const updatedLists = lists.map(l => l.id === activeList?.id ? {...l, count: l.count + 1} : l);
-      setLists(updatedLists);
-      setManualContact({ name: '', phone: '' });
-      setIsAddManualOpen(false);
+      if (data.success) {
+        setManualContact({ name: '', phone: '' });
+        setIsAddManualOpen(false);
+        await fetchContactsForList(activeList.id);
+        await fetchLists();
+      }
     } catch (err) {
       console.error(err);
+      alert('Erro ao salvar contato.');
+    }
+  };
+
+  // Deletar Contato
+  const handleDeleteLead = async (leadId) => {
+    try {
+      const res = await fetch(`/api/contacts/${leadId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setLeads(prev => prev.filter(l => l.id !== leadId));
+        setActiveDropdownLead(null);
+        await fetchLists();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Excluir Lista
+  const handleDeleteList = async (list) => {
+    if (list.name === 'Agendados') {
+      alert('A lista "Agendados" é uma lista automática sincronizada com o Cal.com e a agenda, e não pode ser excluída.');
+      return;
+    }
+    if (!confirm(`Deseja realmente excluir a lista "${list.name}" e seus contatos?`)) return;
+    try {
+      const res = await fetch(`/api/lists/${list.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        if (activeList?.id === list.id) setActiveList(null);
+        await fetchLists();
+      } else {
+        alert(data.error || 'Erro ao excluir lista');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir lista');
     }
   };
 
@@ -177,8 +379,6 @@ export default function Contacts() {
   const createAndAssignTag = (e) => {
     e.preventDefault();
     if (!newTagName.trim()) return;
-    
-    // random colors for new tags
     const colors = [
       { color: '#10B981', bg: '#D1FAE5' },
       { color: '#EC4899', bg: '#FCE7F3' },
@@ -186,15 +386,8 @@ export default function Contacts() {
       { color: '#F97316', bg: '#FFEDD5' }
     ];
     const randColor = colors[Math.floor(Math.random() * colors.length)];
-    
-    const newTag = {
-      id: Date.now(),
-      name: newTagName,
-      ...randColor
-    };
-    
+    const newTag = { id: Date.now(), name: newTagName.trim(), ...randColor };
     setAvailableTags([...availableTags, newTag]);
-    
     if (tagModalLead) {
       setLeads(leads.map(lead => {
         if (lead.id === tagModalLead.id) {
@@ -206,126 +399,217 @@ export default function Contacts() {
     setNewTagName('');
   };
 
-  const [isGlobalTagModalOpen, setIsGlobalTagModalOpen] = useState(false);
-  const [newGlobalTagName, setNewGlobalTagName] = useState('');
+  const createGlobalTag = (e) => {
+    e.preventDefault();
+    if (!newGlobalTagName.trim()) return;
+    const colors = [
+      { color: '#10B981', bg: '#D1FAE5' },
+      { color: '#EC4899', bg: '#FCE7F3' },
+      { color: '#06B6D4', bg: '#CFFAFE' },
+      { color: '#F97316', bg: '#FFEDD5' }
+    ];
+    const randColor = colors[Math.floor(Math.random() * colors.length)];
+    const newTag = { id: Date.now(), name: newGlobalTagName.trim(), ...randColor };
+    setAvailableTags([...availableTags, newTag]);
+    setNewGlobalTagName('');
+    setIsGlobalTagModalOpen(false);
+  };
 
+  // Filtragem de contatos na lista ativa
+  const filteredLeads = leads.filter(l => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return l.name.toLowerCase().includes(q) || (l.phone && l.phone.includes(q));
+  });
+
+  // TELA DE DETALHES DE UMA LISTA ESPECÍFICA
   if (activeList) {
+    const isAgendadosList = activeList.name === 'Agendados';
+
     return (
       <div className="contacts-container">
         <header className="contacts-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button className="icon-btn" onClick={() => setActiveList(null)}><ArrowLeft size={20} /></button>
+            <button className="icon-btn" onClick={() => setActiveList(null)} title="Voltar para todas as listas">
+              <ArrowLeft size={20} />
+            </button>
             <div>
-              <h1 className="contacts-title">{activeList.name}</h1>
-              <p className="contacts-subtitle">Gerencie os {activeList.count} leads desta lista</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h1 className="contacts-title" style={{ margin: 0 }}>{activeList.name}</h1>
+                {isAgendadosList && (
+                  <span className="system-badge">
+                    <Calendar size={13} /> Sincronizada com Cal.com
+                  </span>
+                )}
+              </div>
+              <p className="contacts-subtitle" style={{ margin: '4px 0 0 0' }}>
+                Gerencie os {leads.length} leads desta lista
+              </p>
             </div>
           </div>
           <div className="contacts-actions">
-            <input 
-              type="file" 
-              ref={listFileInputRef} 
-              accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
-              style={{display: 'none'}} 
-              onChange={handleListFileUpload} 
-            />
-            <button className="btn-secondary" onClick={() => listFileInputRef.current?.click()}>
-              <Upload size={18} /> Importar Planilha
-            </button>
-            <button className="btn-primary" onClick={() => setIsAddManualOpen(true)}>
-              <UserPlus size={18} /> Adicionar Manualmente
-            </button>
+            {isAgendadosList ? (
+              <button 
+                className="btn-secondary" 
+                onClick={handleSyncAgenda}
+                disabled={isSyncingAgenda}
+              >
+                <Refresh size={18} /> {isSyncingAgenda ? 'Sincronizando...' : 'Sincronizar Agenda'}
+              </button>
+            ) : (
+              <>
+                <input 
+                  type="file" 
+                  ref={listFileInputRef} 
+                  accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                  style={{display: 'none'}} 
+                  onChange={handleListFileUpload} 
+                />
+                <button className="btn-secondary" onClick={() => listFileInputRef.current?.click()}>
+                  <Upload size={18} /> Importar Planilha
+                </button>
+                <button className="btn-primary" onClick={() => setIsAddManualOpen(true)}>
+                  <UserPlus size={18} /> Adicionar Manualmente
+                </button>
+              </>
+            )}
           </div>
         </header>
+
+        {isAgendadosList && (
+          <div className="agenda-banner">
+            <div className="agenda-banner-text">
+              <Calendar size={22} />
+              <span>Esta lista é gerada e atualizada automaticamente a partir dos agendamentos do Cal.com e da Agenda do sistema. Ela não se mistura com suas listas personalizadas.</span>
+            </div>
+            <button 
+              className="btn-primary" 
+              onClick={handleSyncAgenda}
+              disabled={isSyncingAgenda}
+              style={{ fontSize: '0.85rem', padding: '8px 16px' }}
+            >
+              <Refresh size={16} /> Atualizar Agora
+            </button>
+          </div>
+        )}
 
         <div className="contacts-content">
           <div className="contacts-toolbar">
             <div className="search-bar">
               <Search size={18} color="#A1A1AA" />
-              <input type="text" placeholder={`Buscar leads na lista ${activeList.name}...`} />
+              <input 
+                type="text" 
+                placeholder={`Buscar leads em "${activeList.name}"...`} 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
             <button className="icon-btn" title="Filtros avançados"><Filter size={18} /></button>
           </div>
 
-          <div className="table-container">
-            <table className="leads-table">
-              <thead>
-                <tr>
-                  <th>Nome do Contato</th>
-                  <th>WhatsApp / Telefone</th>
-                  <th>Status</th>
-                  <th>Tags</th>
-                  <th style={{ width: '80px', textAlign: 'center' }}>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leads.map(lead => (
-                  <tr key={lead.id}>
-                    <td>
-                      <div className="lead-name-cell">
-                        <div className="lead-avatar-placeholder">
-                          {lead.name.charAt(0)}
-                        </div>
-                        <span className="lead-name-text">{lead.name}</span>
-                      </div>
-                    </td>
-                    <td><span className="lead-phone">{lead.phone}</span></td>
-                    <td>
-                      <span className={`status-badge status-${lead.status.toLowerCase().replace(' ', '-')}`}>
-                        {lead.status}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="lead-tags">
-                        {lead.tags.map(tagId => {
-                          const tag = availableTags.find(t => t.id === tagId);
-                          if (!tag) return null;
-                          return (
-                            <span key={tag.id} className="lead-tag" style={{ color: tag.color, backgroundColor: tag.bg }}>
-                              {tag.name}
-                            </span>
-                          );
-                        })}
-                        <button className="add-tag-btn" onClick={() => setTagModalLead(lead)} title="Gerenciar Tags">
-                          <Plus size={14} />
-                        </button>
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <div className="dropdown-container">
-                        <button 
-                          className="icon-btn-small" 
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            setActiveDropdownLead(activeDropdownLead === lead.id ? null : lead.id);
-                            setActiveDropdownList(null);
-                          }}
-                        >
-                          <MoreHorizontal size={16} />
-                        </button>
-                        {activeDropdownLead === lead.id && (
-                          <div className="dropdown-menu" onClick={e => e.stopPropagation()}>
-                            <button className="dropdown-item" onClick={() => { setActiveDropdownLead(null); }}>Editar</button>
-                            <button className="dropdown-item" onClick={() => { setActiveDropdownLead(null); }}>Salvar</button>
-                            <button className="dropdown-item danger" onClick={() => { 
-                              setLeads(leads.filter(l => l.id !== lead.id));
-                              setActiveDropdownLead(null);
-                            }}>Deletar</button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
+          {isLoadingLeads ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: '#71717A' }}>
+              Carregando contatos da lista...
+            </div>
+          ) : filteredLeads.length === 0 ? (
+            <div className="empty-leads-box">
+              <Users size={40} color="#A1A1AA" />
+              <h3>Nenhum lead nesta lista ainda</h3>
+              <p>
+                {isAgendadosList
+                  ? 'Nenhum agendamento futuro ou participante foi encontrado na agenda. Novos agendamentos aparecerão aqui automaticamente.'
+                  : 'Importe uma planilha CSV ou adicione contatos manualmente para começar a usar esta lista.'}
+              </p>
+              {!isAgendadosList && (
+                <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                  <button className="btn-secondary" onClick={() => listFileInputRef.current?.click()}>
+                    <Upload size={16} /> Importar CSV
+                  </button>
+                  <button className="btn-primary" onClick={() => setIsAddManualOpen(true)}>
+                    <UserPlus size={16} /> Adicionar Contato
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="table-container">
+              <table className="leads-table">
+                <thead>
+                  <tr>
+                    <th>Nome do Contato</th>
+                    <th>WhatsApp / Telefone</th>
+                    <th>Status</th>
+                    <th>Tags</th>
+                    <th style={{ width: '80px', textAlign: 'center' }}>Ações</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filteredLeads.map(lead => (
+                    <tr key={lead.id}>
+                      <td>
+                        <div className="lead-name-cell">
+                          <div className="lead-avatar-placeholder">
+                            {lead.name.charAt(0)}
+                          </div>
+                          <span className="lead-name-text">{lead.name}</span>
+                        </div>
+                      </td>
+                      <td><span className="lead-phone">{lead.phone || 'Sem telefone'}</span></td>
+                      <td>
+                        <span className={`status-badge status-${lead.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                          {lead.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="lead-tags">
+                          {lead.tags.map(tagId => {
+                            const tag = availableTags.find(t => t.id === tagId);
+                            if (!tag) return null;
+                            return (
+                              <span key={tag.id} className="lead-tag" style={{ color: tag.color, backgroundColor: tag.bg }}>
+                                {tag.name}
+                              </span>
+                            );
+                          })}
+                          <button className="add-tag-btn" onClick={() => setTagModalLead(lead)} title="Gerenciar Tags">
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <div className="dropdown-container">
+                          <button 
+                            className="icon-btn-small" 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              setActiveDropdownLead(activeDropdownLead === lead.id ? null : lead.id);
+                              setActiveDropdownList(null);
+                            }}
+                          >
+                            <MoreHorizontal size={16} />
+                          </button>
+                          {activeDropdownLead === lead.id && (
+                            <div className="dropdown-menu" onClick={e => e.stopPropagation()}>
+                              <button className="dropdown-item danger" onClick={() => handleDeleteLead(lead.id)}>
+                                <Trash size={14} /> Excluir
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {isAddManualOpen && (
           <div className="modal-overlay">
             <div className="modal-content">
               <div className="modal-header">
-                <h2>Adicionar Contato</h2>
+                <h2>Adicionar Contato em "{activeList.name}"</h2>
                 <button className="close-btn" onClick={() => setIsAddManualOpen(false)}><Close size={20} /></button>
               </div>
               <form onSubmit={handleAddManual}>
@@ -343,21 +627,23 @@ export default function Contacts() {
                   <label>WhatsApp / Telefone</label>
                   <input 
                     type="text" 
-                    placeholder="Ex: (11) 99999-9999" 
+                    placeholder="Ex: 5511999999999" 
                     value={manualContact.phone}
                     onChange={(e) => setManualContact({...manualContact, phone: e.target.value})}
                   />
                 </div>
                 <div className="modal-actions" style={{ padding: '0 24px 24px' }}>
                   <button type="button" className="btn-secondary" onClick={() => setIsAddManualOpen(false)}>Cancelar</button>
-                  <button type="submit" className="btn-primary" disabled={!manualContact.name || !manualContact.phone}>Salvar Contato</button>
+                  <button type="submit" className="btn-primary" disabled={!manualContact.name.trim() || !manualContact.phone.trim()}>
+                    Salvar na Lista
+                  </button>
                 </div>
               </form>
             </div>
           </div>
         )}
 
-        {/* Label Management Modal */}
+        {/* Modal de Tags */}
         {tagModalLead && (
           <div className="modal-overlay">
             <div className="modal-content" style={{ maxWidth: '400px' }}>
@@ -371,7 +657,7 @@ export default function Contacts() {
               
               <div className="modal-body" style={{ padding: '24px' }}>
                 <p style={{ fontSize: '0.9rem', color: '#71717A', marginBottom: '16px' }}>
-                  Selecione as tags para este contato ou crie uma nova.
+                  Selecione as tags para este contato:
                 </p>
                 
                 <div className="tags-grid" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' }}>
@@ -424,29 +710,7 @@ export default function Contacts() {
     );
   }
 
-  const createGlobalTag = (e) => {
-    e.preventDefault();
-    if (!newGlobalTagName.trim()) return;
-    
-    const colors = [
-      { color: '#10B981', bg: '#D1FAE5' },
-      { color: '#EC4899', bg: '#FCE7F3' },
-      { color: '#06B6D4', bg: '#CFFAFE' },
-      { color: '#F97316', bg: '#FFEDD5' }
-    ];
-    const randColor = colors[Math.floor(Math.random() * colors.length)];
-    
-    const newTag = {
-      id: Date.now(),
-      name: newGlobalTagName,
-      ...randColor
-    };
-    
-    setAvailableTags([...availableTags, newTag]);
-    setNewGlobalTagName('');
-    setIsGlobalTagModalOpen(false);
-  };
-
+  // TELA PRINCIPAL (LISTA DE TODAS AS LISTAS)
   return (
     <div className="contacts-container">
       <header className="contacts-header">
@@ -463,11 +727,11 @@ export default function Contacts() {
             onChange={handleFileUpload} 
           />
           
-          <button className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
+          <button className="btn-secondary" onClick={() => fileInputRef.current?.click()} title="Criar nova lista importando planilha">
             <Upload size={18} /> Importar Planilha ou CSV
           </button>
           <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
-            <Plus size={18} /> Nova Lista
+            <Plus size={18} /> Nova Lista Vazia
           </button>
         </div>
       </header>
@@ -491,58 +755,91 @@ export default function Contacts() {
         <div className="contacts-toolbar">
           <div className="search-bar">
             <Search size={18} color="#A1A1AA" />
-            <input type="text" placeholder="Buscar listas ou contatos específicos..." />
+            <input 
+              type="text" 
+              placeholder="Buscar listas de contatos..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
           <button className="icon-btn" title="Filtros avançados"><Filter size={18} /></button>
         </div>
 
-        <div className="lists-grid">
-          {lists.map(list => (
-            <div key={list.id} className="list-card" onClick={() => setActiveList(list)}>
-              <div className="list-card-header">
-                <div className="list-icon">
-                  <Users size={20} color="#F59E0B" />
-                </div>
-                <div className="dropdown-container">
-                  <button 
-                    className="icon-btn-small" 
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      setActiveDropdownList(activeDropdownList === list.id ? null : list.id);
-                      setActiveDropdownLead(null);
-                    }}
-                  >
-                    <MoreHorizontal size={16} />
-                  </button>
-                  {activeDropdownList === list.id && (
-                    <div className="dropdown-menu" onClick={e => e.stopPropagation()}>
-                      <button className="dropdown-item" onClick={() => { setActiveDropdownList(null); }}>Editar</button>
-                      <button className="dropdown-item" onClick={() => { setActiveDropdownList(null); }}>Salvar</button>
-                      <button className="dropdown-item danger" onClick={() => { 
-                        setLists(lists.filter(l => l.id !== list.id));
-                        setActiveDropdownList(null);
-                      }}>Deletar</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <h3 className="list-name">{list.name}</h3>
-              <div className="list-meta">
-                <span>{list.count} contatos</span>
-                <span className="dot">•</span>
-                <span>Criada em {list.date}</span>
-              </div>
-            </div>
-          ))}
-          
-          <div className="list-card dashed-card" onClick={() => setIsModalOpen(true)}>
-             <Plus size={24} color="#A1A1AA" />
-             <span>Criar Nova Lista Vazia</span>
+        {isLoadingLists ? (
+          <div style={{ textAlign: 'center', padding: '60px 0', color: '#71717A' }}>
+            Carregando listas...
           </div>
-        </div>
+        ) : (
+          <div className="lists-grid">
+            {lists
+              .filter(l => !searchQuery.trim() || l.name.toLowerCase().includes(searchQuery.toLowerCase()))
+              .map(list => {
+                const isAgendados = list.name === 'Agendados';
+
+                return (
+                  <div 
+                    key={list.id} 
+                    className={`list-card ${isAgendados ? 'system-card' : ''}`}
+                    onClick={() => setActiveList(list)}
+                  >
+                    <div className="list-card-header">
+                      <div className="list-icon" style={{ backgroundColor: isAgendados ? '#E0F2FE' : '#FEF3C7' }}>
+                        {isAgendados ? (
+                          <Calendar size={20} color="#0284C7" />
+                        ) : (
+                          <Users size={20} color="#F59E0B" />
+                        )}
+                      </div>
+                      
+                      {!isAgendados && (
+                        <div className="dropdown-container">
+                          <button 
+                            className="icon-btn-small" 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              setActiveDropdownList(activeDropdownList === list.id ? null : list.id);
+                              setActiveDropdownLead(null);
+                            }}
+                          >
+                            <MoreHorizontal size={16} />
+                          </button>
+                          {activeDropdownList === list.id && (
+                            <div className="dropdown-menu" onClick={e => e.stopPropagation()}>
+                              <button className="dropdown-item danger" onClick={() => handleDeleteList(list)}>
+                                <Trash size={14} /> Deletar Lista
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <h3 className="list-name">{list.name}</h3>
+
+                    {isAgendados && (
+                      <div className="system-badge">
+                        <Check size={12} /> Automática • Agenda
+                      </div>
+                    )}
+
+                    <div className="list-meta" style={{ marginTop: isAgendados ? '8px' : '0' }}>
+                      <span>{list.count || 0} contatos</span>
+                      <span className="dot">•</span>
+                      <span>{isAgendados ? 'Cal.com' : 'Personalizada'}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            
+            <div className="list-card dashed-card" onClick={() => setIsModalOpen(true)}>
+               <Plus size={24} color="#A1A1AA" />
+               <span>Criar Nova Lista Vazia</span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Existing Modals */}
+      {/* Modal de Criação de Lista */}
       {isModalOpen && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -555,7 +852,7 @@ export default function Contacts() {
                 <label>Nome da Lista</label>
                 <input 
                   type="text" 
-                  placeholder="Ex: Clientes Dezembro 2026" 
+                  placeholder="Ex: Leads VIP Outubro" 
                   value={newListName}
                   onChange={(e) => setNewListName(e.target.value)}
                   autoFocus
