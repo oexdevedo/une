@@ -187,9 +187,26 @@ async function syncAgendaToAgendadosList(workspaceId = 1) {
       }
       if (!name || name === 'Cliente') continue;
 
-      const phone = (evt.attendee_phone || '').trim();
+      let phone = (evt.attendee_phone || '').trim();
+      
+      // Se não tiver telefone na agenda, tenta encontrar em contatos existentes no mesmo workspace
+      if (!phone) {
+        const nameParts = name.toLowerCase().split(/\s+/).filter(p => p.length >= 3);
+        const candidates = await database.all(
+          'SELECT name, phone FROM contacts WHERE workspace_id = ? AND phone != "" AND phone IS NOT NULL',
+          [workspaceId]
+        );
+        const matched = candidates.find(c => {
+          const cName = c.name.toLowerCase();
+          return nameParts.some(part => cName.includes(part)) || cName.startsWith(name.toLowerCase().slice(0, 4));
+        });
+        if (matched && matched.phone) {
+          phone = matched.phone;
+        }
+      }
+
       const existing = await database.get(
-        'SELECT id, list_id FROM contacts WHERE workspace_id = ? AND (name = ? OR (phone != "" AND phone = ?))',
+        'SELECT id, list_id, phone FROM contacts WHERE workspace_id = ? AND (name = ? OR (phone != "" AND phone = ?))',
         [workspaceId, name, phone]
       );
       if (!existing) {
@@ -197,10 +214,12 @@ async function syncAgendaToAgendadosList(workspaceId = 1) {
           'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
           [workspaceId, agendadosListId, name, phone, 'Agendado']
         );
-      } else if (existing.list_id !== agendadosListId) {
+      } else {
+        // Se já existe mas estava sem telefone e agora encontramos telefone
+        const finalPhone = (!existing.phone && phone) ? phone : existing.phone;
         await database.run(
-          'UPDATE contacts SET list_id = ?, status = ? WHERE id = ?',
-          [agendadosListId, 'Agendado', existing.id]
+          'UPDATE contacts SET list_id = ?, status = ?, phone = ? WHERE id = ?',
+          [agendadosListId, 'Agendado', finalPhone, existing.id]
         );
       }
     }

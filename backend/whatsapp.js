@@ -305,7 +305,51 @@ async function getMessages(workspaceId) {
 async function sendMessage(workspaceId, jid, text, file) {
   const session = sessions[workspaceId];
   if (!session || session.status !== 'connected' || !session.sock) {
-    throw new Error('WhatsApp is not connected');
+    throw new Error('WhatsApp não está conectado');
+  }
+
+  let cleanJid = (jid || '').trim();
+  if (!cleanJid || cleanJid === '@s.whatsapp.net') {
+    throw new Error('Número de telefone não informado ou inválido para WhatsApp');
+  }
+
+  // Se não contém @, deduzimos que é um número de telefone
+  if (!cleanJid.includes('@')) {
+    const digits = cleanJid.replace(/\D/g, '');
+    if (!digits) throw new Error('Número de telefone inválido para WhatsApp');
+    cleanJid = `${digits}@s.whatsapp.net`;
+  }
+
+  // Normalização para @s.whatsapp.net (DDI 55 Brasil, 9º dígito e resolução de LID)
+  if (cleanJid.endsWith('@s.whatsapp.net')) {
+    let num = cleanJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+    if (!num) throw new Error('Número de telefone vazio após higienização');
+
+    // Se tiver 10 ou 11 dígitos e não começar com 55, adiciona 55 (DDI Brasil)
+    if ((num.length === 10 || num.length === 11) && !num.startsWith('55')) {
+      num = '55' + num;
+    }
+
+    // Se for celular brasileiro com 12 dígitos (55 + DDD + 8 dígitos móvel), adiciona o 9º dígito
+    if (num.length === 12 && num.startsWith('55')) {
+      const firstDigit = num.charAt(4);
+      if (['7', '8', '9'].includes(firstDigit)) {
+        num = num.slice(0, 4) + '9' + num.slice(4);
+      }
+    }
+
+    // Tenta resolver para LID caso o contato esteja registrado como LID no Baileys
+    try {
+      const { resolveRemoteJidForPhone } = require('./reminder_service');
+      const resolved = resolveRemoteJidForPhone(workspaceId, num);
+      if (resolved) {
+        cleanJid = resolved;
+      } else {
+        cleanJid = `${num}@s.whatsapp.net`;
+      }
+    } catch (e) {
+      cleanJid = `${num}@s.whatsapp.net`;
+    }
   }
 
   let messageOptions = { text: text || '' };
@@ -345,11 +389,11 @@ async function sendMessage(workspaceId, jid, text, file) {
     fileUrl = '/uploads/' + file.filename;
   }
 
-  const sentMsg = await session.sock.sendMessage(jid, messageOptions);
+  const sentMsg = await session.sock.sendMessage(cleanJid, messageOptions);
   
   const msgObj = {
     id: sentMsg.key.id,
-    from: jid,
+    from: cleanJid,
     fromMe: true,
     text: text || file?.originalname || '',
     type: msgType,

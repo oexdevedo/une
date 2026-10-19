@@ -420,8 +420,8 @@ export default function MassMessage() {
     for (let i = 0; i < contacts.length; i++) {
       const contact = contacts[i];
 
-      // Pausa Anti-Ban a cada lote
-      if (i > 0 && i % batchSize === 0) {
+      // Pausa Anti-Ban a cada lote de envios bem sucedidos
+      if (sentCount > 0 && sentCount % batchSize === 0) {
         addLog('warning', `⏸️ Pausa anti-ban acionada: aguardando ${batchPause} segundos após ${batchSize} envios...`);
         await new Promise(r => setTimeout(r, batchPause * 1000));
         addLog('info', `▶️ Retomando envios via ${channelName}...`);
@@ -437,6 +437,12 @@ export default function MassMessage() {
         let targetDest = '';
         if (channel === 'telegram') {
           let raw = String(contact.phone || contact.remote_jid || '').trim();
+          if (!raw) {
+            failCount++;
+            addLog('error', `✗ [TELEGRAM] Ignorado: Contato ${contact.name} não possui número ou Chat ID cadastrado.`);
+            setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+            continue;
+          }
           if (raw.endsWith('@telegram')) {
             targetDest = raw;
           } else {
@@ -444,15 +450,28 @@ export default function MassMessage() {
             targetDest = `${clean}@telegram`;
           }
         } else {
-          let cleanPhone = String(contact.phone || '').replace(/\D/g, '');
-          if (!cleanPhone.includes('@')) {
-            targetDest = `${cleanPhone}@s.whatsapp.net`;
+          let rawPhone = String(contact.phone || contact.remote_jid || '').trim();
+          if (!rawPhone || rawPhone === '@s.whatsapp.net') {
+            failCount++;
+            addLog('error', `✗ [WHATSAPP] Ignorado: Contato ${contact.name} não possui número de telefone cadastrado.`);
+            setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+            continue;
+          }
+          if (rawPhone.endsWith('@s.whatsapp.net') || rawPhone.endsWith('@lid')) {
+            targetDest = rawPhone;
           } else {
-            targetDest = cleanPhone;
+            const digits = rawPhone.replace(/\D/g, '');
+            if (!digits) {
+              failCount++;
+              addLog('error', `✗ [WHATSAPP] Ignorado: Número de telefone inválido para ${contact.name}.`);
+              setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+              continue;
+            }
+            targetDest = `${digits}@s.whatsapp.net`;
           }
         }
 
-        const displayDest = targetDest.replace('@s.whatsapp.net', '').replace('@telegram', '');
+        const displayDest = targetDest.replace('@s.whatsapp.net', '').replace('@telegram', '').replace('@lid', '');
         addLog('info', `[${i + 1}/${contacts.length}] [${channelName.toUpperCase()}] Enviando para ${contact.name} (${displayDest})...`);
 
         let res;
@@ -460,6 +479,7 @@ export default function MassMessage() {
           const formData = new FormData();
           formData.append('workspace_id', String(workspaceId));
           formData.append('to', targetDest);
+          formData.append('contact_name', contact.name || '');
           formData.append('text', contactMsg);
           formData.append('file', attachment);
           res = await fetch('/api/messages/send', {
@@ -473,6 +493,7 @@ export default function MassMessage() {
             body: JSON.stringify({
               workspace_id: workspaceId,
               to: targetDest,
+              contact_name: contact.name || '',
               text: contactMsg
             })
           });
@@ -719,15 +740,15 @@ export default function MassMessage() {
                 {channel === 'telegram' ? (
                   <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd', fontSize: '0.82rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Telegram size={20} style={{ flexShrink: 0 }} />
-                    <div>
-                      <strong>Dica Telegram:</strong> Os destinatários desta lista devem conter o Chat ID numérico ou @username, e precisam ter iniciado o bot <strong>{tgBotInfo?.username ? `@${tgBotInfo.username}` : ''}</strong> (/start).
+                    <div style={{ flex: 1 }}>
+                      <strong>Dica Telegram:</strong> Bots do Telegram só conseguem enviar mensagens para quem já enviou <code>/start</code> para o bot {tgBotInfo?.username ? (<a href={`https://t.me/${tgBotInfo.username}`} target="_blank" rel="noreferrer" style={{ color: '#0284c7', fontWeight: 700 }}>@{tgBotInfo.username}</a>) : ''}. Use o botão <strong>"Puxar Telegram"</strong> acima para sincronizar quem já interagiu com o bot!
                     </div>
                   </div>
                 ) : (
                   <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', fontSize: '0.82rem', color: '#15803d', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Smartphone size={20} style={{ flexShrink: 0 }} />
                     <div>
-                      <strong>Dica WhatsApp:</strong> Os destinatários desta lista devem ter número de telefone com DDI e DDD (ex: 5511999999999).
+                      <strong>Dica WhatsApp:</strong> O sistema normaliza automaticamente DDI 55, o nono dígito brasileiro e contas registradas via LID do WhatsApp.
                     </div>
                   </div>
                 )}

@@ -927,13 +927,18 @@ app.post('/api/lists/:id/import-channel-contacts', async (req, res) => {
     const { workspace_id, channel } = req.body;
     const workspaceId = workspace_id || 1;
     const database = await db.getDB();
+    const reminderService = require('./reminder_service');
 
     let query = '';
     let params = [workspaceId];
     if (channel === 'telegram') {
       query = `SELECT DISTINCT remote_jid, push_name FROM messages WHERE workspace_id = ? AND remote_jid LIKE '%@telegram'`;
     } else {
-      query = `SELECT DISTINCT remote_jid, push_name FROM messages WHERE workspace_id = ? AND remote_jid NOT LIKE '%@telegram'`;
+      query = `SELECT DISTINCT remote_jid, push_name FROM messages 
+               WHERE workspace_id = ? 
+                 AND remote_jid NOT LIKE '%@telegram'
+                 AND remote_jid NOT LIKE '%@newsletter'
+                 AND remote_jid NOT LIKE '%@broadcast'`;
     }
 
     const rows = await database.all(query, params);
@@ -943,15 +948,22 @@ app.post('/api/lists/:id/import-channel-contacts', async (req, res) => {
       if (channel === 'telegram') {
         phone = row.remote_jid.replace('@telegram', '');
       } else {
-        phone = row.remote_jid.replace(/@.*$/, '').replace(/\D/g, '');
+        // Usa resolução de LID reversa caso seja um remote_jid @lid
+        const resolvedPhone = reminderService.getPhoneNumberFromJid(row.remote_jid, workspaceId);
+        phone = (resolvedPhone || row.remote_jid.replace(/@.*$/, '')).replace(/\D/g, '');
+        if (phone.length >= 10 && phone.startsWith('55')) {
+          const ddd = phone.slice(2, 4);
+          const rest = phone.slice(4);
+          phone = `(${ddd}) ${rest.length === 9 ? rest.slice(0, 5) + '-' + rest.slice(5) : rest.slice(0, 4) + '-' + rest.slice(4)}`;
+        }
       }
       if (!phone) continue;
 
       const name = row.push_name || (channel === 'telegram' ? `Telegram ${phone}` : `Lead ${phone}`);
 
       const exists = await database.get(
-        'SELECT id FROM contacts WHERE workspace_id = ? AND list_id = ? AND phone = ?',
-        [workspaceId, listId, phone]
+        'SELECT id FROM contacts WHERE workspace_id = ? AND list_id = ? AND (phone = ? OR name = ?)',
+        [workspaceId, listId, phone, name]
       );
       if (!exists) {
         await database.run(
@@ -1686,15 +1698,15 @@ app.post('/api/messages/send', upload.single('file'), async (req, res) => {
   console.log('req.body:', req.body);
   console.log('req.file:', req.file);
   
-  const { workspace_id, to, text } = req.body;
+  const { workspace_id, to, text, contact_name } = req.body;
   const workspaceId = workspace_id || 1;
   const file = req.file;
 
   try {
     let result;
-    if (to.endsWith('@telegram')) {
+    if (to && to.endsWith('@telegram')) {
       const telegramApi = require('./telegram');
-      result = await telegramApi.sendMessage(workspaceId, to, text, file);
+      result = await telegramApi.sendMessage(workspaceId, to, text, file, contact_name);
     } else {
       const whatsappApi = require('./whatsapp');
       result = await whatsappApi.sendMessage(workspaceId, to, text, file);
