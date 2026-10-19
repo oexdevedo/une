@@ -60,6 +60,7 @@ export default function Connections({ isSubpage = false }) {
       const data = await res.json();
       setWaStatus(data.status);
       setWaQR(data.qr || '');
+      window.dispatchEvent(new Event('channels-updated'));
     } catch (e) {
       console.error(e);
     }
@@ -80,6 +81,7 @@ export default function Connections({ isSubpage = false }) {
         setTgToken('');
         localStorage.removeItem(`unne_tg_token_ws_${workspaceId}`);
       }
+      window.dispatchEvent(new Event('channels-updated'));
     } catch (e) {
       console.error('Erro ao buscar status do Telegram:', e);
     }
@@ -102,14 +104,15 @@ export default function Connections({ isSubpage = false }) {
       // Carrega Cal.com do banco de dados
       const calRes = await fetch(`/api/calendar/settings?workspace_id=${workspaceId}`);
       const calData = await calRes.json();
-      if (calData && calData.cal_api_key) {
-        setCalToken(calData.cal_api_key);
+      if (calData && calData.cal_api_key && calData.cal_api_key.trim()) {
+        setCalToken(calData.cal_api_key.trim());
         setCalStatus('connected');
-        localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, calData.cal_api_key);
+        localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, calData.cal_api_key.trim());
       } else {
         setCalToken('');
         setCalStatus('disconnected');
         localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
+        localStorage.removeItem('unne_cal_api_key');
       }
     } catch (e) {
       console.error(e);
@@ -120,7 +123,7 @@ export default function Connections({ isSubpage = false }) {
     fetchWAStatus();
     fetchTGStatus();
     fetchSettings();
-  }, []);
+  }, [workspaceId]);
 
   const startWhatsApp = async () => {
     setIsLoadingWA(true);
@@ -273,6 +276,7 @@ export default function Connections({ isSubpage = false }) {
       });
 
       setCalStatus('connected');
+      window.dispatchEvent(new Event('channels-updated'));
       alert('Conta do Cal.com conectada e salva no banco de dados com sucesso!');
     } catch (e) {
       alert('Erro ao conectar: ' + e.message);
@@ -515,6 +519,7 @@ export default function Connections({ isSubpage = false }) {
                 <p>Sua API do Cal.com está conectada e pronta para agendamentos!</p>
                 <button className="btn-secondary" style={{ marginTop: '16px' }} onClick={async () => {
                   localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
+                  localStorage.removeItem('unne_cal_api_key');
                   setCalToken('');
                   setCalStatus('disconnected');
                   try {
@@ -523,6 +528,7 @@ export default function Connections({ isSubpage = false }) {
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ workspace_id: workspaceId, cal_api_key: '' })
                     });
+                    window.dispatchEvent(new Event('channels-updated'));
                   } catch (e) {
                     console.error(e);
                   }

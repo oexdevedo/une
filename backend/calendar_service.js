@@ -5,8 +5,7 @@ const db = require('./db');
 
 const DAY_NAMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
-let cachedEventTypes = null;
-let cachedEventTypesTime = 0;
+const cachedEventTypesByWs = new Map();
 
 function detectRequestedDate(text) {
   if (!text) return null;
@@ -80,12 +79,17 @@ async function getCalAvailability(workspaceId, currentMessageText, recentMessage
     const database = await db.getDB();
     const ws = await database.get('SELECT cal_api_key, cal_link FROM workspaces WHERE id = ?', [workspaceId]);
     
-    let apiKey = (ws && ws.cal_api_key && ws.cal_api_key.trim()) || 'cal_live_6245c4011cae2461d65f3edbc9a62a0b';
-    let defaultLink = (ws && ws.cal_link && ws.cal_link.startsWith('http')) ? ws.cal_link : 'https://cal.com/exdevedor/mentoria';
+    const apiKey = ws && ws.cal_api_key && ws.cal_api_key.trim();
+    if (!apiKey) {
+      // Workspace não possui Cal.com configurado
+      return null;
+    }
+    const defaultLink = (ws && ws.cal_link && ws.cal_link.startsWith('http')) ? ws.cal_link : '';
 
-    // 1. Buscar tipos de eventos com cache de 5 minutos
+    // 1. Buscar tipos de eventos com cache de 5 minutos por workspace
     const nowMs = Date.now();
-    if (!cachedEventTypes || nowMs - cachedEventTypesTime > 300000) {
+    let wsCache = cachedEventTypesByWs.get(workspaceId);
+    if (!wsCache || nowMs - wsCache.time > 300000) {
       try {
         const resTypes = await fetch('https://api.cal.com/v2/event-types', {
           headers: {
@@ -95,15 +99,15 @@ async function getCalAvailability(workspaceId, currentMessageText, recentMessage
         });
         if (resTypes.ok) {
           const jsonTypes = await resTypes.json();
-          cachedEventTypes = jsonTypes.data || [];
-          cachedEventTypesTime = nowMs;
+          wsCache = { data: jsonTypes.data || [], time: nowMs };
+          cachedEventTypesByWs.set(workspaceId, wsCache);
         }
       } catch (e) {
         console.error('Erro ao buscar event types do Cal.com:', e.message);
       }
     }
 
-    const eventTypes = cachedEventTypes || [];
+    const eventTypes = (wsCache && wsCache.data) || [];
 
     // Escolhe o evento mais adequado (preferência para mentoria ou acolhimento)
     const lowerMsg = (currentMessageText || '').toLowerCase();
@@ -271,8 +275,12 @@ async function createCalBooking(workspaceId, {
   try {
     const database = await db.getDB();
     const ws = await database.get('SELECT cal_api_key, cal_link FROM workspaces WHERE id = ?', [workspaceId]);
-    const apiKey = (ws && ws.cal_api_key && ws.cal_api_key.trim()) || 'cal_live_6245c4011cae2461d65f3edbc9a62a0b';
-    const targetEventTypeId = eventTypeId || 5307553; // Mentoria Yuri default
+    const apiKey = ws && ws.cal_api_key && ws.cal_api_key.trim();
+    if (!apiKey) {
+      console.warn(`[Cal.com] Workspace ${workspaceId} não possui Cal.com configurado para realizar reserva.`);
+      return { success: false, error: 'Cal.com não configurado neste workspace' };
+    }
+    const targetEventTypeId = eventTypeId || 5307553;
 
     let targetIso = slotIso;
     if (!targetIso) {

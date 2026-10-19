@@ -41,7 +41,7 @@ export default function Agents() {
     flow: '1. Cumprimentar pelo nome.\n2. Compreender a dúvida ou interesse.\n3. Oferecer horários de agendamento se solicitado.\n4. Confirmar os dados do cliente.'
   });
 
-  const [workspaceCalLink, setWorkspaceCalLink] = useState(() => localStorage.getItem(`unne_cal_embed_url_ws_${workspaceId}`) || localStorage.getItem('unne_cal_embed_url') || 'https://cal.com/atendimento');
+  const [workspaceCalLink, setWorkspaceCalLink] = useState(() => localStorage.getItem(`unne_cal_embed_url_ws_${workspaceId}`) || '');
   const [remindersInfo, setRemindersInfo] = useState(null);
   const [isTriggering, setIsTriggering] = useState(false);
   const [triggerStatus, setTriggerStatus] = useState(null);
@@ -63,6 +63,8 @@ export default function Agents() {
       const data = await res.json();
       if (data && data.cal_link) {
         setWorkspaceCalLink(data.cal_link);
+      } else {
+        setWorkspaceCalLink('');
       }
     } catch (e) {
       console.error(e);

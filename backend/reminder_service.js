@@ -287,7 +287,7 @@ async function saveBookingPhone(workspaceId = 1, { bookingId, attendeeName, phon
 async function getUpcomingBookings(workspaceId = 1) {
   const database = await db.getDB();
   const ws = await database.get('SELECT cal_api_key FROM workspaces WHERE id = ?', [workspaceId]);
-  const apiKey = (ws && ws.cal_api_key && ws.cal_api_key.trim()) || 'cal_live_6245c4011cae2461d65f3edbc9a62a0b';
+  const apiKey = ws && ws.cal_api_key && ws.cal_api_key.trim();
 
   // Carrega mapeamento de telefones manuais
   const overrides = await database.all(
@@ -308,14 +308,15 @@ async function getUpcomingBookings(workspaceId = 1) {
 
   const bookings = [];
 
-  // 1. Cal.com API v2
-  try {
-    const res = await fetch('https://api.cal.com/v2/bookings?status=upcoming', {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'cal-api-version': '2024-08-13'
-      }
-    });
+  // 1. Cal.com API v2 (somente se este workspace possuir API key configurada)
+  if (apiKey) {
+    try {
+      const res = await fetch('https://api.cal.com/v2/bookings?status=upcoming', {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'cal-api-version': '2024-08-13'
+        }
+      });
 
     if (res.ok) {
       const json = await res.json();
@@ -410,6 +411,7 @@ async function getUpcomingBookings(workspaceId = 1) {
   } catch (err) {
     console.error('Erro ao consultar Cal.com para confirmações:', err.message);
   }
+}
 
   // 2. Eventos locais em calendar_events
   try {

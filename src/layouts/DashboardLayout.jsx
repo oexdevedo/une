@@ -19,6 +19,8 @@ import {
   Notes
 } from 'pixelarticons/react';
 
+import { getWorkspaceId } from '../utils/workspace';
+
 const navItems = [
   { path: '/', icon: ChartBarBig, label: 'Dashboard' },
   { path: '/mensagens', icon: Message, label: 'Mensagens' },
@@ -43,6 +45,68 @@ export default function DashboardLayout() {
       return null;
     }
   });
+
+  // Status dinâmico dos canais por conta/workspace
+  const [waConnected, setWaConnected] = useState(false);
+  const [tgConnected, setTgConnected] = useState(false);
+  const [emailConnected, setEmailConnected] = useState(false);
+
+  const fetchConnectionStatuses = async (wsId) => {
+    const id = wsId || (currentUser?.workspace_id ? Number(currentUser.workspace_id) : getWorkspaceId());
+    try {
+      const [waRes, tgRes, mailRes] = await Promise.all([
+        fetch(`/api/connections/whatsapp?workspace_id=${id}`).catch(() => null),
+        fetch(`/api/connections/telegram?workspace_id=${id}`).catch(() => null),
+        fetch(`/api/emails/accounts?workspace_id=${id}`).catch(() => null)
+      ]);
+
+      if (waRes && waRes.ok) {
+        const waData = await waRes.json();
+        setWaConnected(Boolean(waData && waData.status === 'connected'));
+      } else {
+        setWaConnected(false);
+      }
+
+      if (tgRes && tgRes.ok) {
+        const tgData = await tgRes.json();
+        setTgConnected(Boolean(tgData && tgData.status === 'connected'));
+      } else {
+        setTgConnected(false);
+      }
+
+      if (mailRes && mailRes.ok) {
+        const mailData = await mailRes.json();
+        setEmailConnected(Boolean(Array.isArray(mailData) && mailData.some(acc => acc.status === 'connected')));
+      } else {
+        setEmailConnected(false);
+      }
+    } catch (e) {
+      console.error('Erro ao verificar status dos canais no topo:', e);
+    }
+  };
+
+  React.useEffect(() => {
+    const wsId = currentUser?.workspace_id ? Number(currentUser.workspace_id) : getWorkspaceId();
+    fetchConnectionStatuses(wsId);
+
+    const onChannelUpdate = () => {
+      const currentWsId = currentUser?.workspace_id ? Number(currentUser.workspace_id) : getWorkspaceId();
+      fetchConnectionStatuses(currentWsId);
+    };
+
+    window.addEventListener('channels-updated', onChannelUpdate);
+    window.addEventListener('storage', onChannelUpdate);
+    const interval = setInterval(() => {
+      const currentWsId = currentUser?.workspace_id ? Number(currentUser.workspace_id) : getWorkspaceId();
+      fetchConnectionStatuses(currentWsId);
+    }, 15000);
+
+    return () => {
+      window.removeEventListener('channels-updated', onChannelUpdate);
+      window.removeEventListener('storage', onChannelUpdate);
+      clearInterval(interval);
+    };
+  }, [currentUser?.workspace_id]);
 
   React.useEffect(() => {
     const syncUser = () => {
@@ -88,6 +152,9 @@ export default function DashboardLayout() {
 
   const handleLogout = () => {
     localStorage.removeItem('unne_user');
+    localStorage.removeItem('unne_cal_api_key');
+    localStorage.removeItem('unne_cal_embed_url');
+    localStorage.removeItem('unne_tg_token');
     window.location.href = '/login';
   };
 
@@ -172,19 +239,43 @@ export default function DashboardLayout() {
               <input type="text" placeholder="Buscar..." />
             </div>
             
-            <Link to="/configuracoes?tab=conexoes" className="connection-pill" style={{ textDecoration: 'none' }} title="Conexão WhatsApp (Configurações)">
-              <div className="connection-dot" style={{ backgroundColor: 'var(--whatsapp)' }}></div>
+            <Link 
+              to="/configuracoes?tab=conexoes" 
+              className="connection-pill" 
+              style={{ textDecoration: 'none' }} 
+              title={`WhatsApp: ${waConnected ? 'Conectado' : 'Desconectado'} (Configurações)`}
+            >
+              <div 
+                className={`connection-dot ${waConnected ? 'connected' : 'disconnected'}`}
+                style={{ backgroundColor: waConnected ? '#10B981' : '#EF4444' }}
+              ></div>
               <span style={{ color: 'var(--text-muted)' }}>WhatsApp</span>
             </Link>
 
-            <Link to="/configuracoes?tab=conexoes" className="connection-pill" style={{ textDecoration: 'none' }} title="Conexão Telegram (Configurações)">
-              <div className="connection-dot" style={{ backgroundColor: 'var(--whatsapp)' }}></div>
+            <Link 
+              to="/configuracoes?tab=conexoes" 
+              className="connection-pill" 
+              style={{ textDecoration: 'none' }} 
+              title={`Telegram: ${tgConnected ? 'Conectado' : 'Desconectado'} (Configurações)`}
+            >
+              <div 
+                className={`connection-dot ${tgConnected ? 'connected' : 'disconnected'}`}
+                style={{ backgroundColor: tgConnected ? '#10B981' : '#EF4444' }}
+              ></div>
               <span style={{ color: 'var(--text-muted)' }}>Telegram</span>
             </Link>
 
-            <Link to="/configuracoes?tab=conexoes" className="connection-pill" style={{ textDecoration: 'none' }} title="Conexão Hostinger (Configurações)">
-              <div className="connection-dot" style={{ backgroundColor: '#10B981' }}></div>
-              <span style={{ color: 'var(--text-muted)' }}>Hostinger</span>
+            <Link 
+              to="/configuracoes?tab=conexoes" 
+              className="connection-pill" 
+              style={{ textDecoration: 'none' }} 
+              title={`E-mail: ${emailConnected ? 'Conectado' : 'Desconectado'} (Configurações)`}
+            >
+              <div 
+                className={`connection-dot ${emailConnected ? 'connected' : 'disconnected'}`}
+                style={{ backgroundColor: emailConnected ? '#10B981' : '#EF4444' }}
+              ></div>
+              <span style={{ color: 'var(--text-muted)' }}>Email</span>
             </Link>
             
             <button className="bell-btn" title="Notificações">

@@ -17,15 +17,13 @@ import { getWorkspaceId } from '../../utils/workspace';
 export default function Calendar() {
   const workspaceId = getWorkspaceId();
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
-  const [connections, setConnections] = useState([
-    { id: 1, name: 'Cal.com (API)', type: 'calcom', status: 'connected', lastSync: 'Agora mesmo' }
-  ]);
+  const [connections, setConnections] = useState([]);
   const [currentDate, setCurrentDate] = useState(() => new Date()); // anchor date of the main calendar (today)
   const [viewMode, setViewMode] = useState('month'); // 'month' | 'week' | 'day'
   const [bookingMonth, setBookingMonth] = useState(() => ({ y: new Date().getFullYear(), m: new Date().getMonth() }));
-  const [embedUrl, setEmbedUrl] = useState(() => localStorage.getItem(`unne_cal_embed_url_ws_${workspaceId}`) || localStorage.getItem('unne_cal_embed_url') || '');
+  const [embedUrl, setEmbedUrl] = useState(() => localStorage.getItem(`unne_cal_embed_url_ws_${workspaceId}`) || '');
   const [tempUrl, setTempUrl] = useState('');
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(`unne_cal_api_key_ws_${workspaceId}`) || localStorage.getItem('unne_cal_api_key') || '');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(`unne_cal_api_key_ws_${workspaceId}`) || '');
   const [tempApiKey, setTempApiKey] = useState('');
 
   // Sincroniza configurações com o banco de dados
@@ -33,18 +31,25 @@ export default function Calendar() {
     fetch(`/api/calendar/settings?workspace_id=${workspaceId}`)
       .then(res => res.json())
       .then(data => {
-        if (data) {
-          if (data.cal_api_key) {
-            setApiKey(data.cal_api_key);
-            localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, data.cal_api_key);
-          } else {
-            setApiKey('');
-            localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
-          }
-          if (data.cal_link) {
-            setEmbedUrl(data.cal_link);
-            localStorage.setItem(`unne_cal_embed_url_ws_${workspaceId}`, data.cal_link);
-          }
+        if (data && data.cal_api_key && data.cal_api_key.trim()) {
+          setApiKey(data.cal_api_key.trim());
+          setConnections([
+            { id: 1, name: 'Cal.com (API)', type: 'calcom', status: 'connected', lastSync: 'Agora mesmo' }
+          ]);
+          localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, data.cal_api_key.trim());
+        } else {
+          setApiKey('');
+          setConnections([]);
+          localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
+          localStorage.removeItem('unne_cal_api_key');
+        }
+        if (data && data.cal_link && data.cal_link.trim()) {
+          setEmbedUrl(data.cal_link.trim());
+          localStorage.setItem(`unne_cal_embed_url_ws_${workspaceId}`, data.cal_link.trim());
+        } else {
+          setEmbedUrl('');
+          localStorage.removeItem(`unne_cal_embed_url_ws_${workspaceId}`);
+          localStorage.removeItem('unne_cal_embed_url');
         }
       })
       .catch(console.error);
@@ -224,11 +229,14 @@ export default function Calendar() {
         }
       })
       .catch(console.error);
-  }, []);
+  }, [workspaceId]);
 
   // Two-way Sync with Cal.com API
   React.useEffect(() => {
-    if (!apiKey) return;
+    if (!apiKey) {
+      setEventTypes([]);
+      return;
+    }
     
     const syncCalCom = async () => {
       try {
@@ -577,18 +585,36 @@ export default function Calendar() {
                 O Unne usa o <strong>Cal.com</strong> como infraestrutura oficial de agendamentos. Insira sua chave de API para habilitar a sincronização bidirecional.
               </p>
 
-              <form className="caldav-form" onSubmit={(e) => {
+              <form className="caldav-form" onSubmit={async (e) => {
                 e.preventDefault();
                 setIsConnectModalOpen(false);
-                if (tempApiKey) {
-                  setApiKey(tempApiKey);
-                  localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, tempApiKey);
+                if (tempApiKey && tempApiKey.trim()) {
+                  setApiKey(tempApiKey.trim());
+                  setConnections([
+                    { id: 1, name: 'Cal.com (API)', type: 'calcom', status: 'connected', lastSync: 'Agora mesmo' }
+                  ]);
+                  localStorage.setItem(`unne_cal_api_key_ws_${workspaceId}`, tempApiKey.trim());
+                  await fetch('/api/calendar/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspace_id: workspaceId, cal_api_key: tempApiKey.trim(), cal_link: tempUrl.trim() })
+                  }).catch(console.error);
+                } else {
+                  setApiKey('');
+                  setConnections([]);
+                  localStorage.removeItem(`unne_cal_api_key_ws_${workspaceId}`);
+                  localStorage.removeItem('unne_cal_api_key');
+                  await fetch('/api/calendar/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspace_id: workspaceId, cal_api_key: '', cal_link: tempUrl.trim() })
+                  }).catch(console.error);
                 }
                 if (tempUrl) {
-                  setEmbedUrl(tempUrl);
-                  localStorage.setItem(`unne_cal_embed_url_ws_${workspaceId}`, tempUrl);
+                  setEmbedUrl(tempUrl.trim());
+                  localStorage.setItem(`unne_cal_embed_url_ws_${workspaceId}`, tempUrl.trim());
                 }
-                alert("Configurações do Cal.com salvas localmente!");
+                alert("Configurações do Cal.com salvas com sucesso!");
               }}>
                 <div className="form-group">
                   <label>API Key (Cal.com)</label>

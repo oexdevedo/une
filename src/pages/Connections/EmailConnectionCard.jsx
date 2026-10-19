@@ -30,13 +30,16 @@ export default function EmailConnectionCard({ workspaceId = 1 }) {
   useEffect(() => {
     fetchAccounts();
     fetchAgents();
-  }, []);
+  }, [workspaceId]);
 
   const fetchAccounts = async () => {
     try {
       const res = await fetch(`${API}/api/emails/accounts?workspace_id=${workspaceId}`);
       const data = await res.json();
-      if (Array.isArray(data)) setAccounts(data);
+      if (Array.isArray(data)) {
+        setAccounts(data);
+        window.dispatchEvent(new Event('channels-updated'));
+      }
     } catch (e) {
       console.error('Erro ao buscar contas de e-mail:', e);
     }
@@ -138,7 +141,7 @@ export default function EmailConnectionCard({ workspaceId = 1 }) {
           <Mail size={24} />
         </div>
         <div className="connection-title">
-          <h2>E-mail (Hostinger)</h2>
+          <h2>E-mail</h2>
           <span className={`status-badge status-${statusKey}`}>
             {anyConnected ? `${accounts.length} conta(s) conectada(s)` : 'Desconectado'}
           </span>

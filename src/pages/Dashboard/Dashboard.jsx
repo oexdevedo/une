@@ -171,7 +171,7 @@ export default function Dashboard() {
           </Link>
           <Link to="/configuracoes?tab=conexoes" className={`channel-pill ${isEmailConnected ? 'connected' : 'disconnected'}`}>
             <span className={`pulse-dot ${isEmailConnected ? 'online' : 'offline'}`}></span>
-            <span>Hostinger E-mail: {isEmailConnected ? 'Conectado' : 'Pendente'}</span>
+            <span>E-mail: {isEmailConnected ? 'Conectado' : 'Pendente'}</span>
           </Link>
           <Link to="/ia" className="channel-pill connected">
             <Sparkles size={14} style={{ color: '#D97706' }} />
