@@ -18,6 +18,7 @@ import {
 } from 'pixelarticons/react';
 
 import { getWorkspaceId } from '../../utils/workspace';
+import PhoneInput, { detectCountryFromPhone } from '../../components/PhoneInput/PhoneInput';
 
 export default function Agents() {
   const workspaceId = getWorkspaceId();
@@ -1046,7 +1047,7 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                         <th style={{ padding: '10px 12px' }}>Cliente</th>
                         <th style={{ padding: '10px 12px' }}>Título</th>
                         <th style={{ padding: '10px 12px' }}>Data / Hora</th>
-                        <th style={{ padding: '10px 12px', minWidth: '220px' }}>Telefone (WhatsApp)</th>
+                        <th style={{ padding: '10px 12px', minWidth: '300px' }}>Telefone (WhatsApp)</th>
                         <th style={{ padding: '10px 12px', textAlign: 'center' }}>Ações</th>
                       </tr>
                     </thead>
@@ -1059,24 +1060,13 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                           <td style={{ padding: '10px 12px' }}>
                             {editingPhoneBookingId === b.id ? (
                               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                <input
-                                  type="text"
-                                  placeholder="(61) 98168-4300"
-                                  value={phoneInput}
-                                  onChange={(e) => setPhoneInput(e.target.value)}
-                                  autoFocus
-                                  style={{
-                                    padding: '4px 8px',
-                                    fontSize: '0.82rem',
-                                    borderRadius: '6px',
-                                    border: '1.5px solid #7C3AED',
-                                    width: '140px'
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleSavePhone(b.id, b.attendeeName);
-                                    if (e.key === 'Escape') setEditingPhoneBookingId(null);
-                                  }}
-                                />
+                                <div style={{ flex: 1, minWidth: '180px' }}>
+                                  <PhoneInput
+                                    value={phoneInput}
+                                    onChange={(e164) => setPhoneInput(e164)}
+                                    autoFocus
+                                  />
+                                </div>
                                 <button
                                   onClick={() => handleSavePhone(b.id, b.attendeeName)}
                                   disabled={savingPhone}
@@ -1084,8 +1074,8 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                                     backgroundColor: '#7C3AED',
                                     color: '#fff',
                                     border: 'none',
-                                    borderRadius: '6px',
-                                    padding: '4px 8px',
+                                    borderRadius: '8px',
+                                    padding: '6px 10px',
                                     fontSize: '0.75rem',
                                     fontWeight: 600,
                                     cursor: 'pointer'
@@ -1099,8 +1089,8 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                                     backgroundColor: '#f1f5f9',
                                     color: '#475569',
                                     border: 'none',
-                                    borderRadius: '6px',
-                                    padding: '4px 6px',
+                                    borderRadius: '8px',
+                                    padding: '6px 8px',
                                     fontSize: '0.75rem',
                                     cursor: 'pointer'
                                   }}
@@ -1110,6 +1100,9 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                               </div>
                             ) : b.attendeePhone ? (
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '1.05rem', lineHeight: 1 }} title={detectCountryFromPhone(b.attendeePhone).name}>
+                                  {detectCountryFromPhone(b.attendeePhone).flag}
+                                </span>
                                 <span style={{ fontWeight: 600, color: '#1e293b' }}>{b.attendeePhone}</span>
                                 <button
                                   onClick={() => {

@@ -16,6 +16,7 @@ import {
   Sliders
 } from 'pixelarticons/react';
 import { getWorkspaceId } from '../../utils/workspace';
+import PhoneInput from '../../components/PhoneInput/PhoneInput';
 
 export default function Contracts() {
   const workspaceId = getWorkspaceId();
@@ -1097,12 +1098,10 @@ CONTRATANTE: {{nome_cliente}}`,
                       />
                     </div>
                     <div>
-                      <input
-                        type="text"
-                        placeholder="WhatsApp (ex: 5561981684300)"
+                      <PhoneInput
                         value={manualClientPhone}
-                        onChange={(e) => setManualClientPhone(e.target.value)}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.88rem' }}
+                        onChange={(e164) => setManualClientPhone(e164)}
+                        placeholder="WhatsApp / Telefone"
                       />
                     </div>
                   </div>

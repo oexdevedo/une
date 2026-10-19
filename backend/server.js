@@ -1050,6 +1050,21 @@ app.delete('/api/contacts/:id', async (req, res) => {
   }
 });
 
+app.put('/api/contacts/:id', async (req, res) => {
+  try {
+    const { name, phone, status } = req.body;
+    const database = await db.getDB();
+    await database.run(
+      'UPDATE contacts SET name = ?, phone = ?, status = ? WHERE id = ?',
+      [name, phone || '', status || 'Novo', req.params.id]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao atualizar contato:', error);
+    res.status(500).json({ error: 'Erro ao atualizar contato' });
+  }
+});
+
 // ==========================================
 // AUTENTICAÇÃO E PERFIL COM SUPORTE A @USERNAME
 // ==========================================

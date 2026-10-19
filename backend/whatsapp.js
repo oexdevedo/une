@@ -320,34 +320,36 @@ async function sendMessage(workspaceId, jid, text, file) {
     cleanJid = `${digits}@s.whatsapp.net`;
   }
 
-  // Normalização para @s.whatsapp.net (DDI 55 Brasil, 9º dígito e resolução de LID)
+  // Normalização para @s.whatsapp.net
   if (cleanJid.endsWith('@s.whatsapp.net')) {
     let num = cleanJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
     if (!num) throw new Error('Número de telefone vazio após higienização');
 
-    // Se tiver 10 ou 11 dígitos e não começar com 55, adiciona 55 (DDI Brasil)
-    if ((num.length === 10 || num.length === 11) && !num.startsWith('55')) {
-      num = '55' + num;
-    }
-
-    // Se for celular brasileiro com 12 dígitos (55 + DDD + 8 dígitos móvel), adiciona o 9º dígito
-    if (num.length === 12 && num.startsWith('55')) {
-      const firstDigit = num.charAt(4);
-      if (['7', '8', '9'].includes(firstDigit)) {
-        num = num.slice(0, 4) + '9' + num.slice(4);
+    // Se o número começar com 55 (Brasil):
+    if (num.startsWith('55')) {
+      // Se for celular brasileiro com 12 dígitos (55 + DDD + 8 dígitos móvel), adiciona o 9º dígito
+      if (num.length === 12) {
+        const firstDigit = num.charAt(4);
+        if (['7', '8', '9'].includes(firstDigit)) {
+          num = num.slice(0, 4) + '9' + num.slice(4);
+        }
       }
-    }
 
-    // Tenta resolver para LID caso o contato esteja registrado como LID no Baileys
-    try {
-      const { resolveRemoteJidForPhone } = require('./reminder_service');
-      const resolved = resolveRemoteJidForPhone(workspaceId, num);
-      if (resolved) {
-        cleanJid = resolved;
-      } else {
+      // Tenta resolver para LID caso o contato esteja registrado como LID no Baileys
+      try {
+        const { resolveRemoteJidForPhone } = require('./reminder_service');
+        const resolved = resolveRemoteJidForPhone(workspaceId, num);
+        if (resolved) {
+          cleanJid = resolved;
+        } else {
+          cleanJid = `${num}@s.whatsapp.net`;
+        }
+      } catch (e) {
         cleanJid = `${num}@s.whatsapp.net`;
       }
-    } catch (e) {
+    } else {
+      // Número internacional (EUA +1, Portugal +351, Espanha +34, Argentina +54, etc.)
+      // Mantém exatamente o DDI e dígitos internacionais fornecidos
       cleanJid = `${num}@s.whatsapp.net`;
     }
   }

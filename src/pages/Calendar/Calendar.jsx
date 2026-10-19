@@ -13,6 +13,7 @@ import {
 } from 'pixelarticons/react';
 
 import { getWorkspaceId } from '../../utils/workspace';
+import PhoneInput from '../../components/PhoneInput/PhoneInput';
 
 export default function Calendar() {
   const workspaceId = getWorkspaceId();
@@ -899,16 +900,11 @@ export default function Calendar() {
                       </div>
 
                       <div className="calcom-input-group">
-                        <label>Número de Telefone</label>
-                        <div className="calcom-phone-input">
-                          <div className="calcom-phone-prefix">🇧🇷 +55</div>
-                          <input 
-                            type="text" 
-                            placeholder="(11) 99999-9999"
-                            value={bookingForm.phone}
-                            onChange={(e) => setBookingForm({...bookingForm, phone: e.target.value})}
-                          />
-                        </div>
+                        <label>WhatsApp / Telefone Internacional</label>
+                        <PhoneInput 
+                          value={bookingForm.phone}
+                          onChange={(e164) => setBookingForm({...bookingForm, phone: e164})}
+                        />
                       </div>
 
                       <div className="calcom-input-group">

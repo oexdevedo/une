@@ -39,8 +39,14 @@ function getPhoneNumberFromJid(jid, workspaceId = 1) {
  */
 function resolveRemoteJidForPhone(workspaceId, phone) {
   if (!phone) return null;
-  const cleanPhone = phone.replace(/\D/g, '');
+  const raw = String(phone).trim();
+  const cleanPhone = raw.replace(/\D/g, '');
   if (!cleanPhone) return null;
+
+  // Se o número começa com '+' e não é Brasil (ex: +12025550123, +351912345678):
+  if (raw.startsWith('+') && !cleanPhone.startsWith('55')) {
+    return `${cleanPhone}@s.whatsapp.net`;
+  }
 
   const authDir = getWhatsAppAuthDir(workspaceId);
   

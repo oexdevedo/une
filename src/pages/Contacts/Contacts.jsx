@@ -14,8 +14,10 @@ import {
   Calendar,
   Refresh,
   Trash,
-  Check
+  Check,
+  Pencil
 } from 'pixelarticons/react';
+import PhoneInput, { detectCountryFromPhone } from '../../components/PhoneInput/PhoneInput';
 import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Contacts() {
@@ -33,6 +35,7 @@ export default function Contacts() {
 
   const [isAddManualOpen, setIsAddManualOpen] = useState(false);
   const [manualContact, setManualContact] = useState({ name: '', phone: '' });
+  const [editingContact, setEditingContact] = useState(null);
   
   const [activeDropdownList, setActiveDropdownList] = useState(null);
   const [activeDropdownLead, setActiveDropdownLead] = useState(null);
@@ -330,6 +333,36 @@ export default function Contacts() {
     }
   };
 
+  // Salvar Edição do Contato
+  const handleSaveEditContact = async (e) => {
+    e.preventDefault();
+    if (!editingContact || !editingContact.name.trim()) return;
+    try {
+      const res = await fetch(`/api/contacts/${editingContact.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingContact.name.trim(),
+          phone: editingContact.phone ? editingContact.phone.trim() : '',
+          status: editingContact.status || 'Novo'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingContact(null);
+        if (activeList) {
+          await fetchContactsForList(activeList.id);
+        }
+        await fetchLists();
+      } else {
+        alert('Erro ao atualizar: ' + (data.error || 'Erro no servidor'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao atualizar contato.');
+    }
+  };
+
   // Deletar Contato
   const handleDeleteLead = async (leadId) => {
     try {
@@ -556,7 +589,20 @@ export default function Contacts() {
                           <span className="lead-name-text">{lead.name}</span>
                         </div>
                       </td>
-                      <td><span className="lead-phone">{lead.phone || 'Sem telefone'}</span></td>
+                      <td>
+                        <span className="lead-phone" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          {lead.phone ? (
+                            <>
+                              <span style={{ fontSize: '1.05rem', lineHeight: 1 }} title={detectCountryFromPhone(lead.phone).name}>
+                                {detectCountryFromPhone(lead.phone).flag}
+                              </span>
+                              <span>{lead.phone}</span>
+                            </>
+                          ) : (
+                            <span style={{ color: '#94a3b8' }}>Sem telefone</span>
+                          )}
+                        </span>
+                      </td>
                       <td>
                         <span className={`status-badge status-${lead.status.toLowerCase().replace(/\s+/g, '-')}`}>
                           {lead.status}
@@ -592,6 +638,15 @@ export default function Contacts() {
                           </button>
                           {activeDropdownLead === lead.id && (
                             <div className="dropdown-menu" onClick={e => e.stopPropagation()}>
+                              <button 
+                                className="dropdown-item" 
+                                onClick={() => { 
+                                  setEditingContact({ ...lead }); 
+                                  setActiveDropdownLead(null); 
+                                }}
+                              >
+                                <Pencil size={14} /> Editar Contato
+                              </button>
                               <button className="dropdown-item danger" onClick={() => handleDeleteLead(lead.id)}>
                                 <Trash size={14} /> Excluir
                               </button>
@@ -607,9 +662,10 @@ export default function Contacts() {
           )}
         </div>
 
+        {/* Modal de Adicionar Contato Manual com PhoneInput Internacional */}
         {isAddManualOpen && (
           <div className="modal-overlay">
-            <div className="modal-content">
+            <div className="modal-content" style={{ maxWidth: '440px' }}>
               <div className="modal-header">
                 <h2>Adicionar Contato em "{activeList.name}"</h2>
                 <button className="close-btn" onClick={() => setIsAddManualOpen(false)}><Close size={20} /></button>
@@ -626,18 +682,67 @@ export default function Contacts() {
                   />
                 </div>
                 <div className="form-group" style={{ padding: '24px', paddingTop: '16px' }}>
-                  <label>WhatsApp / Telefone</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: 5511999999999" 
+                  <label>WhatsApp / Telefone Internacional</label>
+                  <PhoneInput 
                     value={manualContact.phone}
-                    onChange={(e) => setManualContact({...manualContact, phone: e.target.value})}
+                    onChange={(e164) => setManualContact({...manualContact, phone: e164})}
                   />
                 </div>
                 <div className="modal-actions" style={{ padding: '0 24px 24px' }}>
                   <button type="button" className="btn-secondary" onClick={() => setIsAddManualOpen(false)}>Cancelar</button>
                   <button type="submit" className="btn-primary" disabled={!manualContact.name.trim() || !manualContact.phone.trim()}>
                     Salvar na Lista
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Edição de Contato com PhoneInput Internacional */}
+        {editingContact && (
+          <div className="modal-overlay">
+            <div className="modal-content" style={{ maxWidth: '440px' }}>
+              <div className="modal-header">
+                <h2>Editar Contato</h2>
+                <button className="close-btn" onClick={() => setEditingContact(null)}><Close size={20} /></button>
+              </div>
+              <form onSubmit={handleSaveEditContact}>
+                <div className="form-group" style={{ padding: '24px', paddingBottom: '0' }}>
+                  <label>Nome do Contato</label>
+                  <input 
+                    type="text" 
+                    value={editingContact.name}
+                    onChange={(e) => setEditingContact({...editingContact, name: e.target.value})}
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group" style={{ padding: '24px', paddingTop: '16px' }}>
+                  <label>WhatsApp / Telefone Internacional</label>
+                  <PhoneInput 
+                    value={editingContact.phone}
+                    onChange={(e164) => setEditingContact({...editingContact, phone: e164})}
+                  />
+                </div>
+                <div className="form-group" style={{ padding: '24px', paddingTop: '16px', paddingBottom: '0' }}>
+                  <label>Status do Lead</label>
+                  <select 
+                    className="modern-input"
+                    style={{ width: '100%', padding: '10px 14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                    value={editingContact.status || 'Novo'}
+                    onChange={(e) => setEditingContact({...editingContact, status: e.target.value})}
+                  >
+                    <option value="Novo">Novo</option>
+                    <option value="Em Atendimento">Em Atendimento</option>
+                    <option value="Agendado">Agendado</option>
+                    <option value="Convertido">Convertido</option>
+                    <option value="Perdido">Perdido</option>
+                  </select>
+                </div>
+                <div className="modal-actions" style={{ padding: '24px' }}>
+                  <button type="button" className="btn-secondary" onClick={() => setEditingContact(null)}>Cancelar</button>
+                  <button type="submit" className="btn-primary" disabled={!editingContact.name.trim()}>
+                    Salvar Alterações
                   </button>
                 </div>
               </form>
