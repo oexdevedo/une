@@ -8,11 +8,13 @@ import {
   Refresh,
   Close,
   Algorithm,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Users
 } from 'pixelarticons/react';
 import { QRCodeSVG } from 'qrcode.react';
 import EmailConnectionCard from './EmailConnectionCard';
 import DatabaseConnectionCard from './DatabaseConnectionCard';
+import PhoneInput from '../../components/PhoneInput/PhoneInput';
 import { getWorkspaceId } from '../../utils/workspace';
 
 export default function Connections({ isSubpage = false }) {
@@ -27,6 +29,21 @@ export default function Connections({ isSubpage = false }) {
   const [tgBotInfo, setTgBotInfo] = useState(null);
   const [isLoadingTG, setIsLoadingTG] = useState(false);
   const [isReconnectingAll, setIsReconnectingAll] = useState(false);
+
+  // Estados da Conta Pessoal do Telegram (Userbot / MTProto)
+  const [tgTab, setTgTab] = useState('user'); // 'user' | 'bot'
+  const [tgUserStatus, setTgUserStatus] = useState({ connected: false, totalContacts: 0 });
+  const [tgUserPhone, setTgUserPhone] = useState('');
+  const [tgUserCode, setTgUserCode] = useState('');
+  const [tgUserPassword, setTgUserPassword] = useState('');
+  const [tgCodeSent, setTgCodeSent] = useState(false);
+  const [tgNeedPassword, setTgNeedPassword] = useState(false);
+  const [tgIsSendingCode, setTgIsSendingCode] = useState(false);
+  const [tgIsSigningIn, setTgIsSigningIn] = useState(false);
+  const [tgIsSyncing, setTgIsSyncing] = useState(false);
+  const [tgShowAdvanced, setTgShowAdvanced] = useState(false);
+  const [tgCustomApiId, setTgCustomApiId] = useState('');
+  const [tgCustomApiHash, setTgCustomApiHash] = useState('');
 
   const [calToken, setCalToken] = useState(() => localStorage.getItem(`unne_cal_api_key_ws_${workspaceId}`) || '');
   const [calStatus, setCalStatus] = useState(() => localStorage.getItem(`unne_cal_api_key_ws_${workspaceId}`) ? 'connected' : 'disconnected');
@@ -68,15 +85,31 @@ export default function Connections({ isSubpage = false }) {
 
   const fetchTGStatus = async () => {
     try {
-      const res = await fetch(`/api/connections/telegram?workspace_id=${workspaceId}`);
-      const data = await res.json();
-      setTgStatus(data.status);
-      if (data.botInfo) {
-        setTgBotInfo(data.botInfo);
+      const [botRes, userRes] = await Promise.all([
+        fetch(`/api/connections/telegram?workspace_id=${workspaceId}`),
+        fetch(`/api/connections/telegram-user?workspace_id=${workspaceId}`)
+      ]);
+      const botData = await botRes.json();
+      const userData = await userRes.json();
+
+      setTgUserStatus(userData || { connected: false, totalContacts: 0 });
+
+      // Se a conta de usuário estiver conectada ou o bot estiver conectado
+      if (userData && userData.connected) {
+        setTgStatus('connected');
+        setTgTab('user');
+      } else if (botData && botData.status === 'connected') {
+        setTgStatus('connected');
+      } else {
+        setTgStatus('disconnected');
       }
-      if (data.token) {
-        setTgToken(data.token);
-        localStorage.setItem(`unne_tg_token_ws_${workspaceId}`, data.token);
+
+      if (botData.botInfo) {
+        setTgBotInfo(botData.botInfo);
+      }
+      if (botData.token) {
+        setTgToken(botData.token);
+        localStorage.setItem(`unne_tg_token_ws_${workspaceId}`, botData.token);
       } else {
         setTgToken('');
         localStorage.removeItem(`unne_tg_token_ws_${workspaceId}`);
@@ -218,6 +251,112 @@ export default function Connections({ isSubpage = false }) {
       alert('Erro ao salvar token do Telegram.');
     }
     setIsLoadingTG(false);
+  };
+
+  // --- Handlers da Conta de Usuário (Userbot MTProto) ---
+  const handleSendTgCode = async () => {
+    if (!tgUserPhone || !tgUserPhone.trim()) {
+      alert('Por favor, informe seu número de telefone com DDI (ex: +55 61 98168-4300).');
+      return;
+    }
+    setTgIsSendingCode(true);
+    try {
+      const res = await fetch('/api/connections/telegram-user/send-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          phone: tgUserPhone,
+          api_id: tgCustomApiId || undefined,
+          api_hash: tgCustomApiHash || undefined
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTgCodeSent(true);
+        alert(data.message || 'Código enviado! Verifique as notificações dentro do seu aplicativo oficial do Telegram.');
+      } else {
+        alert('Erro ao solicitar código: ' + (data.error || 'Verifique o número e tente novamente.'));
+      }
+    } catch (e) {
+      alert('Falha na comunicação ao solicitar código do Telegram.');
+    } finally {
+      setTgIsSendingCode(false);
+    }
+  };
+
+  const handleSignInTg = async () => {
+    if (!tgUserCode.trim()) {
+      alert('Por favor, digite o código de 5 dígitos recebido no seu Telegram.');
+      return;
+    }
+    setTgIsSigningIn(true);
+    try {
+      const res = await fetch('/api/connections/telegram-user/sign-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          code: tgUserCode,
+          password: tgUserPassword || undefined
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('🎉 Conta do Telegram conectada com sucesso!\n\nSeus contatos já estão sendo lidos e sincronizados automaticamente na lista do CRM.');
+        setTgCodeSent(false);
+        setTgUserCode('');
+        setTgUserPassword('');
+        setTgNeedPassword(false);
+        await fetchTGStatus();
+      } else if (data.needPassword) {
+        setTgNeedPassword(true);
+        alert(data.error || 'Esta conta possui senha de Verificação em Duas Etapas (2FA). Por favor, informe sua senha.');
+      } else {
+        alert('Erro ao conectar: ' + (data.error || 'Código incorreto ou expirado.'));
+      }
+    } catch (e) {
+      alert('Falha na comunicação ao autenticar no Telegram.');
+    } finally {
+      setTgIsSigningIn(false);
+    }
+  };
+
+  const handleSyncTgContacts = async () => {
+    setTgIsSyncing(true);
+    try {
+      const res = await fetch('/api/connections/telegram-user/sync-contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ Sincronização concluída com sucesso!\n\n${data.totalTelegram} contatos lidos na sua conta do Telegram.\n${data.inserted} novos contatos adicionados à lista "${data.listName}" no CRM.`);
+        await fetchTGStatus();
+      } else {
+        alert('Erro ao sincronizar contatos: ' + (data.error || 'Tente novamente'));
+      }
+    } catch (e) {
+      alert('Falha ao comunicar com servidor para sincronizar contatos.');
+    } finally {
+      setTgIsSyncing(false);
+    }
+  };
+
+  const handleDisconnectTgUser = async () => {
+    if (!confirm('Deseja realmente desconectar sua conta pessoal do Telegram deste Workspace?')) return;
+    try {
+      await fetch('/api/connections/telegram-user/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId })
+      });
+      setTgCodeSent(false);
+      await fetchTGStatus();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const reconnectAllServices = async () => {
@@ -423,76 +562,258 @@ export default function Connections({ isSubpage = false }) {
           </div>
 
           <div className="connection-body">
-            {tgStatus === 'connected' ? (
-              <div className="success-state">
-                <CheckDouble size={48} color="#0284C7" />
-                <p>Seu Bot do Telegram está online e recebendo mensagens!</p>
-                {tgBotInfo && (
-                  <div style={{ marginTop: '-8px', marginBottom: '16px', fontSize: '0.9rem', color: '#0284C7', fontWeight: 600 }}>
-                    @{tgBotInfo.username} {tgBotInfo.first_name ? `(${tgBotInfo.first_name})` : ''}
+            {/* Seletor de Modo: Conta de Usuário (12k contatos) vs BotFather */}
+            <div className="tg-tabs">
+              <button 
+                type="button" 
+                className={`tg-tab-btn ${tgTab === 'user' ? 'active' : ''}`}
+                onClick={() => setTgTab('user')}
+              >
+                <Users size={14} /> Minha Conta ({tgUserStatus.connected ? 'Ativa' : '+12k Contatos'})
+              </button>
+              <button 
+                type="button" 
+                className={`tg-tab-btn ${tgTab === 'bot' ? 'active' : ''}`}
+                onClick={() => setTgTab('bot')}
+              >
+                <Algorithm size={14} /> BotFather (API)
+              </button>
+            </div>
+
+            {/* ABA 1: CONTA DE USUÁRIO (USERBOT MTPROTO) */}
+            {tgTab === 'user' && (
+              <div>
+                {tgUserStatus.connected ? (
+                  <div className="success-state" style={{ padding: '8px 0' }}>
+                    <div className="tg-user-profile-box">
+                      <div className="tg-user-header">
+                        <div className="tg-user-avatar">
+                          {(tgUserStatus.firstName || 'T').charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a' }}>
+                            {tgUserStatus.firstName}
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                            {tgUserStatus.username ? `@${tgUserStatus.username}` : ''} {tgUserStatus.phone ? `(${tgUserStatus.phone})` : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                        <span className="tg-stat-pill">
+                          <Users size={14} /> {tgUserStatus.totalContacts ? `${tgUserStatus.totalContacts} contatos sincronizados no CRM` : 'Agenda sincronizada na nuvem'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', width: '100%', flexWrap: 'wrap' }}>
+                      <button 
+                        className="btn-primary" 
+                        style={{ flex: 1, backgroundColor: '#0284c7' }}
+                        onClick={handleSyncTgContacts}
+                        disabled={tgIsSyncing}
+                      >
+                        <Refresh size={16} /> {tgIsSyncing ? 'Sincronizando 12k...' : 'Sincronizar Meus Contatos'}
+                      </button>
+                      <button 
+                        className="btn-secondary"
+                        style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                        onClick={handleDisconnectTgUser}
+                        title="Desconectar sessão da conta"
+                      >
+                        <Close size={16} /> Sair
+                      </button>
+                    </div>
                   </div>
-                )}
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
-                  <button 
-                    className="btn-secondary" 
-                    onClick={() => disconnectTelegram(false)}
-                    disabled={isLoadingTG}
-                    title="Desconecta a sessão em tempo real mas mantém o token no banco"
-                  >
-                    <Refresh size={16} /> {isLoadingTG ? 'Aguarde...' : 'Desconectar Bot'}
-                  </button>
-                  <button 
-                    className="btn-secondary" 
-                    style={{ color: '#EF4444', borderColor: '#FCA5A5' }}
-                    onClick={() => disconnectTelegram(true)}
-                    disabled={isLoadingTG}
-                    title="Exclui o token permanentemente do banco"
-                  >
-                    <Close size={16} /> Limpar Token
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="form-state">
-                <p style={{ color: '#71717A', fontSize: '0.9rem', marginBottom: '16px' }}>
-                  Para conectar o Telegram, crie um bot através do <strong>@BotFather</strong> e cole o token gerado abaixo.
-                </p>
-                <div className="form-group">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <label style={{ margin: 0 }}>Bot Token</label>
-                    {tgToken && (
-                      <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 600 }}>
-                        ● Salvo no Banco
-                      </span>
+                ) : (
+                  <div className="form-state">
+                    <p style={{ color: '#64748b', fontSize: '0.86rem', marginBottom: '14px', lineHeight: 1.4 }}>
+                      Conecte sua conta do Telegram para <strong>puxar automaticamente seus +12.000 contatos</strong> e disparar mensagens com links sem precisar de planilhas.
+                    </p>
+
+                    {!tgCodeSent ? (
+                      <div>
+                        <div className="form-group" style={{ marginBottom: '16px' }}>
+                          <label>Seu Telefone do Telegram</label>
+                          <PhoneInput 
+                            value={tgUserPhone}
+                            onChange={(e164) => setTgUserPhone(e164)}
+                            placeholder="Telefone da conta"
+                          />
+                        </div>
+
+                        {/* Configurações Avançadas Opcionais */}
+                        <div style={{ marginBottom: '14px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setTgShowAdvanced(!tgShowAdvanced)}
+                            style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.78rem', cursor: 'pointer', padding: 0 }}
+                          >
+                            {tgShowAdvanced ? '▲ Ocultar API ID/Hash próprio' : '▼ Usar API ID / Hash próprio (Opcional)'}
+                          </button>
+                          {tgShowAdvanced && (
+                            <div style={{ marginTop: '10px', padding: '10px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                              <div style={{ marginBottom: '8px' }}>
+                                <label style={{ fontSize: '0.75rem', color: '#475569', display: 'block', marginBottom: '4px' }}>Custom API ID</label>
+                                <input 
+                                  type="text" 
+                                  placeholder="Ex: 2040 (padrão)" 
+                                  value={tgCustomApiId} 
+                                  onChange={e => setTgCustomApiId(e.target.value)}
+                                  style={{ width: '100%', padding: '6px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '0.75rem', color: '#475569', display: 'block', marginBottom: '4px' }}>Custom API Hash</label>
+                                <input 
+                                  type="text" 
+                                  placeholder="Ex: b18441a1... (padrão)" 
+                                  value={tgCustomApiHash} 
+                                  onChange={e => setTgCustomApiHash(e.target.value)}
+                                  style={{ width: '100%', padding: '6px 10px', fontSize: '0.85rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <button 
+                          className="btn-primary" 
+                          style={{ width: '100%', backgroundColor: '#0284c7' }}
+                          onClick={handleSendTgCode}
+                          disabled={tgIsSendingCode || !tgUserPhone}
+                        >
+                          <Send size={16} /> {tgIsSendingCode ? 'Enviando Código...' : 'Enviar Código de Acesso'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ backgroundColor: '#e0f2fe', padding: '10px 12px', borderRadius: '8px', color: '#0369a1', fontSize: '0.82rem', marginBottom: '14px' }}>
+                          Enviamos um código de 5 dígitos para o aplicativo oficial do Telegram no seu celular ({tgUserPhone}).
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: '14px' }}>
+                          <label>Código de Confirmação (5 dígitos)</label>
+                          <input 
+                            type="text" 
+                            placeholder="Ex: 12345" 
+                            value={tgUserCode}
+                            onChange={(e) => setTgUserCode(e.target.value)}
+                            autoFocus
+                            style={{ letterSpacing: '4px', fontSize: '1.1rem', textAlign: 'center', fontWeight: 700 }}
+                          />
+                        </div>
+
+                        {tgNeedPassword && (
+                          <div className="form-group" style={{ marginBottom: '14px' }}>
+                            <label>Senha de Duas Etapas (2FA da sua conta)</label>
+                            <input 
+                              type="password" 
+                              placeholder="Digite sua senha 2FA" 
+                              value={tgUserPassword}
+                              onChange={(e) => setTgUserPassword(e.target.value)}
+                            />
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button 
+                            className="btn-primary" 
+                            style={{ flex: 1, backgroundColor: '#0284c7' }}
+                            onClick={handleSignInTg}
+                            disabled={tgIsSigningIn || !tgUserCode.trim()}
+                          >
+                            <CheckDouble size={16} /> {tgIsSigningIn ? 'Conectando...' : 'Confirmar e Conectar'}
+                          </button>
+                          <button 
+                            className="btn-secondary"
+                            onClick={() => { setTgCodeSent(false); setTgNeedPassword(false); }}
+                            disabled={tgIsSigningIn}
+                          >
+                            Voltar
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: 123456789:ABCdefGHI..." 
-                    value={tgToken}
-                    onChange={(e) => setTgToken(e.target.value)}
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button 
-                    className="btn-primary" 
-                    style={{ flex: 1 }}
-                    onClick={connectTelegram} 
-                    disabled={!tgToken.trim() || isLoadingTG}
-                  >
-                    {isLoadingTG ? 'Conectando...' : (tgToken ? 'Salvar & Conectar Bot' : 'Conectar Bot')}
-                  </button>
-                  {tgToken && (
-                    <button 
-                      className="btn-secondary"
-                      onClick={() => disconnectTelegram(true)}
-                      disabled={isLoadingTG}
-                      title="Excluir token do banco"
-                    >
-                      <Close size={16} />
-                    </button>
-                  )}
-                </div>
+                )}
+              </div>
+            )}
+
+            {/* ABA 2: BOTFATHER (BOT API TRADICIONAL) */}
+            {tgTab === 'bot' && (
+              <div>
+                {tgStatus === 'connected' && tgBotInfo ? (
+                  <div className="success-state">
+                    <CheckDouble size={48} color="#0284C7" />
+                    <p>Seu Bot do Telegram está online e recebendo mensagens!</p>
+                    <div style={{ marginTop: '-8px', marginBottom: '16px', fontSize: '0.9rem', color: '#0284C7', fontWeight: 600 }}>
+                      @{tgBotInfo.username} {tgBotInfo.first_name ? `(${tgBotInfo.first_name})` : ''}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
+                      <button 
+                        className="btn-secondary" 
+                        onClick={() => disconnectTelegram(false)}
+                        disabled={isLoadingTG}
+                        title="Desconecta a sessão em tempo real mas mantém o token no banco"
+                      >
+                        <Refresh size={16} /> {isLoadingTG ? 'Aguarde...' : 'Desconectar Bot'}
+                      </button>
+                      <button 
+                        className="btn-secondary" 
+                        style={{ color: '#EF4444', borderColor: '#FCA5A5' }}
+                        onClick={() => disconnectTelegram(true)}
+                        disabled={isLoadingTG}
+                        title="Exclui o token permanentemente do banco"
+                      >
+                        <Close size={16} /> Limpar Token
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="form-state">
+                    <p style={{ color: '#71717A', fontSize: '0.86rem', marginBottom: '14px', lineHeight: 1.4 }}>
+                      Crie um robô no <strong>@BotFather</strong> do Telegram e cole o token abaixo para atendimento automatizado.
+                    </p>
+                    <div className="form-group">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <label style={{ margin: 0 }}>Bot Token</label>
+                        {tgToken && (
+                          <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 600 }}>
+                            ● Salvo no Banco
+                          </span>
+                        )}
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="Ex: 123456789:ABCdefGHI..." 
+                        value={tgToken}
+                        onChange={(e) => setTgToken(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button 
+                        className="btn-primary" 
+                        style={{ flex: 1 }}
+                        onClick={connectTelegram} 
+                        disabled={!tgToken.trim() || isLoadingTG}
+                      >
+                        {isLoadingTG ? 'Conectando...' : (tgToken ? 'Salvar & Conectar Bot' : 'Conectar Bot')}
+                      </button>
+                      {tgToken && (
+                        <button 
+                          className="btn-secondary"
+                          onClick={() => disconnectTelegram(true)}
+                          disabled={isLoadingTG}
+                          title="Excluir token do banco"
+                        >
+                          <Close size={16} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

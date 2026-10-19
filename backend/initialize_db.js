@@ -329,6 +329,14 @@ async function init() {
   await ensureColumn(db, 'workspaces', 'cal_api_key', 'TEXT');
   await ensureColumn(db, 'workspaces', 'cal_link', 'TEXT');
   await ensureColumn(db, 'workspaces', 'telegram_token', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_session', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_phone', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_user_id', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_first_name', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_username', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_api_id', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_api_hash', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'telegram_connected_at', 'INTEGER');
   await ensureColumn(db, 'workspaces', 'confirmation_agent_id', "TEXT DEFAULT '3'");
   await ensureColumn(db, 'workspaces', 'confirmation_enabled', 'INTEGER DEFAULT 1');
 

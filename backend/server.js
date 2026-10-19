@@ -1720,8 +1720,14 @@ app.post('/api/messages/send', upload.single('file'), async (req, res) => {
   try {
     let result;
     if (to && to.endsWith('@telegram')) {
-      const telegramApi = require('./telegram');
-      result = await telegramApi.sendMessage(workspaceId, to, text, file, contact_name);
+      const telegramUserApi = require('./telegram_user');
+      const userStatus = await telegramUserApi.getStatus(workspaceId);
+      if (userStatus && userStatus.connected) {
+        result = await telegramUserApi.sendMessage(workspaceId, to, text, file);
+      } else {
+        const telegramApi = require('./telegram');
+        result = await telegramApi.sendMessage(workspaceId, to, text, file, contact_name);
+      }
     } else {
       const whatsappApi = require('./whatsapp');
       result = await whatsappApi.sendMessage(workspaceId, to, text, file);
@@ -1817,6 +1823,111 @@ app.post('/api/connections/telegram/save', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('Erro ao salvar token do Telegram:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// TELEGRAM MTPROTO (CONTA DE USUÁRIO / USERBOT)
+// ==========================================
+app.get('/api/connections/telegram-user', async (req, res) => {
+  try {
+    const workspaceId = req.query.workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const status = await telegramUser.getStatus(workspaceId);
+    res.json(status);
+  } catch (err) {
+    console.error('Erro ao buscar status do Telegram User:', err);
+    res.status(500).json({ connected: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/telegram-user/send-code', async (req, res) => {
+  try {
+    const { workspace_id, phone, api_id, api_hash } = req.body;
+    const workspaceId = workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const result = await telegramUser.sendCode(workspaceId, phone, api_id, api_hash);
+    res.json(result);
+  } catch (err) {
+    console.error('Erro ao enviar código do Telegram:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/telegram-user/sign-in', async (req, res) => {
+  try {
+    const { workspace_id, code, password } = req.body;
+    const workspaceId = workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const result = await telegramUser.signIn(workspaceId, { code, password });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro ao autenticar no Telegram:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/telegram-user/sync-contacts', async (req, res) => {
+  try {
+    const workspaceId = req.body.workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const result = await telegramUser.syncContacts(workspaceId);
+    res.json(result);
+  } catch (err) {
+    console.error('Erro ao sincronizar contatos do Telegram:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/telegram-user/disconnect', async (req, res) => {
+  try {
+    const workspaceId = req.body.workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const result = await telegramUser.disconnectTelegramUser(workspaceId);
+    res.json(result);
+  } catch (err) {
+    console.error('Erro ao desconectar Telegram User:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/telegram-user/start-mass', async (req, res) => {
+  try {
+    const { workspace_id, list_id, message, delay_min, delay_max } = req.body;
+    const workspaceId = workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const result = await telegramUser.startMassDispatch(workspaceId, {
+      listId: list_id,
+      message,
+      delayMin: delay_min,
+      delayMax: delay_max
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('Erro ao iniciar disparo em massa Telegram:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/connections/telegram-user/mass-status', async (req, res) => {
+  try {
+    const workspaceId = req.query.workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const status = telegramUser.getMassDispatchStatus(workspaceId);
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ isRunning: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/telegram-user/stop-mass', async (req, res) => {
+  try {
+    const workspaceId = req.body.workspace_id || 1;
+    const telegramUser = require('./telegram_user');
+    const result = telegramUser.stopMassDispatch(workspaceId);
+    res.json(result);
+  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -2347,22 +2458,29 @@ async function reconnectAllConnections(workspaceId = 1) {
       results.whatsapp = 'error';
     }
 
-    // 2. Telegram (Telegraf)
+    // 2. Telegram (MTProto User ou Telegraf Bot)
     try {
-      const telegramApi = require('./telegram');
-      const token = (ws && ws.telegram_token && ws.telegram_token.trim()) || null;
-      if (token) {
-        console.log(`✈️ [AutoConnect] Conectando Telegram com token recuperado do banco...`);
-        const tgRes = await telegramApi.connectToTelegram(workspaceId, token);
-        if (tgRes.success) {
-          results.telegram = 'connected';
-          console.log(`✅ [AutoConnect] Telegram conectado com sucesso: @${tgRes.botInfo ? tgRes.botInfo.username : 'bot'}`);
-        } else {
-          results.telegram = 'error';
-          console.warn('⚠️ [AutoConnect] Erro ao conectar bot Telegram:', tgRes.error);
-        }
+      const telegramUser = require('./telegram_user');
+      const userClient = await telegramUser.getClient(workspaceId);
+      if (userClient) {
+        results.telegram = 'connected';
+        console.log(`✅ [AutoConnect] Telegram Conta de Usuário (MTProto) conectada para Workspace ${workspaceId}!`);
       } else {
-        console.log('ℹ️ [AutoConnect] Nenhum token de Telegram configurado no banco.');
+        const telegramApi = require('./telegram');
+        const token = (ws && ws.telegram_token && ws.telegram_token.trim()) || null;
+        if (token) {
+          console.log(`✈️ [AutoConnect] Conectando Telegram com token recuperado do banco...`);
+          const tgRes = await telegramApi.connectToTelegram(workspaceId, token);
+          if (tgRes.success) {
+            results.telegram = 'connected';
+            console.log(`✅ [AutoConnect] Telegram conectado com sucesso: @${tgRes.botInfo ? tgRes.botInfo.username : 'bot'}`);
+          } else {
+            results.telegram = 'error';
+            console.warn('⚠️ [AutoConnect] Erro ao conectar bot Telegram:', tgRes.error);
+          }
+        } else {
+          console.log('ℹ️ [AutoConnect] Nenhuma conta de usuário ou bot Telegram configurado no banco.');
+        }
       }
     } catch (tgErr) {
       console.error('❌ [AutoConnect] Erro ao reconectar Telegram:', tgErr.message);
