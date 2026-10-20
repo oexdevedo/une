@@ -64,6 +64,7 @@ export default function Agents() {
   const [briefingStatusMsg, setBriefingStatusMsg] = useState(null);
   const [showBriefingPreviewModal, setShowBriefingPreviewModal] = useState(false);
   const [briefingPreviewText, setBriefingPreviewText] = useState('');
+  const [isBriefingSettingsOpen, setIsBriefingSettingsOpen] = useState(false);
 
   const fetchBriefing = async () => {
     try {
@@ -580,15 +581,13 @@ Quando o gestor responder autorizando o disparo com 'SIM', 'Pode confirmar', 'Ok
               <span className="briefing-avatar-badge" title="Agente Ativa">✓</span>
             </div>
             <div className="briefing-title-group">
-              <h3>
-                Sofia — Resumo Executivo & Assistente da Gestão
-              </h3>
+              <h3>Sofia — Resumo Executivo & Assistente da Gestão</h3>
               <div className="briefing-badges">
                 <span className="briefing-badge-active">
-                  ● {briefingForm.enabled ? `Ativo Diariamente às ${briefingForm.time || '08:00'}` : 'Pausado'}
+                  ● {briefingForm.enabled ? `Ativo às ${briefingForm.time || '08:00'}` : 'Pausado'}
                 </span>
                 <span className="briefing-badge-role">
-                  Briefing via {briefingForm.channel === 'telegram' ? '✈️ Telegram' : '📱 WhatsApp'}
+                  via {briefingForm.channel === 'telegram' ? '✈️ Telegram' : '📱 WhatsApp'} ({briefingForm.targetPhone || 'telefone não definido'})
                 </span>
                 {briefingInfo?.settings?.briefing_last_sent && (
                   <span style={{ fontSize: '0.75rem', color: '#64748B', backgroundColor: '#F1F5F9', padding: '3px 8px', borderRadius: '10px' }}>
@@ -598,119 +597,9 @@ Quando o gestor responder autorizando o disparo com 'SIM', 'Pode confirmar', 'Ok
               </div>
             </div>
           </div>
-        </div>
 
-        <p className="briefing-desc">
-          A Sofia analisa em tempo real o ecossistema do seu negócio e envia diretamente para o seu celular o briefing do dia:
-          consolida e-mails recentes e não lidos da Hostinger, a agenda de hoje e de amanhã, pergunta e executa confirmação de reuniões de 24h, além dos resultados de mensagens e novos contatos no WhatsApp e Telegram.
-        </p>
-
-        {/* Pilares do Relatório */}
-        <div className="briefing-pillars">
-          <div className="briefing-pillar-item">
-            <Mail size={16} color="#7C3AED" />
-            <span>E-mails Hostinger: <b>{briefingInfo?.data?.emailStats?.unread ?? 0}</b> não lidos</span>
-          </div>
-          <div className="briefing-pillar-item">
-            <Calendar size={16} color="#059669" />
-            <span>Agenda: <b>{briefingInfo?.data?.todayBookings?.length ?? 0}</b> hoje • <b>{briefingInfo?.data?.tomorrowBookings?.length ?? 0}</b> amanhã</span>
-          </div>
-          <div className="briefing-pillar-item">
-            <Zap size={16} color="#D97706" />
-            <span>Confirmação: <b>{briefingInfo?.data?.unconfirmedTomorrow?.length ?? 0}</b> pendentes</span>
-          </div>
-          <div className="briefing-pillar-item">
-            <Message size={16} color="#0284C7" />
-            <span>Últimas 24h: <b>{briefingInfo?.data?.messageStats?.total ?? 0}</b> msgs • <b>+{briefingInfo?.data?.contactStats?.newContacts ?? 0}</b> leads</span>
-          </div>
-        </div>
-
-        {/* Barra de Controles e Configuração de Destino */}
-        <div className="briefing-controls-bar">
-          <div className="briefing-field">
-            <label>Receber no Número (Seu WhatsApp / Telegram):</label>
-            <PhoneInput
-              value={briefingForm.targetPhone}
-              onChange={(formatted) => setBriefingForm(prev => ({ ...prev, targetPhone: formatted }))}
-              placeholder="DDD + Seu Celular"
-            />
-          </div>
-
-          <div className="briefing-field">
-            <label>Canal Preferencial:</label>
-            <div className="briefing-channel-selector">
-              <button
-                type="button"
-                className={`briefing-channel-btn ${briefingForm.channel === 'whatsapp' ? 'active-whatsapp' : ''}`}
-                onClick={() => setBriefingForm(prev => ({ ...prev, channel: 'whatsapp' }))}
-              >
-                📱 WhatsApp
-              </button>
-              <button
-                type="button"
-                className={`briefing-channel-btn ${briefingForm.channel === 'telegram' ? 'active-telegram' : ''}`}
-                onClick={() => setBriefingForm(prev => ({ ...prev, channel: 'telegram' }))}
-              >
-                ✈️ Telegram
-              </button>
-            </div>
-          </div>
-
-          <div className="briefing-field" style={{ maxWidth: '140px' }}>
-            <label>Horário do Envio:</label>
-            <input
-              type="time"
-              value={briefingForm.time || '08:00'}
-              onChange={(e) => setBriefingForm(prev => ({ ...prev, time: e.target.value }))}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1.5px solid #CBD5E1',
-                fontSize: '0.88rem',
-                fontWeight: 600,
-                color: '#1E293B',
-                background: '#FFFFFF'
-              }}
-            />
-          </div>
-
-          <div className="briefing-field" style={{ maxWidth: '130px' }}>
-            <label>Status:</label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', height: '38px', fontWeight: 600, fontSize: '0.85rem', color: briefingForm.enabled ? '#059669' : '#64748B' }}>
-              <input
-                type="checkbox"
-                checked={briefingForm.enabled}
-                onChange={(e) => setBriefingForm(prev => ({ ...prev, enabled: e.target.checked }))}
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-              />
-              {briefingForm.enabled ? 'Ativado' : 'Pausado'}
-            </label>
-          </div>
-        </div>
-
-        {/* Rodapé de Ações do Briefing */}
-        <div className="briefing-actions-row">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {briefingStatusMsg ? (
-              <span className="briefing-status-feedback">
-                {briefingStatusMsg}
-              </span>
-            ) : (
-              <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
-                💡 Dica: Quando a Sofia enviar a pergunta de confirmação de reuniões, responda <b>"SIM"</b> na conversa para ela disparar as confirmações automaticamente.
-              </span>
-            )}
-          </div>
-
+          {/* Botões de Ação Imediata no Header */}
           <div className="briefing-buttons-group">
-            <button
-              type="button"
-              className="btn-briefing-save"
-              onClick={handleSaveBriefingSettings}
-              disabled={isSavingBriefing}
-            >
-              <Check size={16} /> {isSavingBriefing ? 'Salvando...' : 'Salvar Configuração'}
-            </button>
             <button
               type="button"
               className="btn-briefing-preview"
@@ -718,19 +607,150 @@ Quando o gestor responder autorizando o disparo com 'SIM', 'Pode confirmar', 'Ok
                 fetchBriefing();
                 setShowBriefingPreviewModal(true);
               }}
+              title="Ver mensagem consolidada com dados ao vivo"
             >
-              <Eye size={16} /> Ver Prévia do Resumo
+              <Eye size={15} /> Ver Prévia
             </button>
             <button
               type="button"
               className="btn-briefing-send-now"
               onClick={handleSendBriefingNow}
               disabled={isSendingBriefing}
+              title="Disparar resumo agora para seu celular"
             >
-              <Zap size={16} /> {isSendingBriefing ? 'Enviando ao Celular...' : 'Enviar Resumo Agora para Meu Celular'}
+              <Zap size={15} /> {isSendingBriefing ? 'Enviando...' : 'Enviar Agora'}
+            </button>
+            <button
+              type="button"
+              className="btn-briefing-save"
+              onClick={() => setIsBriefingSettingsOpen(!isBriefingSettingsOpen)}
+              style={{
+                backgroundColor: isBriefingSettingsOpen ? '#EDE9FE' : '#F8FAFC',
+                color: isBriefingSettingsOpen ? '#6D28D9' : '#334155',
+                borderColor: isBriefingSettingsOpen ? '#C4B5FD' : '#CBD5E1'
+              }}
+              title="Ajustar número de celular, canal e horário"
+            >
+              <Sliders size={15} /> {isBriefingSettingsOpen ? 'Fechar Ajustes' : 'Configurar'}
             </button>
           </div>
         </div>
+
+        {/* Pilares do Relatório (Chips compactos sempre visíveis) */}
+        <div className="briefing-pillars" style={{ marginTop: '14px' }}>
+          <div className="briefing-pillar-item">
+            <Mail size={15} color="#7C3AED" />
+            <span>Hostinger: <b>{briefingInfo?.data?.emailStats?.unread ?? 0}</b> não lidos</span>
+          </div>
+          <div className="briefing-pillar-item">
+            <Calendar size={15} color="#059669" />
+            <span>Agenda: <b>{briefingInfo?.data?.todayBookings?.length ?? 0}</b> hoje • <b>{briefingInfo?.data?.tomorrowBookings?.length ?? 0}</b> amanhã</span>
+          </div>
+          <div className="briefing-pillar-item">
+            <Zap size={15} color="#D97706" />
+            <span>Confirmação: <b>{briefingInfo?.data?.unconfirmedTomorrow?.length ?? 0}</b> pendentes</span>
+          </div>
+          <div className="briefing-pillar-item">
+            <Message size={15} color="#0284C7" />
+            <span>Últimas 24h: <b>{briefingInfo?.data?.messageStats?.total ?? 0}</b> msgs • <b>+{briefingInfo?.data?.contactStats?.newContacts ?? 0}</b> leads</span>
+          </div>
+        </div>
+
+        {/* Gaveta Expansível de Configurações */}
+        {isBriefingSettingsOpen && (
+          <div style={{
+            marginTop: '16px',
+            paddingTop: '16px',
+            borderTop: '1px dashed #DDD6FE',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            <p className="briefing-desc" style={{ margin: 0, fontSize: '0.84rem' }}>
+              A Sofia envia o resumo diário do sistema direto no seu WhatsApp ou Telegram com e-mails, agenda, confirmações de reuniões e métricas.
+            </p>
+
+            <div className="briefing-controls-bar">
+              <div className="briefing-field">
+                <label>Seu Número (WhatsApp / Telegram):</label>
+                <PhoneInput
+                  value={briefingForm.targetPhone}
+                  onChange={(formatted) => setBriefingForm(prev => ({ ...prev, targetPhone: formatted }))}
+                  placeholder="DDD + Seu Celular"
+                />
+              </div>
+
+              <div className="briefing-field">
+                <label>Canal de Envio:</label>
+                <div className="briefing-channel-selector">
+                  <button
+                    type="button"
+                    className={`briefing-channel-btn ${briefingForm.channel === 'whatsapp' ? 'active-whatsapp' : ''}`}
+                    onClick={() => setBriefingForm(prev => ({ ...prev, channel: 'whatsapp' }))}
+                  >
+                    📱 WhatsApp
+                  </button>
+                  <button
+                    type="button"
+                    className={`briefing-channel-btn ${briefingForm.channel === 'telegram' ? 'active-telegram' : ''}`}
+                    onClick={() => setBriefingForm(prev => ({ ...prev, channel: 'telegram' }))}
+                  >
+                    ✈️ Telegram
+                  </button>
+                </div>
+              </div>
+
+              <div className="briefing-field" style={{ maxWidth: '140px' }}>
+                <label>Horário Diário:</label>
+                <input
+                  type="time"
+                  value={briefingForm.time || '08:00'}
+                  onChange={(e) => setBriefingForm(prev => ({ ...prev, time: e.target.value }))}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1.5px solid #CBD5E1',
+                    fontSize: '0.88rem',
+                    fontWeight: 600,
+                    color: '#1E293B',
+                    background: '#FFFFFF'
+                  }}
+                />
+              </div>
+
+              <div className="briefing-field" style={{ maxWidth: '120px' }}>
+                <label>Status:</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', height: '38px', fontWeight: 600, fontSize: '0.85rem', color: briefingForm.enabled ? '#059669' : '#64748B' }}>
+                  <input
+                    type="checkbox"
+                    checked={briefingForm.enabled}
+                    onChange={(e) => setBriefingForm(prev => ({ ...prev, enabled: e.target.checked }))}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  {briefingForm.enabled ? 'Ativo' : 'Pausado'}
+                </label>
+              </div>
+
+              <div className="briefing-field" style={{ maxWidth: '160px' }}>
+                <button
+                  type="button"
+                  className="btn-briefing-save"
+                  style={{ backgroundColor: '#7C3AED', color: 'white', borderColor: '#6D28D9', height: '38px', justifyContent: 'center' }}
+                  onClick={handleSaveBriefingSettings}
+                  disabled={isSavingBriefing}
+                >
+                  <Check size={16} /> {isSavingBriefing ? 'Salvando...' : 'Salvar Ajustes'}
+                </button>
+              </div>
+            </div>
+
+            {briefingStatusMsg && (
+              <div>
+                <span className="briefing-status-feedback">{briefingStatusMsg}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Banner de Confirmação Automática de Agenda 24h */}
@@ -738,14 +758,14 @@ Quando o gestor responder autorizando o disparo com 'SIM', 'Pode confirmar', 'Ok
         backgroundColor: '#FAF5FF',
         border: '1.5px solid #D8B4FE',
         borderRadius: '16px',
-        padding: '18px 24px',
-        marginBottom: '20px',
+        padding: '16px 20px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
         gap: '16px',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.03)'
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.03)',
+        flexShrink: 0
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div style={{

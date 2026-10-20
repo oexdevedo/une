@@ -1,11 +1,11 @@
 .agents-container {
-  padding: 32px;
-  height: 100vh;
+  padding: 0 0 40px 0;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
-  margin: -24px;
   position: relative;
-  background-color: #f8fafc;
+  background-color: transparent;
+  gap: 20px;
 }
 
 .agents-container::before {
@@ -334,11 +334,11 @@
   background: linear-gradient(135deg, #FAF5FF 0%, #F5F3FF 50%, #EFF6FF 100%);
   border: 1.5px solid #C4B5FD;
   border-radius: 18px;
-  padding: 22px 26px;
-  margin-bottom: 24px;
-  box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  padding: 16px 22px;
+  box-shadow: 0 4px 15px -3px rgba(124, 58, 237, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.02);
   position: relative;
-  overflow: hidden;
+  flex-shrink: 0;
+  transition: all 0.25s ease;
 }
 
 .briefing-card-glow {
@@ -353,23 +353,23 @@
 
 .briefing-header-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 14px;
 }
 
 .briefing-profile {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 .briefing-avatar-wrap {
   position: relative;
-  width: 60px;
-  height: 60px;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
 }
 
 .briefing-avatar-img {
@@ -377,8 +377,8 @@
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
-  border: 3px solid #7C3AED;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+  border: 2.5px solid #7C3AED;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.2);
 }
 
 .briefing-avatar-badge {
@@ -445,32 +445,31 @@
 
 .briefing-pillars {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 20px;
 }
 
 .briefing-pillar-item {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.9);
   border: 1px solid #DDD6FE;
-  border-radius: 10px;
-  padding: 8px 12px;
+  border-radius: 8px;
+  padding: 6px 12px;
   font-size: 0.8rem;
   color: #334155;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .briefing-controls-bar {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
-  border-radius: 14px;
-  padding: 16px 20px;
+  border-radius: 12px;
+  padding: 14px 18px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
   align-items: flex-end;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
