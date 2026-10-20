@@ -339,6 +339,12 @@ async function init() {
   await ensureColumn(db, 'workspaces', 'telegram_connected_at', 'INTEGER');
   await ensureColumn(db, 'workspaces', 'confirmation_agent_id', "TEXT DEFAULT '3'");
   await ensureColumn(db, 'workspaces', 'confirmation_enabled', 'INTEGER DEFAULT 1');
+  await ensureColumn(db, 'workspaces', 'briefing_enabled', 'INTEGER DEFAULT 1');
+  await ensureColumn(db, 'workspaces', 'briefing_channel', "TEXT DEFAULT 'whatsapp'");
+  await ensureColumn(db, 'workspaces', 'briefing_target_phone', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'briefing_time', "TEXT DEFAULT '08:00'");
+  await ensureColumn(db, 'workspaces', 'briefing_last_sent', 'INTEGER');
+  await ensureColumn(db, 'workspaces', 'briefing_last_text', 'TEXT');
 
   await ensureColumn(db, 'users', 'username', 'TEXT');
   try {
@@ -483,6 +489,28 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
       [marianaPrompt]
     );
     console.log('✓ Agente Mariana Confirmação configurada com sucesso');
+  }
+
+  const agentSofia = await db.get('SELECT id FROM agents WHERE name LIKE ?', ['%Sofia%']);
+  if (!agentSofia) {
+    const sofiaPrompt = `Você é a Sofia, Assistente Executiva e Agente de Inteligência do Unico CRM.
+Sua missão é gerar relatórios e briefings executivos diários completos, claros e elegantes sobre o ecossistema do sistema e enviar diretamente para o gestor.
+
+O seu briefing diário consolida:
+1. 📬 RESUMO DE E-MAILS RECEBIDOS (principais mensagens recentes e remetentes).
+2. 📅 AGENDA DO DIA (compromissos de hoje com horários e participantes).
+3. 📆 AGENDA DE AMANHÃ (compromissos do dia seguinte).
+4. ❓ PERGUNTA DE CONFIRMAÇÃO (identificação de reuniões de amanhã e pergunta se pode disparar as confirmações automáticas).
+5. 📊 RESULTADOS WHATSAPP & TELEGRAM (métricas de mensagens trocadas, novos contatos cadastrados e status).
+
+Tom de voz: Executivo, conciso, organizado, prestativo e cordial.`;
+
+    await db.run(
+      `INSERT INTO agents (workspace_id, name, icon, prompt, role)
+       VALUES (1, 'Sofia - Resumo Executivo', '/avatar/3.png', ?, 'Briefing Diário do Sistema & Assistente Executiva')`,
+      [sofiaPrompt]
+    );
+    console.log('✓ Agente Sofia - Resumo Executivo configurada com sucesso');
   }
 
   // 6. Seed de Templates de Mensagens

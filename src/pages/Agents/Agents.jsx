@@ -14,7 +14,10 @@ import {
   MagicEdit,
   Calendar,
   Zap,
-  Check
+  Check,
+  Eye,
+  Clock,
+  Mail
 } from 'pixelarticons/react';
 
 import { getWorkspaceId } from '../../utils/workspace';
@@ -47,6 +50,104 @@ export default function Agents() {
   const [isTriggering, setIsTriggering] = useState(false);
   const [triggerStatus, setTriggerStatus] = useState(null);
   const [showRemindersModal, setShowRemindersModal] = useState(false);
+
+  // Sofia Executive Briefing State
+  const [briefingInfo, setBriefingInfo] = useState(null);
+  const [briefingForm, setBriefingForm] = useState({
+    enabled: true,
+    channel: 'whatsapp',
+    targetPhone: '',
+    time: '08:00'
+  });
+  const [isSavingBriefing, setIsSavingBriefing] = useState(false);
+  const [isSendingBriefing, setIsSendingBriefing] = useState(false);
+  const [briefingStatusMsg, setBriefingStatusMsg] = useState(null);
+  const [showBriefingPreviewModal, setShowBriefingPreviewModal] = useState(false);
+  const [briefingPreviewText, setBriefingPreviewText] = useState('');
+
+  const fetchBriefing = async () => {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/briefing`);
+      const data = await res.json();
+      setBriefingInfo(data);
+      if (data.settings) {
+        setBriefingForm({
+          enabled: data.settings.briefing_enabled === 1 || data.settings.briefing_enabled === true,
+          channel: data.settings.briefing_channel || 'whatsapp',
+          targetPhone: data.settings.briefing_target_phone || data.settings.telegram_phone || '',
+          time: data.settings.briefing_time || '08:00'
+        });
+      }
+      if (data.preview) {
+        setBriefingPreviewText(data.preview);
+      }
+    } catch (e) {
+      console.error('Erro ao buscar dados do briefing:', e);
+    }
+  };
+
+  const handleSaveBriefingSettings = async () => {
+    setIsSavingBriefing(true);
+    setBriefingStatusMsg(null);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/briefing/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          briefing_enabled: briefingForm.enabled,
+          briefing_channel: briefingForm.channel,
+          briefing_target_phone: briefingForm.targetPhone,
+          briefing_time: briefingForm.time
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBriefingStatusMsg('Configurações salvas com sucesso!');
+        setTimeout(() => setBriefingStatusMsg(null), 4000);
+        fetchBriefing();
+      } else {
+        alert(data.error || 'Erro ao salvar configurações do briefing');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar configurações');
+    } finally {
+      setIsSavingBriefing(false);
+    }
+  };
+
+  const handleSendBriefingNow = async () => {
+    if (!briefingForm.targetPhone || !briefingForm.targetPhone.trim()) {
+      alert('Por favor, informe o número de telefone de destino (WhatsApp ou Telegram) para receber o resumo.');
+      return;
+    }
+    setIsSendingBriefing(true);
+    setBriefingStatusMsg(null);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/briefing/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: briefingForm.channel,
+          targetPhone: briefingForm.targetPhone
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const dest = briefingForm.channel === 'telegram' ? 'Telegram' : 'WhatsApp';
+        setBriefingStatusMsg(`🚀 Resumo executivo enviado com sucesso para ${briefingForm.targetPhone} via ${dest}!`);
+        setTimeout(() => setBriefingStatusMsg(null), 6000);
+        fetchBriefing();
+      } else {
+        alert(data.error || 'Erro ao enviar resumo executivo.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Falha na comunicação com o servidor para envio do resumo.');
+    } finally {
+      setIsSendingBriefing(false);
+    }
+  };
 
   const fetchAgents = async () => {
     try {
@@ -196,6 +297,7 @@ export default function Agents() {
     fetchAgents();
     fetchCalendarSettings();
     fetchReminders();
+    fetchBriefing();
   }, [workspaceId]);
 
   const generateCalendarStandard = (link) => {
@@ -296,6 +398,33 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
    - Empática, educada, prestativa e calorosa.
    - Responda como uma pessoa real no WhatsApp (máximo 2 a 3 frases curtas por balão).`;
     setAgentForm(marianaForm);
+  };
+
+  const applyPresetSofia = () => {
+    const sofiaForm = {
+      name: 'Sofia - Resumo Executivo',
+      icon: '/avatar/3.png',
+      role: 'Briefing Diário do Sistema & Assistente Executiva',
+      hasCalendar: false,
+      calendarLink: '',
+      goal: 'Gerar e enviar o resumo executivo diário com e-mails, agenda de hoje e amanhã, confirmações e resultados do ecossistema.',
+      style: 'Executiva, assertiva, organizada, elegante e proativa',
+      prohibited: 'Não inventar dados ou dados não consolidados.',
+      knowledge: '',
+      flow: '1. Consolidar os e-mails recebidos na Hostinger.\n2. Listar a agenda de hoje e compromissos do dia seguinte.\n3. Perguntar confirmação das reuniões de amanhã.\n4. Apresentar os resultados de mensagens e novos contatos do WhatsApp e Telegram.'
+    };
+    sofiaForm.prompt = `Você é a Sofia, assistente executiva de inteligência artificial da empresa.
+Sua missão é gerar relatórios e briefings executivos diários completos, claros e elegantes sobre o ecossistema do sistema e enviar diretamente para o gestor via WhatsApp ou Telegram.
+
+O seu briefing diário consolida:
+1. E-MAILS RECEBIDOS (Hostinger): E-mails não lidos e resumo dos remetentes recentes.
+2. AGENDA DE HOJE: Compromissos e horários do dia.
+3. AGENDA DE AMANHÃ: Compromissos do dia seguinte.
+4. CONFIRMAÇÃO DE REUNIÕES: Perguntar expressamente ao gestor se autoriza disparar confirmação de 24h para os participantes.
+5. RESULTADOS WHATSAPP E TELEGRAM: Total de mensagens recebidas e enviadas nas últimas 24h e novos contatos cadastrados no CRM.
+
+Quando o gestor responder autorizando o disparo com 'SIM', 'Pode confirmar', 'Ok', etc., o sistema dispara automaticamente as mensagens de 24h para todos os participantes!`;
+    setAgentForm(sofiaForm);
   };
 
   const handleOpenNewAgent = () => {
@@ -440,6 +569,170 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
         </button>
       </header>
 
+      {/* Card Executivo do Agente Sofia - Resumo do Sistema */}
+      <div className="briefing-executive-card">
+        <div className="briefing-card-glow" />
+
+        <div className="briefing-header-row">
+          <div className="briefing-profile">
+            <div className="briefing-avatar-wrap">
+              <img src="/avatar/3.png" alt="Sofia" className="briefing-avatar-img" />
+              <span className="briefing-avatar-badge" title="Agente Ativa">✓</span>
+            </div>
+            <div className="briefing-title-group">
+              <h3>
+                Sofia — Resumo Executivo & Assistente da Gestão
+              </h3>
+              <div className="briefing-badges">
+                <span className="briefing-badge-active">
+                  ● {briefingForm.enabled ? `Ativo Diariamente às ${briefingForm.time || '08:00'}` : 'Pausado'}
+                </span>
+                <span className="briefing-badge-role">
+                  Briefing via {briefingForm.channel === 'telegram' ? '✈️ Telegram' : '📱 WhatsApp'}
+                </span>
+                {briefingInfo?.settings?.briefing_last_sent && (
+                  <span style={{ fontSize: '0.75rem', color: '#64748B', backgroundColor: '#F1F5F9', padding: '3px 8px', borderRadius: '10px' }}>
+                    Último envio: {new Date(briefingInfo.settings.briefing_last_sent * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p className="briefing-desc">
+          A Sofia analisa em tempo real o ecossistema do seu negócio e envia diretamente para o seu celular o briefing do dia:
+          consolida e-mails recentes e não lidos da Hostinger, a agenda de hoje e de amanhã, pergunta e executa confirmação de reuniões de 24h, além dos resultados de mensagens e novos contatos no WhatsApp e Telegram.
+        </p>
+
+        {/* Pilares do Relatório */}
+        <div className="briefing-pillars">
+          <div className="briefing-pillar-item">
+            <Mail size={16} color="#7C3AED" />
+            <span>E-mails Hostinger: <b>{briefingInfo?.data?.emailStats?.unread ?? 0}</b> não lidos</span>
+          </div>
+          <div className="briefing-pillar-item">
+            <Calendar size={16} color="#059669" />
+            <span>Agenda: <b>{briefingInfo?.data?.todayBookings?.length ?? 0}</b> hoje • <b>{briefingInfo?.data?.tomorrowBookings?.length ?? 0}</b> amanhã</span>
+          </div>
+          <div className="briefing-pillar-item">
+            <Zap size={16} color="#D97706" />
+            <span>Confirmação: <b>{briefingInfo?.data?.unconfirmedTomorrow?.length ?? 0}</b> pendentes</span>
+          </div>
+          <div className="briefing-pillar-item">
+            <Message size={16} color="#0284C7" />
+            <span>Últimas 24h: <b>{briefingInfo?.data?.messageStats?.total ?? 0}</b> msgs • <b>+{briefingInfo?.data?.contactStats?.newContacts ?? 0}</b> leads</span>
+          </div>
+        </div>
+
+        {/* Barra de Controles e Configuração de Destino */}
+        <div className="briefing-controls-bar">
+          <div className="briefing-field">
+            <label>Receber no Número (Seu WhatsApp / Telegram):</label>
+            <PhoneInput
+              value={briefingForm.targetPhone}
+              onChange={(formatted) => setBriefingForm(prev => ({ ...prev, targetPhone: formatted }))}
+              placeholder="DDD + Seu Celular"
+            />
+          </div>
+
+          <div className="briefing-field">
+            <label>Canal Preferencial:</label>
+            <div className="briefing-channel-selector">
+              <button
+                type="button"
+                className={`briefing-channel-btn ${briefingForm.channel === 'whatsapp' ? 'active-whatsapp' : ''}`}
+                onClick={() => setBriefingForm(prev => ({ ...prev, channel: 'whatsapp' }))}
+              >
+                📱 WhatsApp
+              </button>
+              <button
+                type="button"
+                className={`briefing-channel-btn ${briefingForm.channel === 'telegram' ? 'active-telegram' : ''}`}
+                onClick={() => setBriefingForm(prev => ({ ...prev, channel: 'telegram' }))}
+              >
+                ✈️ Telegram
+              </button>
+            </div>
+          </div>
+
+          <div className="briefing-field" style={{ maxWidth: '140px' }}>
+            <label>Horário do Envio:</label>
+            <input
+              type="time"
+              value={briefingForm.time || '08:00'}
+              onChange={(e) => setBriefingForm(prev => ({ ...prev, time: e.target.value }))}
+              style={{
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1.5px solid #CBD5E1',
+                fontSize: '0.88rem',
+                fontWeight: 600,
+                color: '#1E293B',
+                background: '#FFFFFF'
+              }}
+            />
+          </div>
+
+          <div className="briefing-field" style={{ maxWidth: '130px' }}>
+            <label>Status:</label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', height: '38px', fontWeight: 600, fontSize: '0.85rem', color: briefingForm.enabled ? '#059669' : '#64748B' }}>
+              <input
+                type="checkbox"
+                checked={briefingForm.enabled}
+                onChange={(e) => setBriefingForm(prev => ({ ...prev, enabled: e.target.checked }))}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              {briefingForm.enabled ? 'Ativado' : 'Pausado'}
+            </label>
+          </div>
+        </div>
+
+        {/* Rodapé de Ações do Briefing */}
+        <div className="briefing-actions-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {briefingStatusMsg ? (
+              <span className="briefing-status-feedback">
+                {briefingStatusMsg}
+              </span>
+            ) : (
+              <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                💡 Dica: Quando a Sofia enviar a pergunta de confirmação de reuniões, responda <b>"SIM"</b> na conversa para ela disparar as confirmações automaticamente.
+              </span>
+            )}
+          </div>
+
+          <div className="briefing-buttons-group">
+            <button
+              type="button"
+              className="btn-briefing-save"
+              onClick={handleSaveBriefingSettings}
+              disabled={isSavingBriefing}
+            >
+              <Check size={16} /> {isSavingBriefing ? 'Salvando...' : 'Salvar Configuração'}
+            </button>
+            <button
+              type="button"
+              className="btn-briefing-preview"
+              onClick={() => {
+                fetchBriefing();
+                setShowBriefingPreviewModal(true);
+              }}
+            >
+              <Eye size={16} /> Ver Prévia do Resumo
+            </button>
+            <button
+              type="button"
+              className="btn-briefing-send-now"
+              onClick={handleSendBriefingNow}
+              disabled={isSendingBriefing}
+            >
+              <Zap size={16} /> {isSendingBriefing ? 'Enviando ao Celular...' : 'Enviar Resumo Agora para Meu Celular'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Banner de Confirmação Automática de Agenda 24h */}
       <div style={{
         backgroundColor: '#FAF5FF',
@@ -544,47 +837,56 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
         </div>
       ) : (
         <div className="agents-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px', padding: '20px 0' }}>
-          {agents.map(agent => (
-            <div key={agent.id} className="agent-card" style={{ 
-              backgroundColor: '#ffffff', 
-              padding: '24px', 
-              borderRadius: '16px', 
-              border: (agent.name.includes('Confirmação') || (agent.role && agent.role.includes('Confirmação'))) ? '2px solid #a855f7' : '2px solid #eab308',
-              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01)', 
-              display: 'flex', 
-              flexDirection: 'column',
-              alignItems: 'center', 
-              gap: '14px',
-              textAlign: 'center'
-            }}>
-              <div style={{ fontSize: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {agent.icon && agent.icon.startsWith('/') ? (
-                  <img src={agent.icon} alt="Avatar" style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '4px solid #f8fafc', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }} />
-                ) : (
-                  <span style={{ fontSize: '3rem' }}>{agent.icon || '🤖'}</span>
-                )}
-              </div>
-              <div style={{ flex: 1, width: '100%' }}>
-                <h3 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', color: '#1e293b', fontWeight: '700' }}>{agent.name}</h3>
-                <span style={{ fontSize: '0.8rem', color: '#64748B', display: 'block', marginBottom: '8px' }}>
-                  {agent.role || 'Atendimento Geral'}
-                </span>
-                
-                <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#10B981', backgroundColor: '#ECFDF5', padding: '3px 10px', borderRadius: '12px', fontWeight: '600' }}>
-                    ● Ativo
-                  </span>
-                  {(agent.name.includes('Confirmação') || (agent.role && agent.role.includes('Confirmação'))) && (
-                    <span style={{ fontSize: '0.75rem', color: '#7C3AED', backgroundColor: '#F3E8FF', padding: '3px 10px', borderRadius: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Zap size={12} /> Confirmação 24h
-                    </span>
-                  )}
-                  {(agent.prompt && (agent.prompt.includes('Padrão de Calendário') || agent.prompt.includes('cal.com'))) && (
-                    <span style={{ fontSize: '0.75rem', color: '#0284C7', backgroundColor: '#E0F2FE', padding: '3px 10px', borderRadius: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Calendar size={12} /> Calendário Conectado
-                    </span>
+          {agents.map(agent => {
+            const isSofia = agent.name.includes('Sofia') || (agent.role && agent.role.includes('Briefing'));
+            const isMariana = agent.name.includes('Confirmação') || (agent.role && agent.role.includes('Confirmação'));
+            
+            return (
+              <div key={agent.id} className="agent-card" style={{ 
+                backgroundColor: '#ffffff', 
+                padding: '24px', 
+                borderRadius: '16px', 
+                border: isSofia ? '2px solid #7c3aed' : (isMariana ? '2px solid #a855f7' : '2px solid #eab308'),
+                boxShadow: isSofia ? '0 10px 25px -5px rgba(124, 58, 237, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.01)' : '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01)', 
+                display: 'flex', 
+                flexDirection: 'column',
+                alignItems: 'center', 
+                gap: '14px',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {agent.icon && agent.icon.startsWith('/') ? (
+                    <img src={agent.icon} alt="Avatar" style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: isSofia ? '4px solid #EDE9FE' : '4px solid #f8fafc', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }} />
+                  ) : (
+                    <span style={{ fontSize: '3rem' }}>{agent.icon || '🤖'}</span>
                   )}
                 </div>
+                <div style={{ flex: 1, width: '100%' }}>
+                  <h3 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', color: isSofia ? '#4C1D95' : '#1e293b', fontWeight: '700' }}>{agent.name}</h3>
+                  <span style={{ fontSize: '0.8rem', color: '#64748B', display: 'block', marginBottom: '8px' }}>
+                    {agent.role || 'Atendimento Geral'}
+                  </span>
+                  
+                  <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#10B981', backgroundColor: '#ECFDF5', padding: '3px 10px', borderRadius: '12px', fontWeight: '600' }}>
+                      ● Ativo
+                    </span>
+                    {isSofia && (
+                      <span style={{ fontSize: '0.75rem', color: '#6D28D9', backgroundColor: '#EDE9FE', padding: '3px 10px', borderRadius: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        👔 Resumo Executivo
+                      </span>
+                    )}
+                    {isMariana && (
+                      <span style={{ fontSize: '0.75rem', color: '#7C3AED', backgroundColor: '#F3E8FF', padding: '3px 10px', borderRadius: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Zap size={12} /> Confirmação 24h
+                      </span>
+                    )}
+                    {(agent.prompt && (agent.prompt.includes('Padrão de Calendário') || agent.prompt.includes('cal.com'))) && (
+                      <span style={{ fontSize: '0.75rem', color: '#0284C7', backgroundColor: '#E0F2FE', padding: '3px 10px', borderRadius: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Calendar size={12} /> Calendário Conectado
+                      </span>
+                    )}
+                  </div>
 
                 {/* Caixa informativa do Prompt no Banco */}
                 <div style={{
@@ -633,7 +935,8 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                 </button>
               </div>
             </div>
-          ))}
+          );
+        })}
         </div>
       )}
 
@@ -724,6 +1027,25 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                   }}
                 >
                   ⏰ Mariana Confirmação (Lembrete 24h)
+                </button>
+                <button
+                  type="button"
+                  onClick={applyPresetSofia}
+                  style={{
+                    backgroundColor: '#EDE9FE',
+                    color: '#4C1D95',
+                    border: '1px solid #C4B5FD',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  👔 Sofia (Resumo Executivo & Briefing)
                 </button>
               </div>
 
@@ -1205,6 +1527,64 @@ Seu papel é confirmar a presença do cliente agendado com 24h de antecedência,
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Prévia do Resumo Executivo Sofia */}
+      {showBriefingPreviewModal && (
+        <div className="agent-modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="agent-modal" style={{ maxWidth: '640px' }}>
+            <div className="agent-modal-header">
+              <div className="header-title">
+                <Robot size={24} color="#7C3AED" />
+                <div>
+                  <h2 style={{ fontSize: '1.2rem', margin: 0 }}>Prévia do Resumo Executivo Sofia</h2>
+                  <span style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                    Visualização em tempo real do relatório consolidado que será entregue via {briefingForm.channel === 'telegram' ? 'Telegram' : 'WhatsApp'}
+                  </span>
+                </div>
+              </div>
+              <button className="close-btn" onClick={() => setShowBriefingPreviewModal(false)}>
+                <Close size={20} />
+              </button>
+            </div>
+
+            <div className="agent-modal-content" style={{ padding: '20px 24px' }}>
+              <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155' }}>
+                  Destino: <b>{briefingForm.targetPhone || '(Informe o telefone no card)'}</b> ({briefingForm.channel === 'telegram' ? '✈️ Telegram' : '📱 WhatsApp'})
+                </span>
+                <span style={{ fontSize: '0.75rem', color: '#059669', backgroundColor: '#ECFDF5', padding: '3px 10px', borderRadius: '10px', fontWeight: 600 }}>
+                  ● Dados Consolidados em Tempo Real
+                </span>
+              </div>
+
+              <div className="briefing-chat-bubble">
+                {briefingPreviewText || 'Carregando resumo do sistema...'}
+              </div>
+            </div>
+
+            <div className="agent-modal-footer">
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={() => setShowBriefingPreviewModal(false)}
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                className="btn-briefing-send-now"
+                onClick={() => {
+                  handleSendBriefingNow();
+                  setShowBriefingPreviewModal(false);
+                }}
+                disabled={isSendingBriefing}
+              >
+                <Zap size={16} /> Enviar Este Resumo ao Meu Celular Agora
+              </button>
             </div>
           </div>
         </div>

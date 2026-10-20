@@ -224,6 +224,18 @@ async function connectToWhatsApp(workspaceId) {
               console.error('Erro ao verificar coleta de contrato:', contractErr);
             }
 
+            // Verifica se é confirmação de reuniões do gestor (Briefing Sofia)
+            try {
+              const briefingService = require('./briefing_service');
+              const handledBriefing = await briefingService.handleInboundConfirmation(workspaceId, msgObj.from, msgObj.text);
+              if (handledBriefing) {
+                console.log(`👔 Resposta de confirmação de briefing processada para o gestor em ${msgObj.from}`);
+                continue;
+              }
+            } catch (briefingErr) {
+              console.error('Erro ao verificar confirmação de briefing:', briefingErr);
+            }
+
             // Check if AI agent or automation is assigned
             const database = await db.getDB();
             const assignment = await database.get('SELECT agent_id FROM chat_assignments WHERE workspace_id = ? AND remote_jid = ?', [workspaceId, msgObj.from]);

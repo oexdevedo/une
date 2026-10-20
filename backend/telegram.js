@@ -137,6 +137,18 @@ async function connectToTelegram(workspaceId, token) {
           console.error('Erro no auto-registro de contato Telegram:', regErr);
         }
 
+        // Verifica se é confirmação de reuniões do gestor (Briefing Sofia)
+        try {
+          const briefingService = require('./briefing_service');
+          const handledBriefing = await briefingService.handleInboundConfirmation(workspaceId, msgObj.from, msgObj.text);
+          if (handledBriefing) {
+            console.log(`👔 Resposta de confirmação de briefing Telegram processada para o gestor`);
+            return;
+          }
+        } catch (briefingErr) {
+          console.error('Erro ao verificar confirmação de briefing Telegram:', briefingErr);
+        }
+
         // Check for AI or automation assignment
         const assignment = await database.get('SELECT agent_id FROM chat_assignments WHERE workspace_id = ? AND remote_jid = ?', [workspaceId, msgObj.from]);
         let targetToRespond = null;

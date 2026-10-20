@@ -371,6 +371,89 @@ app.post('/api/workspaces/:id/reminders/mark-confirmed', async (req, res) => {
 });
 
 // ==========================================
+// APIs do Agente de Resumo Executivo (Sofia)
+// ==========================================
+app.get('/api/workspaces/:id/briefing', async (req, res) => {
+  try {
+    const workspaceId = req.params.id || 1;
+    const database = await db.getDB();
+    const ws = await database.get(
+      `SELECT 
+        briefing_enabled, briefing_channel, briefing_target_phone, 
+        briefing_time, briefing_last_sent, briefing_last_text, telegram_phone 
+       FROM workspaces WHERE id = ?`,
+      [workspaceId]
+    );
+
+    const briefingService = require('./briefing_service');
+    const briefingData = await briefingService.getBriefingData(workspaceId);
+    const preview = briefingService.buildBriefingText(briefingData);
+
+    res.json({
+      settings: ws || {},
+      data: briefingData,
+      preview
+    });
+  } catch (error) {
+    console.error('[API Briefing] Erro ao obter dados do resumo:', error);
+    res.status(500).json({ error: 'Erro ao carregar dados do resumo executivo' });
+  }
+});
+
+app.post('/api/workspaces/:id/briefing/settings', async (req, res) => {
+  try {
+    const workspaceId = req.params.id || 1;
+    const { briefing_enabled, briefing_channel, briefing_target_phone, briefing_time } = req.body;
+    const database = await db.getDB();
+    await database.run(
+      `UPDATE workspaces SET 
+        briefing_enabled = ?, 
+        briefing_channel = ?, 
+        briefing_target_phone = ?, 
+        briefing_time = ? 
+       WHERE id = ?`,
+      [
+        briefing_enabled ? 1 : 0,
+        briefing_channel || 'whatsapp',
+        briefing_target_phone || null,
+        briefing_time || '08:00',
+        workspaceId
+      ]
+    );
+    res.json({ success: true, message: 'Configurações do resumo salvas com sucesso' });
+  } catch (error) {
+    console.error('[API Briefing] Erro ao salvar configurações:', error);
+    res.status(500).json({ error: 'Erro ao salvar configurações do resumo executivo' });
+  }
+});
+
+app.get('/api/workspaces/:id/briefing/preview', async (req, res) => {
+  try {
+    const workspaceId = req.params.id || 1;
+    const briefingService = require('./briefing_service');
+    const briefingData = await briefingService.getBriefingData(workspaceId);
+    const preview = briefingService.buildBriefingText(briefingData);
+    res.json({ data: briefingData, preview });
+  } catch (error) {
+    console.error('[API Briefing] Erro ao gerar prévia:', error);
+    res.status(500).json({ error: 'Erro ao gerar prévia do resumo executivo' });
+  }
+});
+
+app.post('/api/workspaces/:id/briefing/trigger', async (req, res) => {
+  try {
+    const workspaceId = req.params.id || 1;
+    const { channel, targetPhone } = req.body || {};
+    const briefingService = require('./briefing_service');
+    const result = await briefingService.sendBriefingNow(workspaceId, { channel, targetPhone });
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('[API Briefing] Erro ao disparar envio imediato:', error);
+    res.status(500).json({ error: error.message || 'Erro ao enviar resumo executivo' });
+  }
+});
+
+// ==========================================
 // APIs de Confecção e Gestão de Contratos
 // ==========================================
 
@@ -2569,5 +2652,13 @@ app.listen(PORT, async () => {
     emailService.startPeriodicEmailSync();
   } catch (emailErr) {
     console.error('Erro ao iniciar EmailService:', emailErr);
+  }
+
+  // Inicia o serviço do Agente Executivo Sofia (Briefing Diário Programado)
+  try {
+    const briefingService = require('./briefing_service');
+    briefingService.startBriefingScheduler();
+  } catch (briefingErr) {
+    console.error('Erro ao iniciar BriefingService:', briefingErr);
   }
 });

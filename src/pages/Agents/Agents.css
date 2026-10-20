@@ -326,3 +326,311 @@
   border-top: 1px solid #E4E4E7;
   background: white;
 }
+
+/* ========================================= */
+/* Sofia - Resumo Executivo & Briefing Diário */
+/* ========================================= */
+.briefing-executive-card {
+  background: linear-gradient(135deg, #FAF5FF 0%, #F5F3FF 50%, #EFF6FF 100%);
+  border: 1.5px solid #C4B5FD;
+  border-radius: 18px;
+  padding: 22px 26px;
+  margin-bottom: 24px;
+  box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  position: relative;
+  overflow: hidden;
+}
+
+.briefing-card-glow {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 140px;
+  height: 140px;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.25) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+}
+
+.briefing-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.briefing-profile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.briefing-avatar-wrap {
+  position: relative;
+  width: 60px;
+  height: 60px;
+}
+
+.briefing-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #7C3AED;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+}
+
+.briefing-avatar-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: #10B981;
+  color: white;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.briefing-title-group h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #4C1D95;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.briefing-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.briefing-badge-active {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #065F46;
+  background: #D1FAE5;
+  padding: 3px 10px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.briefing-badge-role {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6D28D9;
+  background: #EDE9FE;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+.briefing-desc {
+  margin: 0 0 16px 0;
+  font-size: 0.9rem;
+  color: #475569;
+  line-height: 1.5;
+  max-width: 950px;
+}
+
+.briefing-pillars {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.briefing-pillar-item {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #DDD6FE;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.briefing-controls-bar {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  align-items: flex-end;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.briefing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.briefing-field label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.briefing-channel-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.briefing-channel-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  border: 1.5px solid #CBD5E1;
+  background: #F8FAFC;
+  color: #64748B;
+}
+
+.briefing-channel-btn.active-whatsapp {
+  border-color: #10B981;
+  background: #ECFDF5;
+  color: #065F46;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15);
+}
+
+.briefing-channel-btn.active-telegram {
+  border-color: #0284C7;
+  background: #E0F2FE;
+  color: #0369A1;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.15);
+}
+
+.briefing-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #DDD6FE;
+}
+
+.briefing-status-feedback {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #7C3AED;
+  background: #F3E8FF;
+  padding: 6px 14px;
+  border-radius: 8px;
+}
+
+.briefing-buttons-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn-briefing-save {
+  background: #F8FAFC;
+  border: 1.5px solid #CBD5E1;
+  color: #334155;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.btn-briefing-save:hover {
+  background: #F1F5F9;
+  border-color: #94A3B8;
+}
+
+.btn-briefing-preview {
+  background: #FFFFFF;
+  border: 1.5px solid #A78BFA;
+  color: #6D28D9;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.btn-briefing-preview:hover {
+  background: #F5F3FF;
+  border-color: #7C3AED;
+}
+
+.btn-briefing-send-now {
+  background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+  border: none;
+  color: white;
+  padding: 9px 20px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  transition: all 0.2s;
+}
+
+.btn-briefing-send-now:hover:not(:disabled) {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.4);
+}
+
+.btn-briefing-send-now:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Modal de Prévia do Resumo */
+.briefing-chat-bubble {
+  background: #0F172A;
+  color: #F8FAFC;
+  border-radius: 14px;
+  padding: 20px 24px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 520px;
+  overflow-y: auto;
+  border: 1px solid #334155;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
