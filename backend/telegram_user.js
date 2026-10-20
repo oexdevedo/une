@@ -139,47 +139,90 @@ async function signIn(workspaceId, { code, password }) {
   }
 
   const { client, phone, phoneCodeHash, apiId, apiHash } = pending;
-  const cleanCode = (code || '').trim();
+  const cleanCode = (code || '').toString().replace(/\D/g, '').trim() || (code || '').toString().trim();
 
   if (!cleanCode) {
     throw new Error('Código de confirmação obrigatório');
   }
 
+  // Garante que o cliente MTProto está conectado
+  if (!client.connected) {
+    await client.connect();
+  }
+
   let me;
+  let needPasswordCheck = false;
+
   try {
-    await client.invoke(
+    const signInResult = await client.invoke(
       new Api.auth.SignIn({
         phoneNumber: phone,
         phoneCodeHash: phoneCodeHash,
         phoneCode: cleanCode,
       })
     );
+    if (signInResult && signInResult.user) {
+      me = signInResult.user;
+    }
   } catch (err) {
-    // Caso o usuário possua Senha em Duas Etapas (2FA Cloud Password)
-    if (err.message && err.message.includes('SESSION_PASSWORD_NEEDED')) {
-      if (!password) {
-        return {
-          success: false,
-          needPassword: true,
-          error: 'Sua conta possui Verificação em Duas Etapas (2FA). Por favor, informe sua senha.'
-        };
-      }
+    const errText = ((err && err.message) || (err && err.errorMessage) || '').toUpperCase();
+    if (errText.includes('SESSION_PASSWORD_NEEDED')) {
+      needPasswordCheck = true;
+    } else if (password) {
+      // Caso o código de 5 dígitos já tenha sido aceito e a sessão esteja aguardando a senha 2FA
       try {
-        await client.signInWithPassword({
-          apiId,
-          apiHash,
-          password: async () => password,
-          onError: (e) => { throw e; }
-        });
-      } catch (pwdErr) {
-        throw new Error('Senha de 2FA incorreta: ' + pwdErr.message);
+        const pwdTest = await client.invoke(new Api.account.GetPassword());
+        if (pwdTest && pwdTest.hasPassword) {
+          needPasswordCheck = true;
+        } else {
+          throw err;
+        }
+      } catch (e) {
+        throw err;
       }
     } else {
       throw err;
     }
   }
 
-  me = await client.getMe();
+  // Caso o Telegram exija Senha de Duas Etapas (2FA Cloud Password)
+  if (needPasswordCheck) {
+    if (!password) {
+      return {
+        success: false,
+        needPassword: true,
+        error: 'Sua conta possui Verificação em Duas Etapas (2FA). Por favor, informe sua senha.'
+      };
+    }
+
+    try {
+      const { computeCheck } = require('telegram/Password');
+      const passwordSrpResult = await client.invoke(new Api.account.GetPassword());
+      const passwordSrpCheck = await computeCheck(passwordSrpResult, password);
+      const authResult = await client.invoke(
+        new Api.auth.CheckPassword({
+          password: passwordSrpCheck,
+        })
+      );
+      if (authResult && authResult.user) {
+        me = authResult.user;
+      }
+    } catch (pwdErr) {
+      const pwdErrText = ((pwdErr && pwdErr.message) || (pwdErr && pwdErr.errorMessage) || '').toUpperCase();
+      if (pwdErrText.includes('PASSWORD_HASH_INVALID')) {
+        return {
+          success: false,
+          needPassword: true,
+          error: 'Senha de 2FA incorreta. Verifique a senha definida no seu Telegram e tente novamente.'
+        };
+      }
+      throw new Error('Falha ao validar senha de 2FA: ' + (pwdErr.message || pwdErr.errorMessage || 'Erro desconhecido'));
+    }
+  }
+
+  if (!me) {
+    me = await client.getMe();
+  }
   const sessionString = client.session.save();
 
   // Salva permanentemente no banco SQLite do Workspace

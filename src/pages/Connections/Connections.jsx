@@ -286,8 +286,13 @@ export default function Connections({ isSubpage = false }) {
   };
 
   const handleSignInTg = async () => {
-    if (!tgUserCode.trim()) {
+    const cleanCode = tgUserCode.replace(/\D/g, '') || tgUserCode.trim();
+    if (!cleanCode) {
       alert('Por favor, digite o código de 5 dígitos recebido no seu Telegram.');
+      return;
+    }
+    if (tgNeedPassword && !tgUserPassword.trim()) {
+      alert('Por favor, informe a senha de 2FA (Verificação em Duas Etapas) da sua conta do Telegram.');
       return;
     }
     setTgIsSigningIn(true);
@@ -297,7 +302,7 @@ export default function Connections({ isSubpage = false }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: workspaceId,
-          code: tgUserCode,
+          code: cleanCode,
           password: tgUserPassword || undefined
         })
       });
@@ -707,13 +712,20 @@ export default function Connections({ isSubpage = false }) {
 
                         {tgNeedPassword && (
                           <div className="form-group" style={{ marginBottom: '14px' }}>
-                            <label>Senha de Duas Etapas (2FA da sua conta)</label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0369a1', fontWeight: 600 }}>
+                              <span>🔒</span> Senha de Duas Etapas (2FA Cloud Password)
+                            </label>
                             <input 
                               type="password" 
-                              placeholder="Digite sua senha 2FA" 
+                              placeholder="Digite sua senha 2FA do Telegram" 
                               value={tgUserPassword}
                               onChange={(e) => setTgUserPassword(e.target.value)}
+                              autoFocus
+                              style={{ border: '1.5px solid #0284c7', backgroundColor: '#f0f9ff' }}
                             />
+                            <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                              Esta é a senha em nuvem definida nas configurações de privacidade e segurança do seu Telegram.
+                            </p>
                           </div>
                         )}
 
