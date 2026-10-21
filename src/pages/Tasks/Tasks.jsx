@@ -14,6 +14,7 @@ import {
   Flag,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from 'pixelarticons/react';
 import { getWorkspaceId } from '../../utils/workspace';
 
