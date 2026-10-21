@@ -573,14 +573,14 @@ export default function Connections({ isSubpage = false }) {
           </div>
 
           <div className="connection-body">
-            {/* Seletor de Modo: Conta de Usuário (12k contatos) vs BotFather */}
+            {/* Seletor de Modo: Conta de Usuário vs BotFather */}
             <div className="tg-tabs">
               <button 
                 type="button" 
                 className={`tg-tab-btn ${tgTab === 'user' ? 'active' : ''}`}
                 onClick={() => setTgTab('user')}
               >
-                <Users size={14} /> Minha Conta ({tgUserStatus.connected ? 'Ativa' : '+12k Contatos'})
+                <Users size={14} /> Minha Conta ({tgUserStatus.connected ? 'Conectada' : 'Pessoal'})
               </button>
               <button 
                 type="button" 
@@ -630,7 +630,7 @@ export default function Connections({ isSubpage = false }) {
                         onClick={handleSyncTgContacts}
                         disabled={tgIsSyncing}
                       >
-                        <Refresh size={16} /> {tgIsSyncing ? 'Sincronizando 12k...' : 'Sincronizar Meus Contatos'}
+                        <Refresh size={16} /> {tgIsSyncing ? 'Sincronizando contatos...' : 'Sincronizar Meus Contatos'}
                       </button>
                       <button 
                         className="btn-secondary"
@@ -645,7 +645,7 @@ export default function Connections({ isSubpage = false }) {
                 ) : (
                   <div className="form-state">
                     <p style={{ color: '#64748b', fontSize: '0.86rem', marginBottom: '14px', lineHeight: 1.4 }}>
-                      Conecte sua conta do Telegram para <strong>puxar automaticamente seus +12.000 contatos</strong> e disparar mensagens com links sem precisar de planilhas.
+                      Conecte sua conta do Telegram para <strong>puxar automaticamente seus contatos</strong> e disparar mensagens com links sem precisar de planilhas.
                     </p>
 
                     {!tgCodeSent ? (
