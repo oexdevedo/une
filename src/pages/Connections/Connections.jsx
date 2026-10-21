@@ -337,7 +337,13 @@ export default function Connections({ isSubpage = false }) {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`✅ Sincronização concluída com sucesso!\n\n${data.totalTelegram} contatos lidos na sua conta do Telegram.\n${data.inserted} novos contatos adicionados à lista "${data.listName}" no CRM.`);
+        alert(
+          `✅ Sincronização do Telegram concluída com sucesso!\n\n` +
+          `📋 1. Lista de Agenda: "${data.listName}"\n` +
+          `• ${data.totalTelegram} contatos lidos (${data.inserted} novos adicionados)\n\n` +
+          `💬 2. Lista de Interações Recentes: "${data.recentListName}"\n` +
+          `• ${data.recentTotal || 0} pessoas interagidas nos últimos 30 dias (${data.recentInserted || 0} novos adicionados)`
+        );
         await fetchTGStatus();
       } else {
         alert('Erro ao sincronizar contatos: ' + (data.error || 'Tente novamente'));
@@ -607,8 +613,13 @@ export default function Connections({ isSubpage = false }) {
 
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
                         <span className="tg-stat-pill">
-                          <Users size={14} /> {tgUserStatus.totalContacts ? `${tgUserStatus.totalContacts} contatos sincronizados no CRM` : 'Agenda sincronizada na nuvem'}
+                          <Users size={14} /> {tgUserStatus.totalContacts ? `${tgUserStatus.totalContacts} contatos na agenda` : 'Agenda sincronizada na nuvem'}
                         </span>
+                        {tgUserStatus.totalRecentContacts > 0 && (
+                          <span className="tg-stat-pill" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
+                            💬 {tgUserStatus.totalRecentContacts} interagidos (30 dias)
+                          </span>
+                        )}
                       </div>
                     </div>
 

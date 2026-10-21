@@ -369,14 +369,97 @@ async function syncContacts(workspaceId) {
 
     await database.run('COMMIT');
 
-    console.log(`✅ [TelegramUser] Sincronização concluída: ${insertedCount} novos contatos inseridos na lista "${listName}"!`);
+    console.log(`✅ [TelegramUser] Sincronização da agenda concluída: ${insertedCount} novos contatos inseridos na lista "${listName}"!`);
+
+    // 4. Encontra ou cria a Segunda Lista "Telegram - Interações (Últimos 30 dias)"
+    const recentListName = 'Telegram - Interações (Últimos 30 dias)';
+    let recentList = await database.get(
+      'SELECT id FROM lists WHERE workspace_id = ? AND name = ?',
+      [workspaceId, recentListName]
+    );
+
+    if (!recentList) {
+      const recentInsert = await database.run(
+        'INSERT INTO lists (workspace_id, name) VALUES (?, ?)',
+        [workspaceId, recentListName]
+      );
+      recentList = { id: recentInsert.lastID };
+    }
+
+    const recentListId = recentList.id;
+
+    // Busca contatos já cadastrados no Workspace na lista de interações recentes
+    const existingRecentRows = await database.all(
+      'SELECT phone FROM contacts WHERE workspace_id = ? AND list_id = ?',
+      [workspaceId, recentListId]
+    );
+    const existingRecentPhones = new Set(existingRecentRows.map(r => r.phone));
+
+    // 5. Coleta conversas privadas com pessoas reais com quem houve interação nos últimos 30 dias
+    const thirtyDaysAgoSec = Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60);
+    let recentInsertedCount = 0;
+    let recentTotalFound = 0;
+
+    console.log(`💬 [TelegramUser] Buscando conversas dos últimos 30 dias no Telegram...`);
+
+    try {
+      await database.run('BEGIN TRANSACTION');
+
+      for await (const dialog of client.iterDialogs({ limit: 500 })) {
+        const lastMsgDate = (dialog.message && dialog.message.date) || dialog.date || 0;
+
+        // Se a conversa não está fixada no topo e a última mensagem tem mais de 30 dias,
+        // encerra a busca antecipadamente pois os diálogos vêm ordenados por data decrescente
+        if (!dialog.pinned && lastMsgDate > 0 && lastMsgDate < thirtyDaysAgoSec) {
+          break;
+        }
+
+        // Filtra apenas conversas individuais com pessoas (ignora bots, canais, grupos e a própria conta)
+        if (lastMsgDate >= thirtyDaysAgoSec && dialog.isUser) {
+          const u = dialog.entity;
+          if (u && !u.bot && !u.deleted && !u.self) {
+            recentTotalFound++;
+            const name = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || dialog.name || 'Contato Telegram';
+            let phone = '';
+            if (u.phone) {
+              phone = u.phone.startsWith('+') ? u.phone : `+${u.phone}`;
+            } else if (u.username) {
+              phone = `@${u.username}`;
+            } else if (u.id) {
+              phone = `${u.id}@telegram`;
+            }
+
+            if (phone && !existingRecentPhones.has(phone)) {
+              await database.run(
+                'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
+                [workspaceId, recentListId, name, phone, 'Ativo']
+              );
+              existingRecentPhones.add(phone);
+              recentInsertedCount++;
+            }
+          }
+        }
+      }
+
+      await database.run('COMMIT');
+      console.log(`💬 [TelegramUser] ${recentTotalFound} pessoas interagidas nos últimos 30 dias (${recentInsertedCount} novos adicionados na lista "${recentListName}")!`);
+    } catch (dialogErr) {
+      try {
+        await database.run('ROLLBACK');
+      } catch (rbErr) {}
+      console.warn(`⚠️ [TelegramUser] Aviso ao processar conversas recentes de 30 dias:`, dialogErr.message);
+    }
 
     return {
       success: true,
       totalTelegram: users.length,
       inserted: insertedCount,
       listId,
-      listName
+      listName,
+      recentListId,
+      recentListName,
+      recentTotal: recentTotalFound,
+      recentInserted: recentInsertedCount
     };
   } catch (err) {
     console.error(`❌ [TelegramUser] Erro ao sincronizar contatos:`, err);
@@ -406,8 +489,9 @@ async function getStatus(workspaceId) {
   const isPending = !!(pendingLogins[workspaceId]);
   const isSyncing = !!(activeSessions[workspaceId] && activeSessions[workspaceId].isSyncing);
 
-  // Conta total de contatos importados do Telegram
+  // Conta total de contatos importados do Telegram (agenda e interações recentes)
   let totalContacts = 0;
+  let totalRecentContacts = 0;
   try {
     const countRow = await database.get(
       `SELECT COUNT(*) as count FROM contacts c 
@@ -416,6 +500,14 @@ async function getStatus(workspaceId) {
       [workspaceId]
     );
     totalContacts = countRow ? countRow.count : 0;
+
+    const recentCountRow = await database.get(
+      `SELECT COUNT(*) as count FROM contacts c 
+       JOIN lists l ON c.list_id = l.id 
+       WHERE c.workspace_id = ? AND l.name = 'Telegram - Interações (Últimos 30 dias)'`,
+      [workspaceId]
+    );
+    totalRecentContacts = recentCountRow ? recentCountRow.count : 0;
   } catch (e) {}
 
   return {
@@ -427,7 +519,8 @@ async function getStatus(workspaceId) {
     username: ws ? ws.telegram_username : '',
     userId: ws ? ws.telegram_user_id : '',
     connectedAt: ws ? ws.telegram_connected_at : null,
-    totalContacts
+    totalContacts,
+    totalRecentContacts
   };
 }
 
