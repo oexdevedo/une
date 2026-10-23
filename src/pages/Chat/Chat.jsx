@@ -350,22 +350,32 @@ export default function Chat() {
         if (res.ok) {
           const data = await res.json();
           
+          const isPlaceholder = (name) => !name || name === 'Me' || name === 'Você' || name.includes('@');
           const contactsMap = {};
           data.forEach(msg => {
             const contactId = msg.from;
+            const validName = !isPlaceholder(msg.pushName) ? msg.pushName : null;
+
             if (!contactsMap[contactId]) {
               contactsMap[contactId] = {
                 id: contactId,
-                name: msg.pushName || contactId.split('@')[0],
+                name: validName || contactId.split('@')[0],
                 avatar: `/api/contacts/${contactId}/avatar?workspace_id=${workspaceId}`,
-                fallbackAvatar: `https://api.dicebear.com/7.x/initials/svg?seed=${msg.pushName || contactId}`,
+                fallbackAvatar: `https://api.dicebear.com/7.x/initials/svg?seed=${validName || contactId}`,
                 msg: msg.text,
                 time: new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                lastTimestamp: msg.timestamp || 0,
                 messages: []
               };
             }
             contactsMap[contactId].msg = msg.text;
             contactsMap[contactId].time = new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            contactsMap[contactId].lastTimestamp = Math.max(contactsMap[contactId].lastTimestamp || 0, msg.timestamp || 0);
+
+            if (validName && isPlaceholder(contactsMap[contactId].name)) {
+              contactsMap[contactId].name = validName;
+              contactsMap[contactId].fallbackAvatar = `https://api.dicebear.com/7.x/initials/svg?seed=${validName}`;
+            }
             
             contactsMap[contactId].messages.push({
               id: msg.id,
@@ -376,7 +386,9 @@ export default function Chat() {
             });
           });
 
-          setWaContacts(Object.values(contactsMap));
+          // Ordena contatos pelo timestamp mais recente no topo
+          const sortedContacts = Object.values(contactsMap).sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0));
+          setWaContacts(sortedContacts);
         }
       } catch (err) {
         console.error('Failed to fetch messages:', err);

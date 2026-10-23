@@ -1917,14 +1917,14 @@ app.post('/api/messages/send', upload.single('file'), async (req, res) => {
       const telegramUserApi = require('./telegram_user');
       const userStatus = await telegramUserApi.getStatus(workspaceId);
       if (userStatus && userStatus.connected) {
-        result = await telegramUserApi.sendMessage(workspaceId, to, text, file);
+        result = await telegramUserApi.sendMessage(workspaceId, to, text, file, contact_name);
       } else {
         const telegramApi = require('./telegram');
         result = await telegramApi.sendMessage(workspaceId, to, text, file, contact_name);
       }
     } else {
       const whatsappApi = require('./whatsapp');
-      result = await whatsappApi.sendMessage(workspaceId, to, text, file);
+      result = await whatsappApi.sendMessage(workspaceId, to, text, file, contact_name);
     }
     res.json({ success: true, result });
   } catch (error) {

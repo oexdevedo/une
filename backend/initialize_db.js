@@ -23,6 +23,74 @@ async function ensureColumn(db, tableName, columnName, columnDefinition) {
   }
 }
 
+async function migrateMessagesTable(db) {
+  try {
+    const tableInfo = await db.all("PRAGMA table_info(messages)");
+    if (!tableInfo || tableInfo.length === 0) return;
+    
+    const idCol = tableInfo.find(c => c.name.toLowerCase() === 'id');
+    const hasType = tableInfo.some(c => c.name.toLowerCase() === 'type');
+    const hasFileUrl = tableInfo.some(c => c.name.toLowerCase() === 'file_url');
+    const hasPushName = tableInfo.some(c => c.name.toLowerCase() === 'push_name');
+    
+    const needsMigration = (idCol && idCol.type && idCol.type.toUpperCase() !== 'TEXT') || !hasType || !hasFileUrl || !hasPushName;
+    
+    if (needsMigration) {
+      console.log('🔄 Migrando tabela messages para garantir IDs TEXT e novas colunas...');
+      await db.exec('PRAGMA foreign_keys = OFF;');
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS messages_new (
+          id TEXT PRIMARY KEY,
+          workspace_id INTEGER NOT NULL,
+          remote_jid TEXT NOT NULL,
+          from_me BOOLEAN NOT NULL,
+          text TEXT,
+          type TEXT DEFAULT 'text',
+          file_url TEXT,
+          timestamp INTEGER NOT NULL,
+          push_name TEXT,
+          media_path TEXT,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+      `);
+      
+      const hasMediaPath = tableInfo.some(c => c.name.toLowerCase() === 'media_path');
+      const selectType = hasType ? 'type' : "'text'";
+      const selectFileUrl = hasFileUrl ? 'file_url' : 'NULL';
+      const selectPushName = hasPushName ? 'push_name' : 'NULL';
+      const selectMediaPath = hasMediaPath ? 'media_path' : 'NULL';
+      
+      await db.exec(`
+        INSERT OR IGNORE INTO messages_new (id, workspace_id, remote_jid, from_me, text, type, file_url, timestamp, push_name, media_path)
+        SELECT 
+          CAST(id AS TEXT), 
+          workspace_id, 
+          remote_jid, 
+          from_me, 
+          text, 
+          ${selectType}, 
+          ${selectFileUrl}, 
+          CASE 
+            WHEN typeof(timestamp) = 'integer' THEN timestamp 
+            WHEN typeof(timestamp) = 'text' THEN strftime('%s', timestamp)
+            ELSE unixepoch() 
+          END, 
+          ${selectPushName}, 
+          ${selectMediaPath}
+        FROM messages;
+      `);
+      
+      await db.exec('DROP TABLE messages;');
+      await db.exec('ALTER TABLE messages_new RENAME TO messages;');
+      await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_ws_jid ON messages(workspace_id, remote_jid);');
+      await db.exec('PRAGMA foreign_keys = ON;');
+      console.log('✓ Tabela messages migrada com sucesso para TEXT PRIMARY KEY!');
+    }
+  } catch (err) {
+    console.warn('Aviso ao migrar tabela messages:', err.message);
+  }
+}
+
 async function init() {
   console.log('🔄 Iniciando verificação e configuração do Banco SQLite...');
   const db = await getDB();
@@ -360,6 +428,13 @@ async function init() {
   await ensureColumn(db, 'calendar_events', 'attendee_phone', 'TEXT');
   await ensureColumn(db, 'workspaces', 'default_country', "TEXT DEFAULT 'TH'");
   await ensureColumn(db, 'workspaces', 'default_ddi', "TEXT DEFAULT '66'");
+
+  // Migra e garante schema completo para tabela messages
+  await migrateMessagesTable(db);
+  await ensureColumn(db, 'messages', 'type', "TEXT DEFAULT 'text'");
+  await ensureColumn(db, 'messages', 'file_url', 'TEXT');
+  await ensureColumn(db, 'messages', 'push_name', 'TEXT');
+  await ensureColumn(db, 'messages', 'media_path', 'TEXT');
 
   // 3. Versão do Schema
   const existingVersion = await db.get('SELECT version FROM schema_version WHERE id = 1');

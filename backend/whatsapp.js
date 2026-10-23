@@ -300,7 +300,7 @@ function getSocket(workspaceId) {
 async function saveMessageToDB(workspaceId, msgObj) {
   const database = await db.getDB();
   await database.run(
-    `INSERT OR IGNORE INTO messages (id, workspace_id, remote_jid, from_me, text, type, file_url, timestamp, push_name)
+    `INSERT OR REPLACE INTO messages (id, workspace_id, remote_jid, from_me, text, type, file_url, timestamp, push_name)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       msgObj.id,
@@ -319,16 +319,42 @@ async function saveMessageToDB(workspaceId, msgObj) {
 async function getMessages(workspaceId) {
   const database = await db.getDB();
   const rows = await database.all('SELECT * FROM messages WHERE workspace_id = ? ORDER BY timestamp ASC', [workspaceId]);
-  return rows.map(r => ({
-    id: r.id,
-    from: r.remote_jid,
-    fromMe: r.from_me === 1,
-    text: r.text,
-    type: r.type,
-    fileUrl: r.file_url,
-    timestamp: r.timestamp,
-    pushName: r.push_name
-  }));
+  
+  // Mapeia contatos cadastrados para preencher nomes reais nos chats
+  let contactMap = {};
+  try {
+    const contacts = await database.all('SELECT name, phone FROM contacts WHERE workspace_id = ?', [workspaceId]);
+    contacts.forEach(c => {
+      if (c.phone && c.name) {
+        const digits = c.phone.replace(/\D/g, '');
+        if (digits) {
+          contactMap[digits] = c.name;
+          if (digits.length >= 8) contactMap[digits.slice(-8)] = c.name;
+        }
+      }
+    });
+  } catch (e) {}
+
+  return rows.map(r => {
+    let resolvedName = r.push_name;
+    if (!resolvedName || resolvedName === 'Me' || resolvedName === 'Você' || resolvedName.includes('@')) {
+      const cleanDigits = (r.remote_jid || '').replace(/\D/g, '');
+      if (cleanDigits && (contactMap[cleanDigits] || contactMap[cleanDigits.slice(-8)])) {
+        resolvedName = contactMap[cleanDigits] || contactMap[cleanDigits.slice(-8)];
+      }
+    }
+
+    return {
+      id: r.id,
+      from: r.remote_jid,
+      fromMe: r.from_me === 1,
+      text: r.text,
+      type: r.type || 'text',
+      fileUrl: r.file_url,
+      timestamp: typeof r.timestamp === 'number' ? r.timestamp : Math.floor(new Date(r.timestamp).getTime() / 1000) || Math.floor(Date.now() / 1000),
+      pushName: resolvedName || (r.remote_jid ? r.remote_jid.split('@')[0] : 'Contato')
+    };
+  });
 }
 
 async function disconnectWhatsApp(workspaceId) {
@@ -351,7 +377,7 @@ async function disconnectWhatsApp(workspaceId) {
   return { success: true, message: 'WhatsApp desconectado com sucesso' };
 }
 
-async function sendMessage(workspaceId, jid, text, file) {
+async function sendMessage(workspaceId, jid, text, file, contactName = '') {
   const session = sessions[workspaceId];
   if (!session || session.status !== 'connected' || !session.sock) {
     throw new Error('WhatsApp não está conectado. Conecte o WhatsApp no menu Conexões antes de enviar mensagens.');
@@ -448,6 +474,22 @@ async function sendMessage(workspaceId, jid, text, file) {
 
   const sentMsg = await session.sock.sendMessage(cleanJid, messageOptions);
   
+  // Resolve nome do contato para o histórico
+  let pushName = (contactName || '').trim();
+  if (!pushName) {
+    try {
+      const database = await db.getDB();
+      const phoneDigits = cleanJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+      if (phoneDigits) {
+        const ct = await database.get(
+          'SELECT name FROM contacts WHERE workspace_id = ? AND (phone LIKE ? OR phone LIKE ?) LIMIT 1',
+          [workspaceId, `%${phoneDigits.slice(-8)}%`, `%${phoneDigits}%`]
+        );
+        if (ct && ct.name) pushName = ct.name;
+      }
+    } catch (e) {}
+  }
+
   const msgObj = {
     id: sentMsg.key.id,
     from: cleanJid,
@@ -456,9 +498,11 @@ async function sendMessage(workspaceId, jid, text, file) {
     type: msgType,
     fileUrl: fileUrl,
     timestamp: Math.floor(Date.now() / 1000),
-    pushName: 'Me'
+    pushName: pushName || cleanJid.split('@')[0]
   };
-  await saveMessageToDB(workspaceId, msgObj).catch(console.error);
+  await saveMessageToDB(workspaceId, msgObj).catch(err => {
+    console.error('Erro ao salvar mensagem no DB:', err.message);
+  });
 
   return sentMsg;
 }

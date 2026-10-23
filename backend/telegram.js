@@ -366,6 +366,18 @@ async function sendMessage(workspaceId, jid, text, file, contactName = '') {
   const database = await db.getDB();
   const dbJid = `${chatId}@telegram`;
   const messageId = Date.now().toString() + '_' + dbJid;
+  
+  let pushName = (contactName || '').trim();
+  if (!pushName) {
+    try {
+      const ct = await database.get(
+        'SELECT name FROM contacts WHERE workspace_id = ? AND phone LIKE ? LIMIT 1',
+        [workspaceId, `%${chatId}%`]
+      );
+      if (ct && ct.name) pushName = ct.name;
+    } catch (e) {}
+  }
+
   await database.run(
     `INSERT INTO messages (id, workspace_id, remote_jid, from_me, text, type, file_url, timestamp, push_name)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -378,7 +390,7 @@ async function sendMessage(workspaceId, jid, text, file, contactName = '') {
       file ? (file.mimetype.startsWith('image/') ? 'image' : 'file') : 'text',
       null,
       Math.floor(Date.now() / 1000),
-      'Você'
+      pushName || chatId
     ]
   );
 

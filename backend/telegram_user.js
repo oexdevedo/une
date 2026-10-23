@@ -560,7 +560,7 @@ async function disconnectTelegramUser(workspaceId) {
 /**
  * 6. Enviar mensagem direta via Telegram MTProto
  */
-async function sendMessage(workspaceId, to, text, file) {
+async function sendMessage(workspaceId, to, text, file, contactName = '') {
   const client = await getClient(workspaceId);
   if (!client) {
     throw new Error('Sessão do Telegram (Conta de Usuário) não conectada');
@@ -609,6 +609,21 @@ async function sendMessage(workspaceId, to, text, file) {
     const database = await db.getDB();
     const dbJid = `${cleanTarget}@telegram`;
     const messageId = Date.now().toString() + '_' + dbJid;
+    
+    let pushName = (contactName || '').trim();
+    if (!pushName) {
+      try {
+        const digits = cleanTarget.replace(/\D/g, '');
+        if (digits) {
+          const ct = await database.get(
+            'SELECT name FROM contacts WHERE workspace_id = ? AND (phone LIKE ? OR phone LIKE ?) LIMIT 1',
+            [workspaceId, `%${digits.slice(-8)}%`, `%${digits}%`]
+          );
+          if (ct && ct.name) pushName = ct.name;
+        }
+      } catch (e) {}
+    }
+
     await database.run(
       `INSERT INTO messages (id, workspace_id, remote_jid, from_me, text, type, file_url, timestamp, push_name)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -621,7 +636,7 @@ async function sendMessage(workspaceId, to, text, file) {
         file ? (file.mimetype && file.mimetype.startsWith('image/') ? 'image' : 'file') : 'text',
         null,
         Math.floor(Date.now() / 1000),
-        'Você'
+        pushName || cleanTarget
       ]
     );
   } catch (dbErr) {
