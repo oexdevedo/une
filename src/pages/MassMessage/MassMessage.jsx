@@ -642,7 +642,7 @@ export default function MassMessage() {
           </button>
         </div>
         <div className="tab-nav-right">
-          <div className="nav-badges" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className="nav-badges">
             <span 
               className={`badge ${waStatus === 'connected' ? 'success' : 'light'}`}
               style={{ cursor: 'pointer', transition: 'all 0.2s' }}
@@ -650,7 +650,7 @@ export default function MassMessage() {
               onClick={() => setChannel('whatsapp')}
             >
               <Smartphone size={14} />
-              WhatsApp {waStatus === 'connected' ? 'Conectado' : 'Desconectado'}
+              WhatsApp: {waStatus === 'connected' ? 'Conectado' : 'Off'}
             </span>
             <span 
               className={`badge ${tgStatus === 'connected' ? 'info' : 'light'}`}
@@ -664,7 +664,7 @@ export default function MassMessage() {
               onClick={() => setChannel('telegram')}
             >
               <Telegram size={14} />
-              Telegram {tgStatus === 'connected' ? (tgBotInfo?.username ? `@${tgBotInfo.username}` : 'Conectado') : 'Desconectado'}
+              Telegram: {tgStatus === 'connected' ? (tgBotInfo?.username ? `@${tgBotInfo.username}` : 'Conectado') : 'Off'}
             </span>
             <span 
               className="badge" 
@@ -748,148 +748,146 @@ export default function MassMessage() {
               </div>
             </div>
 
-            <div className="mass-dashboard-2col">
-              
-              <div className="premium-card">
-                <div className="card-header">
-                  <div className="card-title"><Users size={20} /> Destinatários da Campanha</div>
-                  <button className="btn-pill btn-light" onClick={() => setIsListModalOpen(true)}>
-                    <Bulletlist size={14}/> Listas Salvas
-                  </button>
-                </div>
-                
-                <div className="form-group">
-                  <label>Selecionar Lista de Contatos:</label>
-                  <select 
-                    className="modern-input"
-                    value={selectedListId}
-                    onChange={(e) => setSelectedListId(e.target.value)}
-                    disabled={isLoadingLists}
-                  >
-                    {lists.length === 0 ? (
-                      <option value="">Nenhuma lista cadastrada (clique em Listas Salvas para criar)</option>
-                    ) : (
-                      lists.map(list => (
-                        <option key={list.id} value={list.id}>
-                          {list.is_system || list.name === 'Agendados' ? `📅 [Automática] ${list.name}` : list.name} ({list.count || 0} contatos)
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-                
-                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
-                  <span style={{fontSize: '0.85rem', color: '#a1a5b7'}}>
-                    {isLoadingContacts ? 'Carregando contatos...' : `${contacts.length} contato(s) carregado(s)`}
-                  </span>
-                  
-                  <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
-                    <input 
-                      type="file" 
-                      ref={csvInputRef} 
-                      style={{display: 'none'}} 
-                      accept=".csv,.txt"
-                      onChange={handleImportCSV} 
-                    />
-                    <button className="btn-pill btn-light" onClick={() => csvInputRef.current?.click()} title="Importar arquivo CSV com contatos">
-                      <Plus size={14}/> CSV
-                    </button>
-                    <button 
-                      className="btn-pill btn-light" 
-                      onClick={() => handleImportChannelContacts('whatsapp')}
-                      disabled={isImportingChannel || !selectedListId}
-                      title="Puxar contatos que interagiram pelo WhatsApp para esta lista"
-                    >
-                      <Smartphone size={14}/> Puxar WhatsApp
-                    </button>
-                    <button 
-                      className="btn-pill btn-light" 
-                      onClick={() => handleImportChannelContacts('telegram')}
-                      disabled={isImportingChannel || !selectedListId}
-                      title="Puxar contatos que interagiram pelo Telegram para esta lista"
-                    >
-                      <Telegram size={14}/> Puxar Telegram
-                    </button>
-                  </div>
-                </div>
-
-                {channel === 'telegram' ? (
-                  <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd', fontSize: '0.82rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Telegram size={20} style={{ flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <strong>Dica Telegram:</strong> Bots do Telegram só conseguem enviar mensagens para quem já enviou <code>/start</code> para o bot {tgBotInfo?.username ? (<a href={`https://t.me/${tgBotInfo.username}`} target="_blank" rel="noreferrer" style={{ color: '#0284c7', fontWeight: 700 }}>@{tgBotInfo.username}</a>) : ''}. Use o botão <strong>"Puxar Telegram"</strong> acima para sincronizar quem já interagiu com o bot!
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', fontSize: '0.82rem', color: '#15803d', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Smartphone size={20} style={{ flexShrink: 0 }} />
-                    <div>
-                      <strong>Dica WhatsApp:</strong> Sistema adaptado para múltiplos DDIs (Tailândia +66 com celulares 08x/09x/06x, Brasil +55 com 9º dígito/LID e internacional via +). Validação automática no WhatsApp antes do envio.
-                    </div>
-                  </div>
-                )}
+            {/* DESTINATÁRIOS DA CAMPANHA */}
+            <div className="premium-card" style={{ marginBottom: '24px' }}>
+              <div className="card-header">
+                <div className="card-title"><Users size={20} /> Destinatários da Campanha</div>
+                <button className="btn-pill btn-light" onClick={() => setIsListModalOpen(true)}>
+                  <Bulletlist size={14}/> Listas Salvas
+                </button>
               </div>
-
-              <div className="premium-card" style={{gridColumn: '1 / -1'}}>
-                <div className="card-header">
-                  <div className="card-title"><Message size={20} /> Compor Mensagem</div>
-                  <button className="btn-pill btn-light" onClick={() => setIsTemplateModalOpen(true)}>
-                    <Plus size={14}/> Carregar Template
-                  </button>
-                </div>
+              
+              <div className="form-group">
+                <label>Selecionar Lista de Contatos:</label>
+                <select 
+                  className="modern-input"
+                  value={selectedListId}
+                  onChange={(e) => setSelectedListId(e.target.value)}
+                  disabled={isLoadingLists}
+                >
+                  {lists.length === 0 ? (
+                    <option value="">Nenhuma lista cadastrada (clique em Listas Salvas para criar)</option>
+                  ) : (
+                    lists.map(list => (
+                      <option key={list.id} value={list.id}>
+                        {list.is_system || list.name === 'Agendados' ? `📅 [Automática] ${list.name}` : list.name} ({list.count || 0} contatos)
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              
+              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
+                <span style={{fontSize: '0.85rem', color: '#a1a5b7'}}>
+                  {isLoadingContacts ? 'Carregando contatos...' : `${contacts.length} contato(s) carregado(s)`}
+                </span>
                 
-                <div className="form-group">
-                  <textarea 
-                    className="modern-input message-textarea"
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="{Olá|Oi} {primeiro_nome}! Escreva sua mensagem aqui..."
-                  />
-                  
-                  <div className="variables-bar">
-                    {variables.map(v => (
-                      <div key={v} className="var-tag" onClick={() => insertVariable(v)}>
-                        + {v}
-                      </div>
-                    ))}
-                    <div className="var-tag" style={{border: '1px dashed var(--primary)', color: 'var(--text-main)', backgroundColor: 'var(--primary-light)'}} onClick={() => insertVariable('{OpçãoA|OpçãoB}')}>
-                      + Inserir Spintax
-                    </div>
-                  </div>
-                </div>
-
-                <div className="attachment-box">
-                  <div style={{display: 'flex', alignItems: 'center', gap: '8px', color: '#3f4254', fontWeight: 600}}>
-                    <Attachment size={18} /> 
-                    {attachment ? (
-                      <span style={{color: 'var(--primary-dark)', wordBreak: 'break-all'}}>{attachment.name}</span>
-                    ) : (
-                      <span>Anexar Arquivo (Mídia/Documento para WhatsApp e Telegram)</span>
-                    )}
-                  </div>
+                <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
                   <input 
                     type="file" 
-                    ref={fileInputRef} 
+                    ref={csvInputRef} 
                     style={{display: 'none'}} 
-                    accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx"
-                    onChange={handleFileChange}
+                    accept=".csv,.txt"
+                    onChange={handleImportCSV} 
                   />
-                  {attachment ? (
-                    <button 
-                      className="btn-pill btn-light" 
-                      style={{color: '#ef4444', borderColor: '#fecaca'}} 
-                      onClick={() => setAttachment(null)}
-                    >
-                      <Close size={16}/> Remover
-                    </button>
-                  ) : (
-                    <button className="btn-pill btn-light" onClick={() => fileInputRef.current?.click()}>
-                      <Upload size={16}/> Escolher Mídia
-                    </button>
-                  )}
+                  <button className="btn-pill btn-light" onClick={() => csvInputRef.current?.click()} title="Importar arquivo CSV com contatos">
+                    <Plus size={14}/> CSV
+                  </button>
+                  <button 
+                    className="btn-pill btn-light" 
+                    onClick={() => handleImportChannelContacts('whatsapp')}
+                    disabled={isImportingChannel || !selectedListId}
+                    title="Puxar contatos que interagiram pelo WhatsApp para esta lista"
+                  >
+                    <Smartphone size={14}/> Puxar WhatsApp
+                  </button>
+                  <button 
+                    className="btn-pill btn-light" 
+                    onClick={() => handleImportChannelContacts('telegram')}
+                    disabled={isImportingChannel || !selectedListId}
+                    title="Puxar contatos que interagiram pelo Telegram para esta lista"
+                  >
+                    <Telegram size={14}/> Puxar Telegram
+                  </button>
                 </div>
               </div>
 
+              {channel === 'telegram' ? (
+                <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd', fontSize: '0.82rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Telegram size={20} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <strong>Dica Telegram:</strong> Bots do Telegram só conseguem enviar mensagens para quem já enviou <code>/start</code> para o bot {tgBotInfo?.username ? (<a href={`https://t.me/${tgBotInfo.username}`} target="_blank" rel="noreferrer" style={{ color: '#0284c7', fontWeight: 700 }}>@{tgBotInfo.username}</a>) : ''}. Use o botão <strong>"Puxar Telegram"</strong> acima para sincronizar quem já interagiu com o bot!
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', fontSize: '0.82rem', color: '#15803d', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Smartphone size={20} style={{ flexShrink: 0 }} />
+                  <div>
+                    <strong>Dica WhatsApp:</strong> Sistema adaptado para múltiplos DDIs (Tailândia +66 com celulares 08x/09x/06x, Brasil +55 com 9º dígito/LID e internacional via +). Validação automática no WhatsApp antes do envio.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* COMPOR MENSAGEM */}
+            <div className="premium-card">
+              <div className="card-header">
+                <div className="card-title"><Message size={20} /> Compor Mensagem</div>
+                <button className="btn-pill btn-light" onClick={() => setIsTemplateModalOpen(true)}>
+                  <Plus size={14}/> Carregar Template
+                </button>
+              </div>
+              
+              <div className="form-group">
+                <textarea 
+                  className="modern-input message-textarea"
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  placeholder="{Olá|Oi} {primeiro_nome}! Escreva sua mensagem aqui..."
+                />
+                
+                <div className="variables-bar">
+                  {variables.map(v => (
+                    <div key={v} className="var-tag" onClick={() => insertVariable(v)}>
+                      + {v}
+                    </div>
+                  ))}
+                  <div className="var-tag" style={{border: '1px dashed var(--primary)', color: 'var(--text-main)', backgroundColor: 'var(--primary-light)'}} onClick={() => insertVariable('{OpçãoA|OpçãoB}')}>
+                    + Inserir Spintax
+                  </div>
+                </div>
+              </div>
+
+              <div className="attachment-box">
+                <div style={{display: 'flex', alignItems: 'center', gap: '8px', color: '#3f4254', fontWeight: 600}}>
+                  <Attachment size={18} /> 
+                  {attachment ? (
+                    <span style={{color: 'var(--primary-dark)', wordBreak: 'break-all'}}>{attachment.name}</span>
+                  ) : (
+                    <span>Anexar Arquivo (Mídia/Documento para WhatsApp e Telegram)</span>
+                  )}
+                </div>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  style={{display: 'none'}} 
+                  accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx"
+                  onChange={handleFileChange}
+                />
+                {attachment ? (
+                  <button 
+                    className="btn-pill btn-light" 
+                    style={{color: '#ef4444', borderColor: '#fecaca'}} 
+                    onClick={() => setAttachment(null)}
+                  >
+                    <Close size={16}/> Remover
+                  </button>
+                ) : (
+                  <button className="btn-pill btn-light" onClick={() => fileInputRef.current?.click()}>
+                    <Upload size={16}/> Escolher Mídia
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1077,12 +1075,12 @@ export default function MassMessage() {
                     </div>
                   </div>
                   
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <button 
                       className={`btn-huge ${channel === 'telegram' ? 'btn-telegram' : 'btn-whatsapp'}`}
                       onClick={handleStartDispatch}
                       disabled={isDispatching || contacts.length === 0}
-                      style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1 }}
+                      style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1, flex: 1, minWidth: '220px' }}
                     >
                       <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : `INICIAR DISPARO VIA ${channel.toUpperCase()}`}
                     </button>
@@ -1091,7 +1089,7 @@ export default function MassMessage() {
                       <button 
                         className="btn-huge"
                         onClick={handleStopDispatch}
-                        style={{ background: '#DC2626', color: '#FFFFFF', border: 'none', cursor: 'pointer' }}
+                        style={{ background: '#DC2626', color: '#FFFFFF', border: 'none', cursor: 'pointer', flex: 1, minWidth: '180px' }}
                         title="Interromper envio em massa imediatamente"
                       >
                         <Close size={24} /> PARAR DISPARO

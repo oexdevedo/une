@@ -263,34 +263,42 @@ button {
 
 /* Header */
 .topbar {
-  height: 72px;
+  min-height: 72px;
   background-color: #FFFFFF;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  padding: 0 24px;
+  gap: 16px;
 }
 
 .topbar-title {
   font-size: 1.25rem;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .search-bar {
   display: flex;
   align-items: center;
   background-color: #F4F4F5;
-  padding: 8px 16px;
+  padding: 8px 14px;
   border-radius: 8px;
-  width: 240px;
+  width: 220px;
+  max-width: 220px;
+  min-width: 120px;
   gap: 8px;
+  flex-shrink: 1;
 }
 
 .search-bar input {
