@@ -5,18 +5,33 @@ const fs = require('fs');
 const db = require('./db');
 const { convertToOgg } = require('./audio_converter');
 const aiHandler = require('./ai_handler');
-const { getWhatsAppAuthDir, UPLOADS_DIR } = require('./storage');
+const { getWhatsAppAuthDir, clearWhatsAppAuthDir, UPLOADS_DIR } = require('./storage');
+const { normalizePhone, getWhatsAppCandidates } = require('./phone_utils');
 
 const sessions = {}; 
 let reconnectTimeouts = {};
 
-async function connectToWhatsApp(workspaceId) {
+async function connectToWhatsApp(workspaceId, forceNew = false) {
   if (!sessions[workspaceId]) {
     sessions[workspaceId] = { sock: null, status: 'disconnected', currentQR: '', messages: [] };
   }
 
   const session = sessions[workspaceId];
-  if (session.status === 'connected' || session.status === 'connecting') return;
+  if (forceNew) {
+    if (reconnectTimeouts[workspaceId]) {
+      clearTimeout(reconnectTimeouts[workspaceId]);
+      reconnectTimeouts[workspaceId] = null;
+    }
+    if (session.sock) {
+      try { session.sock.end(); } catch (e) {}
+      session.sock = null;
+    }
+    clearWhatsAppAuthDir(workspaceId);
+    session.status = 'disconnected';
+    session.currentQR = '';
+  } else if (session.status === 'connected' || session.status === 'connecting') {
+    return;
+  }
   
   session.status = 'connecting';
   session.currentQR = '';
@@ -65,8 +80,10 @@ async function connectToWhatsApp(workspaceId) {
           }, 3000);
         }
       } else {
-        // Se deslogou, apagar a pasta para poder ler QR Code de novo
-        fs.rmSync(authDir, { recursive: true, force: true });
+        // Se deslogou (401), apagar as pastas de sessão para permitir nova leitura de QR code
+        clearWhatsAppAuthDir(workspaceId);
+        session.sock = null;
+        console.log(`🧹 Sessão expirada/deslogada limpa com sucesso para Workspace ${workspaceId}.`);
       }
     } else if (connection === 'open') {
       if (reconnectTimeouts[workspaceId]) {
@@ -314,55 +331,81 @@ async function getMessages(workspaceId) {
   }));
 }
 
+async function disconnectWhatsApp(workspaceId) {
+  if (reconnectTimeouts[workspaceId]) {
+    clearTimeout(reconnectTimeouts[workspaceId]);
+    reconnectTimeouts[workspaceId] = null;
+  }
+  const session = sessions[workspaceId];
+  if (session && session.sock) {
+    try {
+      await session.sock.logout();
+    } catch (e) {
+      try { session.sock.end(); } catch (err) {}
+    }
+    session.sock = null;
+  }
+  clearWhatsAppAuthDir(workspaceId);
+  sessions[workspaceId] = { sock: null, status: 'disconnected', currentQR: '', messages: [] };
+  console.log(`🚪 WhatsApp desconectado e credenciais limpas para Workspace ${workspaceId}`);
+  return { success: true, message: 'WhatsApp desconectado com sucesso' };
+}
+
 async function sendMessage(workspaceId, jid, text, file) {
   const session = sessions[workspaceId];
   if (!session || session.status !== 'connected' || !session.sock) {
-    throw new Error('WhatsApp não está conectado');
+    throw new Error('WhatsApp não está conectado. Conecte o WhatsApp no menu Conexões antes de enviar mensagens.');
   }
 
   let cleanJid = (jid || '').trim();
-  if (!cleanJid || cleanJid === '@s.whatsapp.net') {
+  if (!cleanJid || cleanJid === '@s.whatsapp.net' || cleanJid === '@lid') {
     throw new Error('Número de telefone não informado ou inválido para WhatsApp');
   }
 
-  // Se não contém @, deduzimos que é um número de telefone
-  if (!cleanJid.includes('@')) {
-    const digits = cleanJid.replace(/\D/g, '');
-    if (!digits) throw new Error('Número de telefone inválido para WhatsApp');
-    cleanJid = `${digits}@s.whatsapp.net`;
-  }
+  // Obtém o DDI padrão configurado no Workspace (padrão '66' para Tailândia)
+  let defaultDdi = '66';
+  try {
+    const database = await db.getDB();
+    const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
+    if (ws && ws.default_ddi) defaultDdi = ws.default_ddi;
+  } catch (e) {}
 
-  // Normalização para @s.whatsapp.net
-  if (cleanJid.endsWith('@s.whatsapp.net')) {
-    let num = cleanJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-    if (!num) throw new Error('Número de telefone vazio após higienização');
+  // Resolve candidatos e formato E.164 universal
+  const { primaryJid, candidates, ddi } = getWhatsAppCandidates(cleanJid, defaultDdi);
+  cleanJid = primaryJid;
 
-    // Se o número começar com 55 (Brasil):
-    if (num.startsWith('55')) {
-      // Se for celular brasileiro com 12 dígitos (55 + DDD + 8 dígitos móvel), adiciona o 9º dígito
-      if (num.length === 12) {
-        const firstDigit = num.charAt(4);
-        if (['7', '8', '9'].includes(firstDigit)) {
-          num = num.slice(0, 4) + '9' + num.slice(4);
-        }
-      }
-
-      // Tenta resolver para LID caso o contato esteja registrado como LID no Baileys
+  // Se for @lid ou @telegram, não precisa verificar via onWhatsApp
+  if (!cleanJid.endsWith('@lid') && !cleanJid.endsWith('@telegram')) {
+    // 1. Se for Brasil, tenta resolver para LID se houver mapeamento
+    if (ddi === '55') {
       try {
         const { resolveRemoteJidForPhone } = require('./reminder_service');
-        const resolved = resolveRemoteJidForPhone(workspaceId, num);
-        if (resolved) {
-          cleanJid = resolved;
-        } else {
-          cleanJid = `${num}@s.whatsapp.net`;
+        const digits = cleanJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+        const resolvedLid = resolveRemoteJidForPhone(workspaceId, digits);
+        if (resolvedLid && resolvedLid.endsWith('@lid')) {
+          cleanJid = resolvedLid;
         }
-      } catch (e) {
-        cleanJid = `${num}@s.whatsapp.net`;
+      } catch (e) {}
+    }
+
+    // 2. Se for @s.whatsapp.net, valida e resolve JID exato via onWhatsApp
+    if (cleanJid.endsWith('@s.whatsapp.net')) {
+      let verifiedJid = null;
+      try {
+        const results = await session.sock.onWhatsApp(...candidates);
+        if (Array.isArray(results) && results.length > 0) {
+          const active = results.find(r => r.exists);
+          if (active && active.jid) {
+            verifiedJid = active.jid;
+          }
+        }
+      } catch (err) {
+        console.warn('Aviso: Verificação onWhatsApp falhou:', err.message);
       }
-    } else {
-      // Número internacional (EUA +1, Portugal +351, Espanha +34, Argentina +54, etc.)
-      // Mantém exatamente o DDI e dígitos internacionais fornecidos
-      cleanJid = `${num}@s.whatsapp.net`;
+
+      if (verifiedJid) {
+        cleanJid = verifiedJid;
+      }
     }
   }
 
@@ -441,4 +484,13 @@ function hasSavedCredentials(workspaceId) {
   }
 }
 
-module.exports = { connectToWhatsApp, getSocket, getStatus, getMessages, sendMessage, getProfilePicUrl, hasSavedCredentials };
+module.exports = { 
+  connectToWhatsApp, 
+  disconnectWhatsApp,
+  getSocket, 
+  getStatus, 
+  getMessages, 
+  sendMessage, 
+  getProfilePicUrl, 
+  hasSavedCredentials 
+};

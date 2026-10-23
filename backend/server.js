@@ -11,6 +11,7 @@ const { connectToWhatsApp, getMessages, sendMessage, getProfilePicUrl } = requir
 const { connectToTelegram } = require('./telegram');
 const aiHandler = require('./ai_handler');
 const { DB_PATH, UPLOADS_DIR } = require('./storage');
+const { normalizePhone } = require('./phone_utils');
 
 const app = express();
 const upload = multer({ dest: UPLOADS_DIR });
@@ -25,17 +26,51 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'API rodando perfeitamente!' });
 });
 
+// Helper para validação de privilégios de Administrador
+async function isRequestAdmin(req) {
+  const userId = req.headers['x-user-id'] || req.query.user_id || req.body?.user_id || req.query?.userId;
+  if (!userId) return false;
+  try {
+    const database = await db.getDB();
+    const user = await database.get('SELECT role FROM users WHERE id = ?', [userId]);
+    if (!user) return false;
+    const r = (user.role || '').toLowerCase().trim();
+    return ['admin', 'owner', 'master', 'administrador'].includes(r);
+  } catch (e) {
+    return false;
+  }
+}
+
 // Endpoint de Workspace Settings
 app.get('/api/workspaces/:id/settings', async (req, res) => {
   try {
     const database = await db.getDB();
-    let row = await database.get('SELECT allow_stories, allow_ephemeral, allow_groups, ai_provider, ai_api_key, ai_base_url, ai_model FROM workspaces WHERE id = ?', [req.params.id]);
+    let row = await database.get('SELECT allow_stories, allow_ephemeral, allow_groups, ai_provider, ai_api_key, ai_base_url, ai_model, default_country, default_ddi FROM workspaces WHERE id = ?', [req.params.id]);
     
-    if (row && row.ai_api_key) {
-      row.ai_api_key = '•••••••••••••';
+    const isAdmin = await isRequestAdmin(req);
+
+    if (row) {
+      if (isAdmin) {
+        if (row.ai_api_key) row.ai_api_key = '•••••••••••••';
+      } else {
+        // Usuário não é admin: oculta chaves e configurações de IA
+        row.ai_api_key = '';
+        row.ai_base_url = '';
+        row.ai_model = '';
+      }
     }
 
-    res.json(row || { allow_stories: 1, allow_ephemeral: 1, allow_groups: 1, ai_provider: 'openai', ai_api_key: '', ai_base_url: '', ai_model: '' });
+    res.json(row || { 
+      allow_stories: 1, 
+      allow_ephemeral: 1, 
+      allow_groups: 1, 
+      ai_provider: isAdmin ? 'openai' : '', 
+      ai_api_key: '', 
+      ai_base_url: '', 
+      ai_model: '',
+      default_country: 'TH',
+      default_ddi: '66'
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao buscar configurações' });
@@ -44,18 +79,43 @@ app.get('/api/workspaces/:id/settings', async (req, res) => {
 
 app.post('/api/workspaces/:id/settings', async (req, res) => {
   try {
-    const { allow_stories, allow_ephemeral, allow_groups, ai_provider, ai_api_key, ai_base_url, ai_model } = req.body;
+    const { 
+      allow_stories, 
+      allow_ephemeral, 
+      allow_groups, 
+      ai_provider, 
+      ai_api_key, 
+      ai_base_url, 
+      ai_model,
+      default_country,
+      default_ddi
+    } = req.body;
     const database = await db.getDB();
 
-    let updateQuery = 'UPDATE workspaces SET allow_stories = ?, allow_ephemeral = ?, allow_groups = ?, ai_provider = ?, ai_base_url = ?, ai_model = ?';
+    const isAdmin = await isRequestAdmin(req);
+
+    // Se usuário não-admin tentar alterar configurações de IA, rejeita
+    if (!isAdmin && (ai_api_key || ai_base_url || ai_model || (ai_provider && ai_provider !== 'openai'))) {
+      return res.status(403).json({ error: 'Acesso negado: Configurações de IA são restritas a administradores.' });
+    }
+
+    let updateQuery = 'UPDATE workspaces SET allow_stories = ?, allow_ephemeral = ?, allow_groups = ?, default_country = ?, default_ddi = ?';
     let queryParams = [
-      allow_stories ? 1 : 0, allow_ephemeral ? 1 : 0, allow_groups ? 1 : 0,
-      ai_provider || 'openai', ai_base_url || '', ai_model || ''
+      allow_stories ? 1 : 0, 
+      allow_ephemeral ? 1 : 0, 
+      allow_groups ? 1 : 0,
+      default_country || 'TH',
+      default_ddi || '66'
     ];
 
-    if (ai_api_key && ai_api_key !== '•••••••••••••') {
-      updateQuery += ', ai_api_key = ?';
-      queryParams.push(ai_api_key);
+    if (isAdmin) {
+      updateQuery += ', ai_provider = ?, ai_base_url = ?, ai_model = ?';
+      queryParams.push(ai_provider || 'openai', ai_base_url || '', ai_model || '');
+
+      if (ai_api_key && ai_api_key !== '•••••••••••••') {
+        updateQuery += ', ai_api_key = ?';
+        queryParams.push(ai_api_key);
+      }
     }
 
     updateQuery += ' WHERE id = ?';
@@ -71,6 +131,11 @@ app.post('/api/workspaces/:id/settings', async (req, res) => {
 
 app.post('/api/workspaces/:id/ai/test', async (req, res) => {
   try {
+    const isAdmin = await isRequestAdmin(req);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Acesso negado: Apenas administradores podem testar o provedor de IA.' });
+    }
+
     const { ai_provider, ai_api_key, ai_base_url, ai_model } = req.body;
     const result = await aiHandler.testAiConnection({
       workspaceId: req.params.id,
@@ -1087,11 +1152,17 @@ app.post('/api/contacts', async (req, res) => {
     const { workspace_id, list_id, name, phone, status } = req.body;
     const workspaceId = workspace_id || 1;
     const database = await db.getDB();
+    const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
+    const defaultDdi = ws?.default_ddi || '66';
+
+    const normalized = normalizePhone(phone, defaultDdi);
+    const phoneToSave = normalized.e164 || phone || '';
+
     const result = await database.run(
       'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
-      [workspaceId, list_id || null, name, phone || '', status || 'Novo']
+      [workspaceId, list_id || null, name, phoneToSave, status || 'Novo']
     );
-    res.json({ success: true, id: result.lastID });
+    res.json({ success: true, id: result.lastID, phone: phoneToSave });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao criar contato' });
@@ -1106,12 +1177,18 @@ app.post('/api/contacts/bulk', async (req, res) => {
       return res.status(400).json({ error: 'Lista de contatos vazia ou inválida' });
     }
     const database = await db.getDB();
+    const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
+    const defaultDdi = ws?.default_ddi || '66';
+
     let inserted = 0;
     for (const c of contacts) {
       if (!c.phone && !c.name) continue;
+      const normalized = normalizePhone(c.phone, defaultDdi);
+      const phoneToSave = normalized.e164 || c.phone || '';
+
       await database.run(
         'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
-        [workspaceId, list_id || null, c.name || 'Sem nome', c.phone || '', c.status || 'Novo']
+        [workspaceId, list_id || null, c.name || 'Sem nome', phoneToSave, c.status || 'Novo']
       );
       inserted++;
     }
@@ -1135,13 +1212,20 @@ app.delete('/api/contacts/:id', async (req, res) => {
 
 app.put('/api/contacts/:id', async (req, res) => {
   try {
-    const { name, phone, status } = req.body;
+    const { name, phone, status, workspace_id } = req.body;
     const database = await db.getDB();
+    const workspaceId = workspace_id || 1;
+    const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
+    const defaultDdi = ws?.default_ddi || '66';
+
+    const normalized = normalizePhone(phone, defaultDdi);
+    const phoneToSave = normalized.e164 || phone || '';
+
     await database.run(
       'UPDATE contacts SET name = ?, phone = ?, status = ? WHERE id = ?',
-      [name, phone || '', status || 'Novo', req.params.id]
+      [name, phoneToSave, status || 'Novo', req.params.id]
     );
-    res.json({ success: true });
+    res.json({ success: true, phone: phoneToSave });
   } catch (error) {
     console.error('Erro ao atualizar contato:', error);
     res.status(500).json({ error: 'Erro ao atualizar contato' });
@@ -1610,8 +1694,12 @@ app.put('/api/users/me', async (req, res) => {
   }
 });
 
-// APIs para Backup e Restauração de Banco de Dados (.sqlite)
-app.get('/api/admin/database/download', (req, res) => {
+// APIs para Backup e Restauração de Banco de Dados (.sqlite) - Restrito a Admin
+app.get('/api/admin/database/download', async (req, res) => {
+  const isAdmin = await isRequestAdmin(req);
+  if (!isAdmin) {
+    return res.status(403).json({ error: 'Acesso negado: Apenas administradores podem baixar o backup do banco de dados.' });
+  }
   const dbPath = DB_PATH;
   if (!fs.existsSync(dbPath)) {
     return res.status(404).json({ error: 'Arquivo de banco de dados não encontrado.' });
@@ -1621,6 +1709,11 @@ app.get('/api/admin/database/download', (req, res) => {
 
 app.post('/api/admin/database/upload', upload.single('database'), async (req, res) => {
   try {
+    const isAdmin = await isRequestAdmin(req);
+    if (!isAdmin) {
+      if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(403).json({ success: false, error: 'Acesso negado: Apenas administradores podem restaurar o banco de dados.' });
+    }
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado.' });
     }
@@ -1766,11 +1859,29 @@ app.get('/api/connections/whatsapp', (req, res) => {
   res.json(whatsappApi.getStatus(workspaceId));
 });
 
-app.post('/api/connections/whatsapp/start', (req, res) => {
-  const workspaceId = req.body.workspace_id || 1;
-  const whatsappApi = require('./whatsapp');
-  whatsappApi.connectToWhatsApp(workspaceId);
-  res.json({ success: true });
+app.post('/api/connections/whatsapp/start', async (req, res) => {
+  try {
+    const workspaceId = req.body.workspace_id || 1;
+    const forceNew = Boolean(req.body.force_new);
+    const whatsappApi = require('./whatsapp');
+    await whatsappApi.connectToWhatsApp(workspaceId, forceNew);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Erro ao iniciar WhatsApp:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/connections/whatsapp/disconnect', async (req, res) => {
+  try {
+    const workspaceId = req.body.workspace_id || 1;
+    const whatsappApi = require('./whatsapp');
+    const result = await whatsappApi.disconnectWhatsApp(workspaceId);
+    res.json(result);
+  } catch (err) {
+    console.error('Erro ao desconectar WhatsApp:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // APIs de Mensagens do WhatsApp
@@ -2293,9 +2404,14 @@ app.delete('/api/tasks/kanban/column/:status', async (req, res) => {
   }
 });
 
-// --- DATABASE CONNECTION & ENVIRONMENT VARIABLES ---
-app.get('/api/connections/database', (req, res) => {
+// --- DATABASE CONNECTION & ENVIRONMENT VARIABLES (RESTRITO A ADMIN) ---
+app.get('/api/connections/database', async (req, res) => {
   try {
+    const isAdmin = await isRequestAdmin(req);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Acesso negado: As configurações e variáveis de banco de dados são restritas a administradores.' });
+    }
+
     const envPath = path.resolve(__dirname, '.env');
     let envFileContent = '';
     if (fs.existsSync(envPath)) {
@@ -2334,6 +2450,11 @@ app.get('/api/connections/database', (req, res) => {
 
 app.post('/api/connections/database/test', async (req, res) => {
   try {
+    const isAdmin = await isRequestAdmin(req);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'Acesso negado: Apenas administradores podem testar a conexão de banco de dados.' });
+    }
+
     const {
       db_type = 'mysql',
       db_host,
@@ -2418,6 +2539,11 @@ app.post('/api/connections/database/test', async (req, res) => {
 
 app.post('/api/connections/database/save', async (req, res) => {
   try {
+    const isAdmin = await isRequestAdmin(req);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Acesso negado: Apenas administradores podem alterar as variáveis de banco de dados.' });
+    }
+
     const {
       db_type = 'mysql',
       db_host = '',

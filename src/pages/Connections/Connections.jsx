@@ -14,11 +14,13 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import EmailConnectionCard from './EmailConnectionCard';
 import DatabaseConnectionCard from './DatabaseConnectionCard';
-import PhoneInput from '../../components/PhoneInput/PhoneInput';
-import { getWorkspaceId } from '../../utils/workspace';
+import PhoneInput, { COUNTRIES } from '../../components/PhoneInput/PhoneInput';
+import { getWorkspaceId, getCurrentUser, isUserAdmin } from '../../utils/workspace';
 
 export default function Connections({ isSubpage = false }) {
   const workspaceId = getWorkspaceId();
+  const currentUser = getCurrentUser();
+  const isAdmin = isUserAdmin(currentUser);
 
   const [waStatus, setWaStatus] = useState('disconnected');
   const [waQR, setWaQR] = useState('');
@@ -56,7 +58,9 @@ export default function Connections({ isSubpage = false }) {
     ai_provider: 'openai',
     ai_api_key: '',
     ai_base_url: '',
-    ai_model: ''
+    ai_model: '',
+    default_country: 'TH',
+    default_ddi: '66'
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isTestingAi, setIsTestingAi] = useState(false);
@@ -122,7 +126,11 @@ export default function Connections({ isSubpage = false }) {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch(`/api/workspaces/${workspaceId}/settings`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/settings`, {
+        headers: {
+          'x-user-id': String(currentUser?.id || '')
+        }
+      });
       const data = await res.json();
       setSettings({
         allow_stories: Boolean(data.allow_stories),
@@ -131,7 +139,9 @@ export default function Connections({ isSubpage = false }) {
         ai_provider: data.ai_provider || 'openai',
         ai_api_key: data.ai_api_key || '',
         ai_base_url: data.ai_base_url || '',
-        ai_model: data.ai_model || ''
+        ai_model: data.ai_model || '',
+        default_country: data.default_country || 'TH',
+        default_ddi: data.default_ddi || '66'
       });
 
       // Carrega Cal.com do banco de dados
@@ -158,17 +168,41 @@ export default function Connections({ isSubpage = false }) {
     fetchSettings();
   }, [workspaceId]);
 
-  const startWhatsApp = async () => {
+  const startWhatsApp = async (forceNew = false) => {
     setIsLoadingWA(true);
     try {
       await fetch('/api/connections/whatsapp/start', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId })
+        body: JSON.stringify({ workspace_id: workspaceId, force_new: forceNew })
       });
       await fetchWAStatus();
     } catch (e) {
       console.error(e);
+    }
+    setIsLoadingWA(false);
+  };
+
+  const disconnectWhatsApp = async () => {
+    if (!window.confirm('Deseja realmente desconectar a sessão do WhatsApp?')) return;
+    setIsLoadingWA(true);
+    try {
+      const res = await fetch('/api/connections/whatsapp/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWaStatus('disconnected');
+        setWaQR('');
+        await fetchWAStatus();
+      } else {
+        alert('Erro ao desconectar WhatsApp: ' + (data.error || 'Erro desconhecido'));
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erro de comunicação com o servidor ao desconectar WhatsApp.');
     }
     setIsLoadingWA(false);
   };
@@ -399,7 +433,35 @@ export default function Connections({ isSubpage = false }) {
     try {
       await fetch(`/api/workspaces/${workspaceId}/settings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': String(currentUser?.id || '')
+        },
+        body: JSON.stringify(newSettings)
+      });
+    } catch (err) {
+      console.error(err);
+    }
+    setIsSavingSettings(false);
+  };
+
+  const handleCountryDdiChange = async (e) => {
+    const selectedCode = e.target.value;
+    const countryObj = COUNTRIES.find(c => c.code === selectedCode);
+    const newSettings = {
+      ...settings,
+      default_country: selectedCode,
+      default_ddi: countryObj ? countryObj.ddi : '66'
+    };
+    setSettings(newSettings);
+    setIsSavingSettings(true);
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/settings`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': String(currentUser?.id || '')
+        },
         body: JSON.stringify(newSettings)
       });
     } catch (err) {
@@ -445,7 +507,10 @@ export default function Connections({ isSubpage = false }) {
     try {
       await fetch(`/api/workspaces/${workspaceId}/settings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': String(currentUser?.id || '')
+        },
         body: JSON.stringify(settings)
       });
       alert('Configurações salvas com sucesso!');
@@ -462,7 +527,10 @@ export default function Connections({ isSubpage = false }) {
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/ai/test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': String(currentUser?.id || '')
+        },
         body: JSON.stringify(settings)
       });
       const data = await res.json();
@@ -535,9 +603,19 @@ export default function Connections({ isSubpage = false }) {
               <div className="success-state">
                 <CheckDouble size={48} color="#16A34A" />
                 <p>Seu WhatsApp está conectado e pronto para uso!</p>
-                <button className="btn-secondary" style={{ marginTop: '16px' }} onClick={startWhatsApp}>
-                  <Refresh size={16} /> Reconectar
-                </button>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'center' }}>
+                  <button className="btn-secondary" onClick={() => startWhatsApp(false)}>
+                    <Refresh size={16} /> Reconectar
+                  </button>
+                  <button 
+                    className="btn-secondary" 
+                    style={{ borderColor: '#EF4444', color: '#EF4444' }} 
+                    onClick={disconnectWhatsApp}
+                    disabled={isLoadingWA}
+                  >
+                    <Close size={16} /> Desconectar
+                  </button>
+                </div>
               </div>
             ) : waStatus === 'connecting' && waQR ? (
               <div className="qr-state">
@@ -545,12 +623,20 @@ export default function Connections({ isSubpage = false }) {
                 <div className="qr-box">
                   <QRCodeSVG value={waQR} size={200} />
                 </div>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '14px', justifyContent: 'center' }}>
+                  <button className="btn-secondary" onClick={() => startWhatsApp(true)} disabled={isLoadingWA}>
+                    <Refresh size={14} /> Novo QR Code
+                  </button>
+                  <button className="btn-secondary" style={{ borderColor: '#EF4444', color: '#EF4444' }} onClick={disconnectWhatsApp}>
+                    <Close size={14} /> Cancelar
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="empty-state">
                 <QrCode size={48} color="#A1A1AA" />
                 <p>Nenhuma sessão do WhatsApp ativa no momento.</p>
-                <button className="btn-primary" onClick={startWhatsApp} disabled={isLoadingWA}>
+                <button className="btn-primary" onClick={() => startWhatsApp(true)} disabled={isLoadingWA}>
                   {isLoadingWA ? 'Iniciando...' : 'Gerar QR Code'}
                 </button>
               </div>
@@ -906,8 +992,53 @@ export default function Connections({ isSubpage = false }) {
         <EmailConnectionCard workspaceId={workspaceId} />
       </div>
 
-      {/* Database Connection & Environment Variables Card */}
-      <DatabaseConnectionCard />
+      {/* Database Connection & Environment Variables Card - Restrito a Admin */}
+      {isAdmin && <DatabaseConnectionCard />}
+
+      {/* Workspace Regional Settings & International DDI */}
+      <div className="connection-card" style={{ marginTop: '24px' }}>
+        <div className="connection-card-header">
+          <div className="connection-icon" style={{ backgroundColor: '#FEF3C7', color: '#D97706' }}>
+            <span style={{ fontSize: '1.4rem' }}>🌐</span>
+          </div>
+          <div className="connection-title">
+            <h2>País e DDI Padrão do Workspace (Tailândia / Internacional)</h2>
+            <p style={{ color: 'var(--text-light)', fontSize: '0.9rem', marginTop: '4px' }}>
+              Define as regras de DDI e telefonia para cadastros, importações e disparos de WhatsApp quando números não tiverem o código internacional (+).
+            </p>
+          </div>
+        </div>
+        <div className="connection-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>País e DDI Operacional</span>
+              {isSavingSettings && <span style={{ fontSize: '0.8rem', color: 'var(--primary)' }}>Salvando...</span>}
+            </label>
+            <select
+              name="default_country"
+              value={settings.default_country || 'TH'}
+              onChange={handleCountryDdiChange}
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#ffffff',
+                fontSize: '0.95rem'
+              }}
+            >
+              {COUNTRIES.filter(c => c.code !== 'OTHER').map(c => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.name} (+{c.ddi}) {c.code === 'TH' ? '★ Padrão Tailândia' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ backgroundColor: '#F8FAFC', padding: '14px', borderRadius: '10px', fontSize: '0.85rem', color: 'var(--text-light)', border: '1px solid #E2E8F0', lineHeight: 1.5 }}>
+            <strong style={{ color: '#0F172A' }}>🇹🇭 Modo Tailândia Ativo:</strong> Celulares locais (ex: <code>081-234-5678</code>) têm o zero inicial <code>0</code> removido automaticamente para o padrão E.164 (<code>+66812345678</code>), garantindo que as mensagens do WhatsApp sejam entregues sem erro. Números internacionais com <code>+</code> continuam sendo enviados para seus respectivos países.
+          </div>
+        </div>
+      </div>
 
       <div className="connection-card" style={{ marginTop: '24px' }}>
         <div className="connection-card-header">
@@ -953,18 +1084,27 @@ export default function Connections({ isSubpage = false }) {
         </div>
       </div>
 
-      <div className="connection-card" style={{ marginTop: '24px' }}>
-        <div className="connection-card-header">
-          <div className="connection-icon" style={{ backgroundColor: '#F3E8FF', color: '#9333EA' }}>
-            <Algorithm size={24} />
+      {/* Provedor de Inteligência Artificial - Restrito a Admin */}
+      {isAdmin && (
+        <div className="connection-card" style={{ marginTop: '24px' }}>
+          <div className="connection-card-header">
+            <div className="connection-icon" style={{ backgroundColor: '#F3E8FF', color: '#9333EA' }}>
+              <Algorithm size={24} />
+            </div>
+            <div className="connection-title" style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h2>Provedor de Inteligência Artificial</h2>
+                  <span style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA', padding: '3px 8px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    🔒 Apenas Admin
+                  </span>
+                </div>
+              </div>
+              <p style={{ color: 'var(--text-light)', fontSize: '0.9rem', marginTop: '4px' }}>
+                Conecte a API de IA compatível com os agentes do CRM.
+              </p>
+            </div>
           </div>
-          <div className="connection-title">
-            <h2>Provedor de Inteligência Artificial</h2>
-            <p style={{ color: 'var(--text-light)', fontSize: '0.9rem', marginTop: '4px' }}>
-              Conecte a API de IA compatível com os agentes do CRM.
-            </p>
-          </div>
-        </div>
         <div className="connection-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
           <div className="form-group">
@@ -1092,6 +1232,28 @@ export default function Connections({ isSubpage = false }) {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Alerta de Acesso Restrito para Perfis Não-Admin */}
+      {!isAdmin && (
+        <div style={{
+          marginTop: '24px',
+          padding: '16px 20px',
+          backgroundColor: '#F8FAFC',
+          borderRadius: '12px',
+          border: '1px solid #E2E8F0',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          color: '#64748B',
+          fontSize: '0.9rem'
+        }}>
+          <span style={{ fontSize: '1.3rem' }}>🔒</span>
+          <div>
+            <strong style={{ color: '#334155' }}>Acesso Restrito:</strong> As configurações de <strong>Banco de Dados</strong> e <strong>Provedor de IA</strong> são restritas e visíveis exclusivamente para administradores.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

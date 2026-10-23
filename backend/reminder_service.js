@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./db');
 const { getWhatsAppAuthDir } = require('./storage');
+const { normalizePhone, formatDisplayPhone } = require('./phone_utils');
 
 const SHORT_DAYS = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
@@ -40,56 +41,58 @@ function getPhoneNumberFromJid(jid, workspaceId = 1) {
 function resolveRemoteJidForPhone(workspaceId, phone) {
   if (!phone) return null;
   const raw = String(phone).trim();
-  const cleanPhone = raw.replace(/\D/g, '');
+  if (raw.endsWith('@lid') || raw.endsWith('@telegram')) {
+    return raw;
+  }
+  if (raw.endsWith('@s.whatsapp.net')) {
+    return raw;
+  }
+
+  // Normaliza o número com o normalizador internacional (Tailândia +66, Brasil +55, etc.)
+  const normalized = normalizePhone(raw, '66');
+  const cleanPhone = normalized.cleanDigits;
   if (!cleanPhone) return null;
 
-  // Se o número começa com '+' e não é Brasil (ex: +12025550123, +351912345678):
-  if (raw.startsWith('+') && !cleanPhone.startsWith('55')) {
-    return `${cleanPhone}@s.whatsapp.net`;
-  }
+  // Se o número for do Brasil, tenta resolver para @lid se houver mapeamento
+  if (normalized.ddi === '55' || cleanPhone.startsWith('55')) {
+    const authDir = getWhatsAppAuthDir(workspaceId);
+    try {
+      const directLidFile = path.join(authDir, `lid-mapping-${cleanPhone}.json`);
+      if (fs.existsSync(directLidFile)) {
+        const lid = JSON.parse(fs.readFileSync(directLidFile, 'utf8'));
+        if (lid) return `${lid}@lid`;
+      }
 
-  const authDir = getWhatsAppAuthDir(workspaceId);
-  
-  // 1. Verifica se existe arquivo direto lid-mapping-{cleanPhone}.json
-  try {
-    const directLidFile = path.join(authDir, `lid-mapping-${cleanPhone}.json`);
-    if (fs.existsSync(directLidFile)) {
-      const lid = JSON.parse(fs.readFileSync(directLidFile, 'utf8'));
-      if (lid) return `${lid}@lid`;
-    }
+      const withoutDdi = cleanPhone.slice(2);
+      const withDdi = cleanPhone;
+      
+      const altLidFile = path.join(authDir, `lid-mapping-${withDdi}.json`);
+      if (fs.existsSync(altLidFile)) {
+        const lid = JSON.parse(fs.readFileSync(altLidFile, 'utf8'));
+        if (lid) return `${lid}@lid`;
+      }
 
-    // Tenta também sem o DDI 55 ou com variações do 9º dígito
-    const withoutDdi = cleanPhone.startsWith('55') ? cleanPhone.slice(2) : cleanPhone;
-    const withDdi = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-    
-    const altLidFile = path.join(authDir, `lid-mapping-${withDdi}.json`);
-    if (fs.existsSync(altLidFile)) {
-      const lid = JSON.parse(fs.readFileSync(altLidFile, 'utf8'));
-      if (lid) return `${lid}@lid`;
-    }
-
-    // 2. Varre os reversos se necessário
-    if (fs.existsSync(authDir)) {
-      const files = fs.readdirSync(authDir);
-      for (const file of files) {
-        if (file.startsWith('lid-mapping-') && file.endsWith('_reverse.json')) {
-          try {
-            const mappedPhone = JSON.parse(fs.readFileSync(path.join(authDir, file), 'utf8'));
-            if (String(mappedPhone).includes(withoutDdi) || String(mappedPhone) === withDdi) {
-              const lid = file.replace('lid-mapping-', '').replace('_reverse.json', '');
-              return `${lid}@lid`;
-            }
-          } catch (e) {}
+      if (fs.existsSync(authDir)) {
+        const files = fs.readdirSync(authDir);
+        for (const file of files) {
+          if (file.startsWith('lid-mapping-') && file.endsWith('_reverse.json')) {
+            try {
+              const mappedPhone = JSON.parse(fs.readFileSync(path.join(authDir, file), 'utf8'));
+              if (String(mappedPhone).includes(withoutDdi) || String(mappedPhone) === withDdi) {
+                const lid = file.replace('lid-mapping-', '').replace('_reverse.json', '');
+                return `${lid}@lid`;
+              }
+            } catch (e) {}
+          }
         }
       }
+    } catch (err) {
+      console.error('Erro ao buscar LID do telefone:', err);
     }
-  } catch (err) {
-    console.error('Erro ao buscar LID do telefone:', err);
   }
 
-  // 3. Fallback para padrão @s.whatsapp.net
-  const finalPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-  return `${finalPhone}@s.whatsapp.net`;
+  // Fallback para padrão @s.whatsapp.net normalizado
+  return normalized.jid;
 }
 
 /**
@@ -116,13 +119,8 @@ async function autoRegisterContact(workspaceId = 1, { jid, pushName, text }) {
       identifiedName = `Cliente ${cleanPhone.slice(-4)}`;
     }
 
-    // Formata telefone legível para o CRM
-    let formattedPhone = cleanPhone;
-    if (cleanPhone.length >= 10 && cleanPhone.startsWith('55')) {
-      const ddd = cleanPhone.slice(2, 4);
-      const rest = cleanPhone.slice(4);
-      formattedPhone = `(${ddd}) ${rest.length === 9 ? rest.slice(0, 5) + '-' + rest.slice(5) : rest.slice(0, 4) + '-' + rest.slice(4)}`;
-    }
+    // Formata telefone legível para o CRM usando formatDisplayPhone
+    const formattedPhone = formatDisplayPhone(cleanPhone, '66');
 
     const existing = await database.get(
       'SELECT id, name, phone FROM contacts WHERE workspace_id = ? AND (phone = ? OR phone = ? OR phone LIKE ?)',

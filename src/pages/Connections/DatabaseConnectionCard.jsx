@@ -8,6 +8,7 @@ import {
   CloudServer,
   FileText
 } from 'pixelarticons/react';
+import { getCurrentUser, isUserAdmin } from '../../utils/workspace';
 
 const API = '';
 
@@ -31,12 +32,19 @@ export default function DatabaseConnectionCard() {
   const [testResult, setTestResult] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [copied, setCopied] = useState(false);
+  const user = getCurrentUser();
+  const isAdmin = isUserAdmin(user);
 
   // Carrega as variáveis de ambiente atuais
   const fetchDbConfig = async () => {
+    if (!isAdmin) return;
     try {
       setIsLoading(true);
-      const res = await fetch(`${API}/api/connections/database`);
+      const res = await fetch(`${API}/api/connections/database`, {
+        headers: {
+          'x-user-id': String(user?.id || '')
+        }
+      });
       if (res.ok) {
         const data = await res.json();
         setDbConfig({
@@ -77,7 +85,10 @@ export default function DatabaseConnectionCard() {
     try {
       const res = await fetch(`${API}/api/connections/database/test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': String(user?.id || '')
+        },
         body: JSON.stringify(dbConfig)
       });
       const data = await res.json();
@@ -99,7 +110,10 @@ export default function DatabaseConnectionCard() {
     try {
       const res = await fetch(`${API}/api/connections/database/save`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-id': String(user?.id || '')
+        },
         body: JSON.stringify(dbConfig)
       });
       const data = await res.json();
@@ -136,6 +150,10 @@ export default function DatabaseConnectionCard() {
     setTimeout(() => setCopied(false), 2500);
   };
 
+  if (!isAdmin) {
+    return null;
+  }
+
   return (
     <div className="connection-card" style={{ marginTop: '24px' }}>
       {/* Header */}
@@ -144,8 +162,13 @@ export default function DatabaseConnectionCard() {
           <Database size={24} />
         </div>
         <div className="connection-title" style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h2>Banco de Dados & Variáveis de Ambiente</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2>Banco de Dados & Variáveis de Ambiente</h2>
+              <span style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA', padding: '3px 8px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                🔒 Apenas Admin
+              </span>
+            </div>
             <span
               className={`status-badge ${
                 testResult?.success

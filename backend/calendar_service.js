@@ -2,6 +2,7 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
 const db = require('./db');
+const { normalizePhone } = require('./phone_utils');
 
 const DAY_NAMES = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
@@ -294,8 +295,9 @@ async function createCalBooking(workspaceId, {
       return { success: false, error: 'Horário não encontrado' };
     }
 
-    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-    const attendeePhone = cleanPhone ? (cleanPhone.startsWith('55') ? `+${cleanPhone}` : `+55${cleanPhone}`) : undefined;
+    const normPhone = phone ? normalizePhone(phone, '66') : null;
+    const cleanPhone = normPhone?.cleanDigits || '';
+    const attendeePhone = normPhone?.e164 || undefined;
     const attendeeEmail = email || (cleanPhone ? `cliente.${cleanPhone}@gmail.com` : 'cliente.contato@gmail.com');
     const attendeeName = (name && name.trim()) || 'Cliente WhatsApp';
     const attendeeNotes = (notes && notes.trim()) || 'Agendamento via Unico CRM WhatsApp';

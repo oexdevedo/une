@@ -2,11 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 import './PhoneInput.css';
 
 export const COUNTRIES = [
+  { code: 'TH', name: 'Tailândia', ddi: '66', flag: '🇹🇭', mask: '### ### ####', placeholder: '081 234 5678' },
   { code: 'BR', name: 'Brasil', ddi: '55', flag: '🇧🇷', mask: '(##) #####-####', placeholder: '(11) 99999-9999' },
   { code: 'US', name: 'Estados Unidos / Canadá', ddi: '1', flag: '🇺🇸', mask: '(###) ###-####', placeholder: '(202) 555-0123' },
+  { code: 'SG', name: 'Singapura', ddi: '65', flag: '🇸🇬', mask: '#### ####', placeholder: '8123 4567' },
+  { code: 'MY', name: 'Malásia', ddi: '60', flag: '🇲🇾', mask: '## ### ####', placeholder: '12 345 6789' },
+  { code: 'ID', name: 'Indonésia', ddi: '62', flag: '🇮🇩', mask: '### ### ####', placeholder: '812 345 6789' },
+  { code: 'PH', name: 'Filipinas', ddi: '63', flag: '🇵🇭', mask: '### ### ####', placeholder: '917 123 4567' },
+  { code: 'VN', name: 'Vietnã', ddi: '84', flag: '🇻🇳', mask: '### ### ####', placeholder: '912 345 678' },
+  { code: 'KH', name: 'Camboja', ddi: '855', flag: '🇰🇭', mask: '## ### ###', placeholder: '12 345 678' },
+  { code: 'LA', name: 'Laos', ddi: '856', flag: '🇱🇦', mask: '## ### ###', placeholder: '20 123 456' },
+  { code: 'MM', name: 'Mianmar', ddi: '95', flag: '🇲🇲', mask: '## ### ####', placeholder: '9 123 4567' },
   { code: 'PT', name: 'Portugal', ddi: '351', flag: '🇵🇹', mask: '### ### ###', placeholder: '912 345 678' },
   { code: 'ES', name: 'Espanha', ddi: '34', flag: '🇪🇸', mask: '### ### ###', placeholder: '612 345 678' },
   { code: 'GB', name: 'Reino Unido', ddi: '44', flag: '🇬🇧', mask: '#### ######', placeholder: '7911 123456' },
+  { code: 'CN', name: 'China', ddi: '86', flag: '🇨🇳', mask: '### #### ####', placeholder: '138 0013 8000' },
+  { code: 'JP', name: 'Japão', ddi: '81', flag: '🇯🇵', mask: '## #### ####', placeholder: '90 1234 5678' },
+  { code: 'KR', name: 'Coreia do Sul', ddi: '82', flag: '🇰🇷', mask: '## #### ####', placeholder: '10 1234 5678' },
+  { code: 'IN', name: 'Índia', ddi: '91', flag: '🇮🇳', mask: '##### #####', placeholder: '98765 43210' },
+  { code: 'AU', name: 'Austrália', ddi: '61', flag: '🇦🇺', mask: '### ### ###', placeholder: '412 345 678' },
   { code: 'AR', name: 'Argentina', ddi: '54', flag: '🇦🇷', mask: '(##) ####-####', placeholder: '(11) 4567-8901' },
   { code: 'MX', name: 'México', ddi: '52', flag: '🇲🇽', mask: '(##) ####-####', placeholder: '(55) 1234-5678' },
   { code: 'CL', name: 'Chile', ddi: '56', flag: '🇨🇱', mask: '# #### ####', placeholder: '9 1234 5678' },
@@ -19,13 +33,11 @@ export const COUNTRIES = [
   { code: 'AO', name: 'Angola', ddi: '244', flag: '🇦🇴', mask: '### ### ###', placeholder: '923 123 456' },
   { code: 'MZ', name: 'Moçambique', ddi: '258', flag: '🇲🇿', mask: '## ### ####', placeholder: '84 123 4567' },
   { code: 'CH', name: 'Suíça', ddi: '41', flag: '🇨🇭', mask: '## ### ## ##', placeholder: '79 123 45 67' },
-  { code: 'AU', name: 'Austrália', ddi: '61', flag: '🇦🇺', mask: '### ### ###', placeholder: '412 345 678' },
-  { code: 'JP', name: 'Japão', ddi: '81', flag: '🇯🇵', mask: '## #### ####', placeholder: '90 1234 5678' },
   { code: 'OTHER', name: 'Outro Internacional', ddi: '', flag: '🌐', mask: '################', placeholder: 'Número completo com DDI' }
 ];
 
 export function applyMask(digits, mask) {
-  if (!mask || mask.includes('####') && !mask.includes('(')) {
+  if (!mask || (mask.includes('####') && !mask.includes('('))) {
     return digits;
   }
   let result = '';
@@ -37,20 +49,19 @@ export function applyMask(digits, mask) {
       result += mask[i];
     }
   }
-  // Se sobrarem dígitos (ex: 9º dígito no Brasil), adiciona ao final
   if (dIdx < digits.length) {
     result += digits.slice(dIdx);
   }
   return result;
 }
 
-export function detectCountryFromPhone(phoneStr) {
-  if (!phoneStr) return COUNTRIES[0]; // Padrão Brasil
+export function detectCountryFromPhone(phoneStr, defaultCountry = 'TH') {
+  const fallback = COUNTRIES.find(c => c.code === defaultCountry) || COUNTRIES[0];
+  if (!phoneStr) return fallback;
   const clean = String(phoneStr).trim();
   const digitsOnly = clean.replace(/\D/g, '');
 
   if (clean.startsWith('+')) {
-    // Tenta encontrar por DDI decrescente (3 dígitos, depois 2, depois 1)
     for (let len = 3; len >= 1; len--) {
       const prefix = digitsOnly.slice(0, len);
       const match = COUNTRIES.find(c => c.ddi === prefix);
@@ -58,26 +69,65 @@ export function detectCountryFromPhone(phoneStr) {
     }
   }
 
+  // Tailândia: 66 com 10 a 12 dígitos
+  if (digitsOnly.startsWith('66') && digitsOnly.length >= 10 && digitsOnly.length <= 12) {
+    const th = COUNTRIES.find(c => c.code === 'TH');
+    if (th) return th;
+  }
+
+  // Brasil: 55 com 12 ou 13 dígitos
+  if (digitsOnly.startsWith('55') && (digitsOnly.length === 12 || digitsOnly.length === 13)) {
+    const br = COUNTRIES.find(c => c.code === 'BR');
+    if (br) return br;
+  }
+
+  // Padrão doméstico da Tailândia: celular começa com 08, 09, 06 (10 dígitos) ou fixo 02, 03... (9 dígitos)
+  if (digitsOnly.startsWith('0') && (digitsOnly.length === 9 || digitsOnly.length === 10)) {
+    const th = COUNTRIES.find(c => c.code === 'TH');
+    if (th) return th;
+  }
+
+  // Celular da Tailândia sem o 0: 9 dígitos iniciando em 8, 9 ou 6
+  if (digitsOnly.length === 9 && ['8', '9', '6'].includes(digitsOnly[0])) {
+    const th = COUNTRIES.find(c => c.code === 'TH');
+    if (th) return th;
+  }
+
   // Se já começar com DDI conhecido mesmo sem o +
   for (let len = 3; len >= 1; len--) {
     const prefix = digitsOnly.slice(0, len);
-    const match = COUNTRIES.find(c => c.ddi === prefix && c.code !== 'US'); // evita que qualquer número começando com 1 vire US
+    const match = COUNTRIES.find(c => c.ddi === prefix && c.code !== 'US');
     if (match && digitsOnly.length >= 10) return match;
   }
 
-  return COUNTRIES[0]; // fallback Brasil
+  return fallback;
+}
+
+export function buildE164Phone(country, rawDigits) {
+  if (!rawDigits) return '';
+  let digits = String(rawDigits).replace(/\D/g, '');
+  if (!digits) return '';
+
+  // Para Tailândia, remove o 0 de tronco inicial ao compor o padrão E.164 internacional (+66...)
+  if (country.code === 'TH' && digits.startsWith('0')) {
+    digits = digits.replace(/^0+/, '');
+  }
+
+  if (!country.ddi) return `+${digits}`;
+  return `+${country.ddi}${digits}`;
 }
 
 export default function PhoneInput({
   value = '',
   onChange,
+  defaultCountry = 'TH',
   placeholder,
   disabled = false,
   autoFocus = false,
   className = '',
   id
 }) {
-  const [selectedCountry, setSelectedCountry] = useState(() => detectCountryFromPhone(value));
+  const [selectedCountry, setSelectedCountry] = useState(() => detectCountryFromPhone(value, defaultCountry));
   const [nationalNumber, setNationalNumber] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -91,7 +141,7 @@ export default function PhoneInput({
       return;
     }
 
-    const country = detectCountryFromPhone(value);
+    const country = detectCountryFromPhone(value, defaultCountry);
     setSelectedCountry(country);
 
     let digits = String(value).replace(/\D/g, '');
@@ -99,14 +149,19 @@ export default function PhoneInput({
       digits = digits.slice(country.ddi.length);
     }
 
-    // Se for Brasil e vier com 11 dígitos começando com 55 ou sem
     if (country.code === 'BR') {
       const formatted = applyMask(digits, digits.length <= 10 ? '(##) ####-####' : '(##) #####-####');
       setNationalNumber(formatted);
+    } else if (country.code === 'TH') {
+      // Se na Tailândia tiver 9 dígitos (ex: 812345678), formata nacionalmente com 0 na frente
+      if (digits.length === 9 && (digits.startsWith('8') || digits.startsWith('9') || digits.startsWith('6'))) {
+        digits = '0' + digits;
+      }
+      setNationalNumber(applyMask(digits, country.mask));
     } else {
       setNationalNumber(applyMask(digits, country.mask));
     }
-  }, [value]);
+  }, [value, defaultCountry]);
 
   // Fecha dropdown ao clicar fora
   useEffect(() => {
@@ -132,16 +187,19 @@ export default function PhoneInput({
 
     // Se o usuário colou ou digitou um número com '+' internacional
     if (raw.trim().startsWith('+')) {
-      const detected = detectCountryFromPhone(raw);
+      const detected = detectCountryFromPhone(raw, defaultCountry);
       setSelectedCountry(detected);
       let digits = raw.replace(/\D/g, '');
       if (detected.ddi && digits.startsWith(detected.ddi)) {
         digits = digits.slice(detected.ddi.length);
       }
+      if (detected.code === 'TH' && digits.length === 9 && (digits.startsWith('8') || digits.startsWith('9') || digits.startsWith('6'))) {
+        digits = '0' + digits;
+      }
       const formatted = applyMask(digits, detected.mask);
       setNationalNumber(formatted);
 
-      const e164 = digits ? `+${detected.ddi}${digits}` : '';
+      const e164 = buildE164Phone(detected, digits);
       if (onChange) onChange(e164, formatted);
       return;
     }
@@ -155,8 +213,7 @@ export default function PhoneInput({
     const formatted = applyMask(digits, maskToUse);
     setNationalNumber(formatted);
 
-    // Constrói o valor E.164 canônico universal
-    const e164 = digits ? (selectedCountry.ddi ? `+${selectedCountry.ddi}${digits}` : `+${digits}`) : '';
+    const e164 = buildE164Phone(selectedCountry, digits);
     if (onChange) {
       onChange(e164, formatted);
     }
@@ -167,15 +224,17 @@ export default function PhoneInput({
     setIsDropdownOpen(false);
 
     // Re-mascara o número atual para as regras do novo país
-    const digits = nationalNumber.replace(/\D/g, '');
+    let digits = nationalNumber.replace(/\D/g, '');
     let maskToUse = country.mask;
     if (country.code === 'BR') {
       maskToUse = digits.length <= 10 ? '(##) ####-####' : '(##) #####-####';
+    } else if (country.code === 'TH' && digits.length === 9 && (digits.startsWith('8') || digits.startsWith('9') || digits.startsWith('6'))) {
+      digits = '0' + digits;
     }
     const formatted = applyMask(digits, maskToUse);
     setNationalNumber(formatted);
 
-    const e164 = digits ? (country.ddi ? `+${country.ddi}${digits}` : `+${digits}`) : '';
+    const e164 = buildE164Phone(country, digits);
     if (onChange) {
       onChange(e164, formatted);
     }

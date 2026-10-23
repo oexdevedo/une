@@ -36,6 +36,16 @@ export default function Contacts() {
   const [isAddManualOpen, setIsAddManualOpen] = useState(false);
   const [manualContact, setManualContact] = useState({ name: '', phone: '' });
   const [editingContact, setEditingContact] = useState(null);
+  const [defaultCountry, setDefaultCountry] = useState('TH');
+
+  useEffect(() => {
+    fetch(`/api/workspaces/${workspaceId}/settings`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.default_country) setDefaultCountry(data.default_country);
+      })
+      .catch(() => {});
+  }, [workspaceId]);
   
   const [activeDropdownList, setActiveDropdownList] = useState(null);
   const [activeDropdownLead, setActiveDropdownLead] = useState(null);
@@ -187,6 +197,14 @@ export default function Contacts() {
         if (!listData.success || !listData.id) return;
 
         // 2. Extrai contatos
+        const parsePhone = (val) => {
+          const raw = String(val || '').trim();
+          const hasPlus = raw.startsWith('+');
+          const digits = raw.replace(/\D/g, '');
+          if (!digits) return '';
+          return hasPlus ? `+${digits}` : digits;
+        };
+
         const parsedContacts = [];
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -196,17 +214,17 @@ export default function Contacts() {
           let phone = '';
           if (parts.length >= 2) {
             if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
-              phone = parts[0].replace(/\D/g, '');
+              phone = parsePhone(parts[0]);
               name = parts[1];
             } else {
               name = parts[0];
-              phone = parts[1].replace(/\D/g, '');
+              phone = parsePhone(parts[1]);
             }
           } else if (parts.length === 1) {
-            phone = parts[0].replace(/\D/g, '');
+            phone = parsePhone(parts[0]);
             name = 'Contato ' + (i + 1);
           }
-          if (phone && phone.length >= 8) {
+          if (phone && phone.replace(/\D/g, '').length >= 8) {
             parsedContacts.push({ name: name || 'Lead', phone });
           }
         }
@@ -249,6 +267,14 @@ export default function Contacts() {
           return;
         }
 
+        const parsePhone = (val) => {
+          const raw = String(val || '').trim();
+          const hasPlus = raw.startsWith('+');
+          const digits = raw.replace(/\D/g, '');
+          if (!digits) return '';
+          return hasPlus ? `+${digits}` : digits;
+        };
+
         const parsedContacts = [];
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -258,17 +284,17 @@ export default function Contacts() {
           let phone = '';
           if (parts.length >= 2) {
             if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
-              phone = parts[0].replace(/\D/g, '');
+              phone = parsePhone(parts[0]);
               name = parts[1];
             } else {
               name = parts[0];
-              phone = parts[1].replace(/\D/g, '');
+              phone = parsePhone(parts[1]);
             }
           } else if (parts.length === 1) {
-            phone = parts[0].replace(/\D/g, '');
+            phone = parsePhone(parts[0]);
             name = 'Contato ' + (i + 1);
           }
-          if (phone && phone.length >= 8) {
+          if (phone && phone.replace(/\D/g, '').length >= 8) {
             parsedContacts.push({ name: name || 'Lead', phone });
           }
         }
@@ -593,8 +619,8 @@ export default function Contacts() {
                         <span className="lead-phone" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                           {lead.phone ? (
                             <>
-                              <span style={{ fontSize: '1.05rem', lineHeight: 1 }} title={detectCountryFromPhone(lead.phone).name}>
-                                {detectCountryFromPhone(lead.phone).flag}
+                              <span style={{ fontSize: '1.05rem', lineHeight: 1 }} title={detectCountryFromPhone(lead.phone, defaultCountry).name}>
+                                {detectCountryFromPhone(lead.phone, defaultCountry).flag}
                               </span>
                               <span>{lead.phone}</span>
                             </>
@@ -685,6 +711,7 @@ export default function Contacts() {
                   <label>WhatsApp / Telefone Internacional</label>
                   <PhoneInput 
                     value={manualContact.phone}
+                    defaultCountry={defaultCountry}
                     onChange={(e164) => setManualContact({...manualContact, phone: e164})}
                   />
                 </div>
@@ -721,6 +748,7 @@ export default function Contacts() {
                   <label>WhatsApp / Telefone Internacional</label>
                   <PhoneInput 
                     value={editingContact.phone}
+                    defaultCountry={defaultCountry}
                     onChange={(e164) => setEditingContact({...editingContact, phone: e164})}
                   />
                 </div>

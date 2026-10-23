@@ -56,6 +56,16 @@ export default function MassMessage() {
   const [attachment, setAttachment] = useState(null);
   const fileInputRef = useRef(null);
   const csvInputRef = useRef(null);
+  const [defaultDdi, setDefaultDdi] = useState('66');
+
+  useEffect(() => {
+    fetch(`/api/workspaces/${workspaceId}/settings`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.default_ddi) setDefaultDdi(data.default_ddi);
+      })
+      .catch(() => {});
+  }, [workspaceId]);
 
   // Configurações Anti-Ban
   const [minDelay, setMinDelay] = useState(15);
@@ -65,10 +75,22 @@ export default function MassMessage() {
 
   // Disparo e Logs
   const [isDispatching, setIsDispatching] = useState(false);
+  const isStopRequestedRef = useRef(false);
   const [dispatchLogs, setDispatchLogs] = useState([
     { id: 1, time: new Date().toLocaleTimeString('pt-BR'), type: 'info', text: 'Sistema pronto. Selecione uma lista de contatos e inicie o disparo.' }
   ]);
   const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0 });
+
+  const handleStopDispatch = () => {
+    isStopRequestedRef.current = true;
+    const time = new Date().toLocaleTimeString('pt-BR');
+    setDispatchLogs(prev => [...prev, {
+      id: Date.now() + Math.random(),
+      time,
+      type: 'warning',
+      text: '⏹️ Solicitação de interrupção recebida. Parando envio...'
+    }]);
+  };
 
   // 1. Carrega as Listas do Workspace
   const fetchLists = async (preferredId) => {
@@ -279,6 +301,14 @@ export default function MassMessage() {
           return;
         }
 
+        const parsePhone = (val) => {
+          const raw = String(val || '').trim();
+          const hasPlus = raw.startsWith('+');
+          const digits = raw.replace(/\D/g, '');
+          if (!digits) return '';
+          return hasPlus ? `+${digits}` : digits;
+        };
+
         const parsedContacts = [];
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -292,18 +322,18 @@ export default function MassMessage() {
 
           if (parts.length >= 2) {
             if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
-              phone = parts[0].replace(/\D/g, '');
+              phone = parsePhone(parts[0]);
               name = parts[1];
             } else {
               name = parts[0];
-              phone = parts[1].replace(/\D/g, '');
+              phone = parsePhone(parts[1]);
             }
           } else if (parts.length === 1) {
-            phone = parts[0].replace(/\D/g, '');
+            phone = parsePhone(parts[0]);
             name = 'Contato ' + (i + 1);
           }
 
-          if (phone && phone.length >= 8) {
+          if (phone && phone.replace(/\D/g, '').length >= 8) {
             parsedContacts.push({ name: name || 'Lead', phone });
           }
         }
@@ -390,19 +420,18 @@ export default function MassMessage() {
 
     const channelName = channel === 'telegram' ? 'Telegram' : 'WhatsApp';
 
-    // Validação preventiva de conexão do canal selecionado
+    // Validação estrita de conexão do canal selecionado
     if (channel === 'telegram' && tgStatus !== 'connected') {
-      if (!confirm('Atenção: O Telegram está desconectado no momento. Deseja tentar iniciar o disparo mesmo assim?')) {
-        return;
-      }
+      alert('⚠️ O Telegram está desconectado!\n\nAcesse o menu "Conexões" para conectar sua conta ou bot do Telegram antes de iniciar o disparo em massa.');
+      return;
     } else if (channel === 'whatsapp' && waStatus !== 'connected') {
-      if (!confirm('Atenção: O WhatsApp está desconectado no momento. Deseja tentar iniciar o disparo mesmo assim?')) {
-        return;
-      }
+      alert('⚠️ O WhatsApp está desconectado!\n\nPara que as mensagens sejam entregues, acesse o menu "Conexões", escaneie o QR Code do WhatsApp e depois retorne para realizar o disparo.');
+      return;
     }
 
     if (!confirm(`Deseja iniciar o disparo em massa para ${contacts.length} contatos via ${channelName}?`)) return;
 
+    isStopRequestedRef.current = false;
     setIsDispatching(true);
     setActiveTab('logs');
     setStats({ total: contacts.length, sent: 0, failed: 0 });
@@ -418,12 +447,21 @@ export default function MassMessage() {
     let failCount = 0;
 
     for (let i = 0; i < contacts.length; i++) {
+      if (isStopRequestedRef.current) {
+        addLog('warning', `⏹️ Disparo interrompido pelo usuário.`);
+        break;
+      }
+
       const contact = contacts[i];
 
       // Pausa Anti-Ban a cada lote de envios bem sucedidos
       if (sentCount > 0 && sentCount % batchSize === 0) {
         addLog('warning', `⏸️ Pausa anti-ban acionada: aguardando ${batchPause} segundos após ${batchSize} envios...`);
-        await new Promise(r => setTimeout(r, batchPause * 1000));
+        for (let p = 0; p < batchPause; p++) {
+          if (isStopRequestedRef.current) break;
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        if (isStopRequestedRef.current) break;
         addLog('info', `▶️ Retomando envios via ${channelName}...`);
       }
 
@@ -451,7 +489,7 @@ export default function MassMessage() {
           }
         } else {
           let rawPhone = String(contact.phone || contact.remote_jid || '').trim();
-          if (!rawPhone || rawPhone === '@s.whatsapp.net') {
+          if (!rawPhone || rawPhone === '@s.whatsapp.net' || rawPhone === '@lid') {
             failCount++;
             addLog('error', `✗ [WHATSAPP] Ignorado: Contato ${contact.name} não possui número de telefone cadastrado.`);
             setStats({ total: contacts.length, sent: sentCount, failed: failCount });
@@ -460,14 +498,42 @@ export default function MassMessage() {
           if (rawPhone.endsWith('@s.whatsapp.net') || rawPhone.endsWith('@lid')) {
             targetDest = rawPhone;
           } else {
-            const digits = rawPhone.replace(/\D/g, '');
+            const hasPlus = rawPhone.startsWith('+');
+            let digits = rawPhone.replace(/\D/g, '');
             if (!digits) {
               failCount++;
               addLog('error', `✗ [WHATSAPP] Ignorado: Número de telefone inválido para ${contact.name}.`);
               setStats({ total: contacts.length, sent: sentCount, failed: failCount });
               continue;
             }
-            targetDest = `${digits}@s.whatsapp.net`;
+
+            if (hasPlus) {
+              if (digits.startsWith('66')) {
+                let rest = digits.slice(2);
+                if (rest.startsWith('0')) rest = rest.slice(1);
+                targetDest = `66${rest}@s.whatsapp.net`;
+              } else {
+                targetDest = `${digits}@s.whatsapp.net`;
+              }
+            } else if (digits.startsWith('66')) {
+              let rest = digits.slice(2);
+              if (rest.startsWith('0')) rest = rest.slice(1);
+              targetDest = `66${rest}@s.whatsapp.net`;
+            } else if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+              targetDest = `${digits}@s.whatsapp.net`;
+            } else if (digits.startsWith('0') && (defaultDdi === '66' || !defaultDdi)) {
+              // Tronco local da Tailândia: 08x, 09x, 06x
+              targetDest = `66${digits.slice(1)}@s.whatsapp.net`;
+            } else if (digits.length === 9 && ['8', '9', '6'].includes(digits[0]) && (defaultDdi === '66' || !defaultDdi)) {
+              // Celular da Tailândia sem o zero inicial
+              targetDest = `66${digits}@s.whatsapp.net`;
+            } else if (defaultDdi === '55' && (digits.length === 10 || digits.length === 11)) {
+              targetDest = `55${digits}@s.whatsapp.net`;
+            } else if (defaultDdi && !digits.startsWith(defaultDdi)) {
+              targetDest = `${defaultDdi}${digits}@s.whatsapp.net`;
+            } else {
+              targetDest = `${digits}@s.whatsapp.net`;
+            }
           }
         }
 
@@ -506,7 +572,14 @@ export default function MassMessage() {
           addLog('success', `✓ [${channelName.toUpperCase()}] Enviado com sucesso para ${contact.name} (${displayDest})`);
         } else {
           failCount++;
-          addLog('error', `✗ [${channelName.toUpperCase()}] Falha ao enviar para ${contact.name}: ${data.error || 'Erro na resposta do servidor'}`);
+          const errDetail = data.error || 'Erro na resposta do servidor';
+          addLog('error', `✗ [${channelName.toUpperCase()}] Falha ao enviar para ${contact.name}: ${errDetail}`);
+          // Se o canal desconectou no meio do disparo, aborta imediatamente
+          if (errDetail.toLowerCase().includes('desconectado') || errDetail.toLowerCase().includes('não está conectado')) {
+            addLog('error', `🛑 [${channelName.toUpperCase()}] Disparo interrompido: o canal foi desconectado.`);
+            alert(`O disparo foi interrompido porque o ${channelName} está desconectado.`);
+            break;
+          }
         }
       } catch (e) {
         failCount++;
@@ -515,10 +588,13 @@ export default function MassMessage() {
 
       setStats({ total: contacts.length, sent: sentCount, failed: failCount });
 
-      if (i < contacts.length - 1) {
+      if (i < contacts.length - 1 && !isStopRequestedRef.current) {
         const delaySec = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
         addLog('info', `⏳ Intervalo de segurança: aguardando ${delaySec}s...`);
-        await new Promise(r => setTimeout(r, delaySec * 1000));
+        for (let s = 0; s < delaySec; s++) {
+          if (isStopRequestedRef.current) break;
+          await new Promise(r => setTimeout(r, 1000));
+        }
       }
     }
 
@@ -748,7 +824,7 @@ export default function MassMessage() {
                   <div style={{ marginTop: '16px', padding: '12px 16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0', fontSize: '0.82rem', color: '#15803d', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Smartphone size={20} style={{ flexShrink: 0 }} />
                     <div>
-                      <strong>Dica WhatsApp:</strong> O sistema normaliza automaticamente DDI 55, o nono dígito brasileiro e contas registradas via LID do WhatsApp.
+                      <strong>Dica WhatsApp:</strong> Sistema adaptado para múltiplos DDIs (Tailândia +66 com celulares 08x/09x/06x, Brasil +55 com 9º dígito/LID e internacional via +). Validação automática no WhatsApp antes do envio.
                     </div>
                   </div>
                 )}
@@ -1001,14 +1077,27 @@ export default function MassMessage() {
                     </div>
                   </div>
                   
-                  <button 
-                    className={`btn-huge ${channel === 'telegram' ? 'btn-telegram' : 'btn-whatsapp'}`}
-                    onClick={handleStartDispatch}
-                    disabled={isDispatching || contacts.length === 0}
-                    style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1 }}
-                  >
-                    <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : `INICIAR DISPARO VIA ${channel.toUpperCase()}`}
-                  </button>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <button 
+                      className={`btn-huge ${channel === 'telegram' ? 'btn-telegram' : 'btn-whatsapp'}`}
+                      onClick={handleStartDispatch}
+                      disabled={isDispatching || contacts.length === 0}
+                      style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1 }}
+                    >
+                      <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : `INICIAR DISPARO VIA ${channel.toUpperCase()}`}
+                    </button>
+
+                    {isDispatching && (
+                      <button 
+                        className="btn-huge"
+                        onClick={handleStopDispatch}
+                        style={{ background: '#DC2626', color: '#FFFFFF', border: 'none', cursor: 'pointer' }}
+                        title="Interromper envio em massa imediatamente"
+                      >
+                        <Close size={24} /> PARAR DISPARO
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1046,21 +1135,32 @@ export default function MassMessage() {
             <div className="premium-card">
               <div className="card-header">
                 <div className="card-title">Console de Logs em Tempo Real</div>
-                <button 
-                  className="btn-pill btn-light"
-                  onClick={() => {
-                    const csvContent = "data:text/csv;charset=utf-8," + dispatchLogs.map(l => `"${l.time}","${l.type}","${l.text}"`).join("\n");
-                    const encodedUri = encodeURI(csvContent);
-                    const link = document.createElement("a");
-                    link.setAttribute("href", encodedUri);
-                    link.setAttribute("download", "logs_disparo.csv");
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                  }}
-                >
-                  Exportar CSV
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  {isDispatching && (
+                    <button 
+                      className="btn-pill"
+                      style={{ background: '#FEE2E2', color: '#DC2626', borderColor: '#FCA5A5', fontWeight: 600 }}
+                      onClick={handleStopDispatch}
+                    >
+                      <Close size={14} /> Parar Disparo
+                    </button>
+                  )}
+                  <button 
+                    className="btn-pill btn-light"
+                    onClick={() => {
+                      const csvContent = "data:text/csv;charset=utf-8," + dispatchLogs.map(l => `"${l.time}","${l.type}","${l.text}"`).join("\n");
+                      const encodedUri = encodeURI(csvContent);
+                      const link = document.createElement("a");
+                      link.setAttribute("href", encodedUri);
+                      link.setAttribute("download", "logs_disparo.csv");
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                  >
+                    Exportar CSV
+                  </button>
+                </div>
               </div>
               
               <div className="logs-terminal">

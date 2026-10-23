@@ -28,3 +28,10 @@ export function getScopedStorageKey(baseKey, workspaceId) {
   const wsId = workspaceId || getWorkspaceId();
   return `${baseKey}_ws_${wsId}`;
 }
+
+export function isUserAdmin(user) {
+  const u = user || getCurrentUser();
+  if (!u) return false;
+  const role = (u.role || '').toLowerCase().trim();
+  return ['admin', 'owner', 'master', 'administrador'].includes(role);
+}

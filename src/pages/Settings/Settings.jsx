@@ -13,8 +13,11 @@ import {
   Link as LinkIcon
 } from 'pixelarticons/react';
 import Connections from '../Connections/Connections';
+import { getCurrentUser, isUserAdmin } from '../../utils/workspace';
 
 export default function Settings({ initialTab }) {
+  const currentUser = getCurrentUser();
+  const isAdmin = isUserAdmin(currentUser);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
 
@@ -171,6 +174,9 @@ export default function Settings({ initialTab }) {
     try {
       const res = await fetch('/api/admin/database/upload', {
         method: 'POST',
+        headers: {
+          'x-user-id': String(currentUser?.id || '')
+        },
         body: formDataUpload
       });
       const data = await res.json();
@@ -334,44 +340,51 @@ export default function Settings({ initialTab }) {
             </div>
           </div>
 
-          {/* Gerenciamento do Banco de Dados & Backup */}
-          <div className="settings-section">
-            <div className="section-header">
-              <div className="section-icon">
-                <Download size={20} />
+          {/* Gerenciamento do Banco de Dados & Backup - Restrito a Admin */}
+          {isAdmin && (
+            <div className="settings-section">
+              <div className="section-header">
+                <div className="section-icon">
+                  <Download size={20} />
+                </div>
+                <div className="section-title-wrap">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h2>Banco de Dados & Backup</h2>
+                    <span style={{ background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA', padding: '2px 8px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700 }}>
+                      🔒 Apenas Admin
+                    </span>
+                  </div>
+                  <p>Baixe o backup local ou restaure no Easypanel para sincronizar todos os contatos e mensagens.</p>
+                </div>
               </div>
-              <div className="section-title-wrap">
-                <h2>Banco de Dados & Backup</h2>
-                <p>Baixe o backup local ou restaure no Easypanel para sincronizar todos os contatos e mensagens.</p>
+
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
+                <a 
+                  href={`/api/admin/database/download?user_id=${currentUser?.id || ''}`} 
+                  download="database.sqlite" 
+                  className="btn-light" 
+                  style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#F4F4F5', fontWeight: 600, color: 'var(--text-main)' }}
+                >
+                  <Download size={18} />
+                  <span>Baixar Backup (.sqlite)</span>
+                </a>
+
+                <label 
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '8px', background: 'var(--primary)', color: '#18181B', fontWeight: 600, cursor: uploadingDb ? 'not-allowed' : 'pointer' }}
+                >
+                  <Upload size={18} />
+                  <span>{uploadingDb ? 'Importando...' : 'Restaurar / Importar (.sqlite)'}</span>
+                  <input 
+                    type="file" 
+                    accept=".sqlite,.db" 
+                    onChange={handleUploadDatabase} 
+                    disabled={uploadingDb} 
+                    style={{ display: 'none' }} 
+                  />
+                </label>
               </div>
             </div>
-
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
-              <a 
-                href="/api/admin/database/download" 
-                download="database.sqlite" 
-                className="btn-light" 
-                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#F4F4F5', fontWeight: 600, color: 'var(--text-main)' }}
-              >
-                <Download size={18} />
-                <span>Baixar Backup (.sqlite)</span>
-              </a>
-
-              <label 
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '8px', background: 'var(--primary)', color: '#18181B', fontWeight: 600, cursor: uploadingDb ? 'not-allowed' : 'pointer' }}
-              >
-                <Upload size={18} />
-                <span>{uploadingDb ? 'Importando...' : 'Restaurar / Importar (.sqlite)'}</span>
-                <input 
-                  type="file" 
-                  accept=".sqlite,.db" 
-                  onChange={handleUploadDatabase} 
-                  disabled={uploadingDb} 
-                  style={{ display: 'none' }} 
-                />
-              </label>
-            </div>
-          </div>
+          )}
 
           <div className="settings-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <button 

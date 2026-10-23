@@ -43,7 +43,9 @@ function getWhatsAppAuthDir(workspaceId = 1) {
       console.log(`📦 [Storage] Migrando sessão WhatsApp (${legacyDir}) para volume persistente (${targetDir})...`);
       try {
         fs.cpSync(legacyDir, targetDir, { recursive: true });
-        console.log(`✅ [Storage] Sessão WhatsApp migrada com sucesso.`);
+        // Remove a pasta legada para não restaurar sessões expiradas caso a pasta persistente seja limpa
+        fs.rmSync(legacyDir, { recursive: true, force: true });
+        console.log(`✅ [Storage] Sessão WhatsApp migrada e pasta legada removida com sucesso.`);
       } catch (e) {
         console.error(`❌ [Storage] Falha ao migrar sessão WhatsApp:`, e.message);
       }
@@ -52,6 +54,19 @@ function getWhatsAppAuthDir(workspaceId = 1) {
     }
   }
   return targetDir;
+}
+
+function clearWhatsAppAuthDir(workspaceId = 1) {
+  const dirName = `auth_info_baileys_${workspaceId}`;
+  const targetDir = path.join(DATA_DIR, dirName);
+  const legacyDir = path.join(__dirname, dirName);
+  try {
+    if (fs.existsSync(targetDir)) fs.rmSync(targetDir, { recursive: true, force: true });
+    if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
+    console.log(`🧹 [Storage] Pastas de autenticação do WhatsApp limpas para Workspace ${workspaceId}`);
+  } catch (err) {
+    console.error(`❌ [Storage] Erro ao limpar pastas de autenticação do WhatsApp:`, err.message);
+  }
 }
 
 // 3. Diretório de Uploads
@@ -71,5 +86,6 @@ module.exports = {
   DATA_DIR,
   DB_PATH,
   UPLOADS_DIR,
-  getWhatsAppAuthDir
+  getWhatsAppAuthDir,
+  clearWhatsAppAuthDir
 };

@@ -56,7 +56,9 @@ async function init() {
       cal_link TEXT,
       telegram_token TEXT,
       confirmation_agent_id TEXT DEFAULT '3',
-      confirmation_enabled INTEGER DEFAULT 1
+      confirmation_enabled INTEGER DEFAULT 1,
+      default_country TEXT DEFAULT 'TH',
+      default_ddi TEXT DEFAULT '66'
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -356,6 +358,8 @@ async function init() {
   await ensureColumn(db, 'automations', 'nodes_json', 'TEXT');
   await ensureColumn(db, 'calendar_events', 'attendee_name', 'TEXT');
   await ensureColumn(db, 'calendar_events', 'attendee_phone', 'TEXT');
+  await ensureColumn(db, 'workspaces', 'default_country', "TEXT DEFAULT 'TH'");
+  await ensureColumn(db, 'workspaces', 'default_ddi', "TEXT DEFAULT '66'");
 
   // 3. Versão do Schema
   const existingVersion = await db.get('SELECT version FROM schema_version WHERE id = 1');
