@@ -24,7 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY backend/package*.json ./
 RUN npm install --omit=dev
-RUN npm rebuild sqlite3 --build-from-source
 
 # ==========================================
 # Estágio 3: Runtime de Produção Oficial

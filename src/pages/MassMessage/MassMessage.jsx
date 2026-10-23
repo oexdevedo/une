@@ -375,35 +375,77 @@ export default function MassMessage() {
     }
   };
 
-  const variables = ['{primeiro_nome}', '{nome}', '{saudacao}', '{profissao}', '{regiao}', '{email}'];
+  const variables = ['{primeiro_nome}', '{nome}', '{saudacao}', '{telefone}', '{email}', '{profissao}', '{regiao}'];
 
-  const parseSpintax = (text) => {
-    let parsed = text;
-    parsed = parsed.replace(/{primeiro_nome}/g, 'João');
-    parsed = parsed.replace(/{nome}/g, 'João Silva');
-    parsed = parsed.replace(/{saudacao}/g, 'Bom dia');
-    
-    const spintaxRegex = /\{([^{}]*)\}/g;
-    parsed = parsed.replace(spintaxRegex, (match, contents) => {
-      if (!contents.includes('|')) return match;
-      const options = contents.split('|');
-      const randomOption = options[Math.floor(Math.random() * options.length)];
-      return randomOption;
-    });
-    
+  // Resolve sintaxe Spintax {Opção A|Opção B|Opção C} isoladamente (sem alterar variáveis como {nome})
+  const resolveSpintax = (text) => {
+    if (!text) return '';
+    const spintaxRegex = /\{([^{}]+)\}/g;
+    let result = text;
+    let iterations = 0;
+    while (spintaxRegex.test(result) && iterations < 10) {
+      result = result.replace(spintaxRegex, (match, contents) => {
+        if (!contents.includes('|')) return match; // Mantém tags {nome}, {saudacao}, etc.
+        const options = contents.split('|');
+        const randomOption = options[Math.floor(Math.random() * options.length)];
+        return randomOption;
+      });
+      iterations++;
+    }
+    return result;
+  };
+
+  // Formata a mensagem com dados reais de cada contato individual da lista
+  const formatMessageForContact = (template, contact) => {
+    if (!template) return '';
+
+    // 1. Resolve o Spintax primeiro (permite variações com tags de contato)
+    let parsed = resolveSpintax(template);
+
+    // 2. Extrai nome do contato com fallback
+    const rawName = (contact?.name || '').trim();
+    const firstName = rawName ? rawName.split(/\s+/)[0] : 'Cliente';
+    const fullName = rawName || 'Cliente';
+
+    // 3. Saudação dinâmica de acordo com o horário (Bom dia / Boa tarde / Boa noite)
+    const hour = new Date().getHours();
+    const saudacao = hour >= 5 && hour < 12 ? 'Bom dia' : hour >= 12 && hour < 18 ? 'Boa tarde' : 'Boa noite';
+
+    // 4. Substituição case-insensitive de variáveis
+    parsed = parsed.replace(/\{(?:primeiro[_\s]?nome|first[_\s]?name)\}/gi, firstName);
+    parsed = parsed.replace(/\{(?:nome|name)\}/gi, fullName);
+    parsed = parsed.replace(/\{(?:saudacao|saudação|greeting)\}/gi, saudacao);
+    parsed = parsed.replace(/\{(?:telefone|phone|celular)\}/gi, contact?.phone || '');
+    parsed = parsed.replace(/\{(?:email)\}/gi, contact?.email || '');
+    parsed = parsed.replace(/\{(?:profissao|profissão|cargo)\}/gi, contact?.profession || contact?.cargo || '');
+    parsed = parsed.replace(/\{(?:regiao|região|cidade)\}/gi, contact?.region || contact?.cidade || '');
+
     return parsed;
   };
 
+  const getPreviewContact = () => {
+    if (contacts && contacts.length > 0 && contacts[0]?.name) {
+      return contacts[0];
+    }
+    return {
+      name: 'João Silva',
+      phone: '11999999999',
+      email: 'joao.silva@exemplo.com'
+    };
+  };
+
   useEffect(() => {
-    setPreviewText(parseSpintax(messageText));
-  }, [messageText]);
+    const previewContact = getPreviewContact();
+    setPreviewText(formatMessageForContact(messageText, previewContact));
+  }, [messageText, contacts]);
 
   const insertVariable = (variable) => {
     setMessageText(prev => prev + ' ' + variable);
   };
 
   const handleTestSpintax = () => {
-    setPreviewText(parseSpintax(messageText));
+    const previewContact = getPreviewContact();
+    setPreviewText(formatMessageForContact(messageText, previewContact));
   };
 
   // Motor de Disparo em Massa Multi-Canal (WhatsApp e Telegram)
@@ -466,11 +508,7 @@ export default function MassMessage() {
       }
 
       try {
-        let contactMsg = parseSpintax(messageText);
-        const firstName = contact.name ? contact.name.split(' ')[0] : 'Cliente';
-        contactMsg = contactMsg.replace(/{primeiro_nome}/g, firstName);
-        contactMsg = contactMsg.replace(/{nome}/g, contact.name || 'Cliente');
-        contactMsg = contactMsg.replace(/{email}/g, contact.email || '');
+        const contactMsg = formatMessageForContact(messageText, contact);
 
         let targetDest = '';
         if (channel === 'telegram') {
@@ -1022,7 +1060,9 @@ export default function MassMessage() {
                         </div>
                         <div>
                           <div style={{fontWeight: 600, fontSize: '0.95rem'}}>
-                            {channel === 'telegram' ? (tgBotInfo?.first_name || 'Bot Telegram') : 'Exemplo de Lead'}
+                            {channel === 'telegram' 
+                              ? (tgBotInfo?.first_name || 'Bot Telegram') 
+                              : (contacts.length > 0 && contacts[0]?.name ? `${contacts[0].name} (1º contato da lista)` : 'Exemplo de Contato')}
                           </div>
                           <div style={{fontSize: '0.75rem', opacity: 0.9}}>online</div>
                         </div>
