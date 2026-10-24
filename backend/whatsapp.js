@@ -430,10 +430,13 @@ async function sendMessage(workspaceId, jid, text, file, contactName = '') {
       }
 
       if (verifiedJid) {
+        console.log(`[WhatsApp] JID validado com sucesso via onWhatsApp: ${verifiedJid}`);
         cleanJid = verifiedJid;
       }
     }
   }
+
+  console.log(`[WhatsApp] Enviando mensagem para JID final: ${cleanJid} (workspace: ${workspaceId})`);
 
   let messageOptions = { text: text || '' };
   let msgType = 'text';

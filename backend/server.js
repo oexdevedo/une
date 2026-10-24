@@ -11,7 +11,7 @@ const { connectToWhatsApp, getMessages, sendMessage, getProfilePicUrl } = requir
 const { connectToTelegram } = require('./telegram');
 const aiHandler = require('./ai_handler');
 const { DB_PATH, UPLOADS_DIR } = require('./storage');
-const { normalizePhone } = require('./phone_utils');
+const { normalizePhone, formatDisplayPhone } = require('./phone_utils');
 
 const app = express();
 const upload = multer({ dest: UPLOADS_DIR });
@@ -1075,6 +1075,8 @@ app.post('/api/lists/:id/import-channel-contacts', async (req, res) => {
     const { workspace_id, channel } = req.body;
     const workspaceId = workspace_id || 1;
     const database = await db.getDB();
+    const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
+    const defaultDdi = ws?.default_ddi || '66';
     const reminderService = require('./reminder_service');
 
     let query = '';
@@ -1098,11 +1100,11 @@ app.post('/api/lists/:id/import-channel-contacts', async (req, res) => {
       } else {
         // Usa resolução de LID reversa caso seja um remote_jid @lid
         const resolvedPhone = reminderService.getPhoneNumberFromJid(row.remote_jid, workspaceId);
-        phone = (resolvedPhone || row.remote_jid.replace(/@.*$/, '')).replace(/\D/g, '');
-        if (phone.length >= 10 && phone.startsWith('55')) {
-          const ddd = phone.slice(2, 4);
-          const rest = phone.slice(4);
-          phone = `(${ddd}) ${rest.length === 9 ? rest.slice(0, 5) + '-' + rest.slice(5) : rest.slice(0, 4) + '-' + rest.slice(4)}`;
+        if (row.remote_jid.endsWith('@lid') && (!resolvedPhone || resolvedPhone === row.remote_jid.replace('@lid', ''))) {
+          // Se for LID puro sem mapeamento reverso, preserva @lid para identificação
+          phone = row.remote_jid;
+        } else {
+          phone = formatDisplayPhone(resolvedPhone || row.remote_jid, defaultDdi);
         }
       }
       if (!phone) continue;

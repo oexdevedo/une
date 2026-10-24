@@ -536,8 +536,8 @@ export default function MassMessage() {
           if (rawPhone.endsWith('@s.whatsapp.net') || rawPhone.endsWith('@lid')) {
             targetDest = rawPhone;
           } else {
-            const hasPlus = rawPhone.startsWith('+');
-            let digits = rawPhone.replace(/\D/g, '');
+            const hasPlus = rawPhone.startsWith('+') || rawPhone.startsWith('00');
+            let digits = rawPhone.replace(/^00/, '').replace(/\D/g, '');
             if (!digits) {
               failCount++;
               addLog('error', `✗ [WHATSAPP] Ignorado: Número de telefone inválido para ${contact.name}.`);
@@ -553,22 +553,34 @@ export default function MassMessage() {
               } else {
                 targetDest = `${digits}@s.whatsapp.net`;
               }
-            } else if (digits.startsWith('66')) {
+            } else if (digits.startsWith('66') && digits.length >= 10 && digits.length <= 12) {
               let rest = digits.slice(2);
               if (rest.startsWith('0')) rest = rest.slice(1);
               targetDest = `66${rest}@s.whatsapp.net`;
             } else if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
               targetDest = `${digits}@s.whatsapp.net`;
-            } else if (digits.startsWith('0') && (defaultDdi === '66' || !defaultDdi)) {
+            } else if (digits.startsWith('0') && (digits.length === 9 || digits.length === 10)) {
               // Tronco local da Tailândia: 08x, 09x, 06x
               targetDest = `66${digits.slice(1)}@s.whatsapp.net`;
-            } else if (digits.length === 9 && ['8', '9', '6'].includes(digits[0]) && (defaultDdi === '66' || !defaultDdi)) {
+            } else if (digits.length === 9 && ['8', '9', '6'].includes(digits[0]) && defaultDdi === '66') {
               // Celular da Tailândia sem o zero inicial
               targetDest = `66${digits}@s.whatsapp.net`;
-            } else if (defaultDdi === '55' && (digits.length === 10 || digits.length === 11)) {
+            } else if (digits.length >= 12) {
+              // Número internacional completo sem + (ex: Portugal 351..., Reino Unido 44..., Alemanha 49..., Argentina 54...)
+              targetDest = `${digits}@s.whatsapp.net`;
+            } else if (digits.length === 11 && digits.startsWith('1') && !['11','12','13','14','15','16','17','18','19'].includes(digits.slice(0, 2))) {
+              // EUA / Canadá sem + (11 dígitos começando com 1)
+              targetDest = `${digits}@s.whatsapp.net`;
+            } else if (digits.length === 11 && (digits.startsWith('34') || digits.startsWith('33') || digits.startsWith('56'))) {
+              // Espanha (34), França (33) ou Chile (56)
+              targetDest = `${digits}@s.whatsapp.net`;
+            } else if (defaultDdi === '55' && (digits.length === 10 || (digits.length === 11 && digits[2] === '9'))) {
+              // Brasil local (DDD + 8 ou 9 dígitos)
               targetDest = `55${digits}@s.whatsapp.net`;
-            } else if (defaultDdi && !digits.startsWith(defaultDdi)) {
-              targetDest = `${defaultDdi}${digits}@s.whatsapp.net`;
+            } else if (defaultDdi && digits.length <= 10) {
+              let rest = digits;
+              if (defaultDdi === '66' && rest.startsWith('0')) rest = rest.slice(1);
+              targetDest = `${defaultDdi}${rest}@s.whatsapp.net`;
             } else {
               targetDest = `${digits}@s.whatsapp.net`;
             }
