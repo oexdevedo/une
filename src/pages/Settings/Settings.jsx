@@ -49,6 +49,7 @@ export default function Settings({ initialTab }) {
         name: u?.name || '',
         username: (u?.username || '').replace(/^@+/, ''),
         email: u?.email || '',
+        phone: u?.phone || '',
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
@@ -58,6 +59,7 @@ export default function Settings({ initialTab }) {
         name: '',
         username: '',
         email: '',
+        phone: '',
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
@@ -92,7 +94,8 @@ export default function Settings({ initialTab }) {
             ...prev,
             name: data.name || '',
             username: (data.username || '').replace(/^@+/, ''),
-            email: data.email || ''
+            email: data.email || '',
+            phone: data.phone || ''
           }));
         }
       })
@@ -129,6 +132,7 @@ export default function Settings({ initialTab }) {
           name: formData.name,
           username: formData.username,
           email: formData.email,
+          phone: formData.phone,
           password: formData.newPassword || undefined
         })
       });
@@ -140,7 +144,8 @@ export default function Settings({ initialTab }) {
           ...cachedUser,
           name: formData.name,
           username: `@${formData.username.replace(/^@+/, '')}`,
-          email: formData.email
+          email: formData.email,
+          phone: formData.phone
         };
         localStorage.setItem('unne_user', JSON.stringify(updatedUser));
         window.dispatchEvent(new Event('user-updated'));
@@ -284,6 +289,21 @@ export default function Settings({ initialTab }) {
                   required
                 />
               </div>
+            </div>
+
+            <div className="form-group">
+              <label>Telefone com DDD ou @Telegram (Recuperação de Senha)</label>
+              <input 
+                type="text" 
+                name="phone"
+                className="modern-input" 
+                placeholder="(11) 99999-9999 ou @seu_telegram"
+                value={formData.phone}
+                onChange={handleChange}
+              />
+              <span style={{ fontSize: '0.8rem', color: '#71717A', marginTop: '6px', display: 'block' }}>
+                Usado para enviar uma senha temporária via Telegram oficial do administrador caso você esqueça sua senha.
+              </span>
             </div>
           </div>
 

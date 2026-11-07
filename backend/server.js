@@ -40,26 +40,53 @@ const upload = multer({
 
 const PORT = process.env.PORT || 3001;
 
+// Confiar no proxy reverso (EasyPanel / Nginx / Traefik) para IP real e HTTPS
+app.set('trust proxy', 1);
+
 // 1. Headers de segurança HTTP (SEC-10)
 app.use(helmet({
   contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
-// 2. CORS com origens controladas (SEC-10)
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()) 
-  : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:3001'];
+// 2. CORS com origens controladas e suporte automático ao domínio próprio / EasyPanel (SEC-10)
+const defaultOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://banco-unne.ipeetd.easypanel.host'
+];
+const envOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
+  : [];
+const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      callback(new Error('Bloqueado pela política CORS.'));
+app.use(cors((req, callback) => {
+  const origin = req.header('Origin');
+  // Arquivos estáticos do frontend (/assets/*, /vite.svg, etc.) ou requisições sem Origin sempre liberados
+  if (!origin || process.env.NODE_ENV !== 'production' || !req.path.startsWith('/api')) {
+    return callback(null, { origin: true, credentials: true });
+  }
+
+  let isSameHost = false;
+  try {
+    const originUrl = new URL(origin);
+    const reqHost = (req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    if (reqHost && (originUrl.host === reqHost || originUrl.hostname === reqHost.split(':')[0])) {
+      isSameHost = true;
     }
-  },
-  credentials: true
+    if (originUrl.hostname.endsWith('.easypanel.host')) {
+      isSameHost = true;
+    }
+  } catch (_) {}
+
+  if (isSameHost || allowedOrigins.includes(origin)) {
+    return callback(null, { origin: true, credentials: true });
+  }
+  return callback(null, { origin: false });
 }));
 
 // 3. Rate Limiters contra força bruta e flooding (SEC-10)
@@ -93,11 +120,12 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
 
 // Gateway de Autenticação Geral para /api (SEC-01)
 // Libera apenas rotas públicas essenciais; exige JWT nas demais.
 app.use('/api', (req, res, next) => {
-  const publicPaths = ['/health', '/auth/login', '/auth/register'];
+  const publicPaths = ['/health', '/auth/login', '/auth/register', '/auth/forgot-password'];
   if (publicPaths.includes(req.path) || req.path.startsWith('/users/check-username/') || req.path.startsWith('/avatar/')) {
     return next();
   }
@@ -1449,6 +1477,29 @@ function validateAndCleanUsername(handle) {
   return { valid: true, clean };
 }
 
+function normalizeRecoveryTarget(rawTarget) {
+  const raw = String(rawTarget || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('@') || /[a-zA-Z]/.test(raw)) {
+    return '@' + raw.replace(/^@+/, '').replace(/\s+/g, '');
+  }
+  const normalized = normalizePhone(raw, '55');
+  return normalized.e164 || raw;
+}
+
+function maskRecoveryTarget(target) {
+  const t = String(target || '').trim();
+  if (!t) return '';
+  if (t.startsWith('@')) {
+    const body = t.slice(1);
+    if (body.length <= 3) return `@${body[0] || ''}***`;
+    return `@${body.slice(0, 3)}***${body.slice(-1)}`;
+  }
+  const digits = t.replace(/\D/g, '');
+  if (digits.length <= 4) return `***${digits}`;
+  return `+${digits.slice(0, 4)}****${digits.slice(-4)}`;
+}
+
 // Rota de Login (aceita @usuario, usuario ou e-mail)
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -1462,7 +1513,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const database = await db.getDB();
     const user = await database.get(
-      `SELECT id, workspace_id, name, username, email, password_hash, role, created_at 
+      `SELECT id, workspace_id, name, username, email, phone, password_hash, role, created_at 
        FROM users 
        WHERE LOWER(email) = ? OR LOWER(username) = ?`,
       [cleanInput, cleanHandle]
@@ -1494,6 +1545,7 @@ app.post('/api/auth/login', async (req, res) => {
       name: user.name,
       username: displayUsername,
       email: user.email,
+      phone: user.phone || '',
       role: user.role
     };
 
@@ -1518,12 +1570,15 @@ app.post('/api/auth/login', async (req, res) => {
 // Rota de Cadastro de Nova Conta com @ exclusivo
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, username, email, password } = req.body;
+    const { name, username, email, phone, password } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, error: 'O Nome Completo é obrigatório.' });
     }
     if (!email || !email.trim()) {
       return res.status(400).json({ success: false, error: 'O E-mail é obrigatório.' });
+    }
+    if (!phone || !String(phone).trim()) {
+      return res.status(400).json({ success: false, error: 'Informe seu Telefone ou @Telegram para recuperação de senha.' });
     }
     if (!password || password.length < 6) {
       return res.status(400).json({ success: false, error: 'A senha deve conter no mínimo 6 caracteres.' });
@@ -1537,6 +1592,7 @@ app.post('/api/auth/register', async (req, res) => {
     const cleanName = name.trim();
     const cleanHandle = handleCheck.clean;
     const cleanEmail = email.trim().toLowerCase();
+    const cleanPhone = normalizeRecoveryTarget(phone);
 
     const database = await db.getDB();
 
@@ -1570,9 +1626,9 @@ app.post('/api/auth/register', async (req, res) => {
 
     // 4. Cadastra o usuário como proprietário (owner) do seu próprio workspace
     const result = await database.run(
-      `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
-       VALUES (?, ?, ?, ?, ?, 'owner')`,
-      [newWorkspaceId, cleanName, cleanHandle, cleanEmail, passwordHash]
+      `INSERT INTO users (workspace_id, name, username, email, phone, password_hash, role)
+       VALUES (?, ?, ?, ?, ?, ?, 'owner')`,
+      [newWorkspaceId, cleanName, cleanHandle, cleanEmail, cleanPhone, passwordHash]
     );
 
     const userPayload = {
@@ -1581,6 +1637,7 @@ app.post('/api/auth/register', async (req, res) => {
       name: cleanName,
       username: `@${cleanHandle}`,
       email: cleanEmail,
+      phone: cleanPhone,
       role: 'owner'
     };
 
@@ -1594,6 +1651,124 @@ app.post('/api/auth/register', async (req, res) => {
   } catch (error) {
     console.error('Erro no cadastro:', error);
     res.status(500).json({ success: false, error: 'Erro interno ao cadastrar conta.' });
+  }
+});
+
+// Rota de Recuperação de Senha via Telegram da Conta do Admin
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { identifier } = req.body;
+    if (!identifier || !String(identifier).trim()) {
+      return res.status(400).json({ success: false, error: 'Informe seu @usuário ou e-mail cadastrado.' });
+    }
+
+    const cleanInput = String(identifier).trim().toLowerCase();
+    const cleanHandle = cleanInput.replace(/^@+/, '');
+
+    const database = await db.getDB();
+    const user = await database.get(
+      `SELECT u.id, u.workspace_id, u.name, u.username, u.email, u.phone,
+              w.telegram_phone, w.telegram_username, w.telegram_user_id
+       FROM users u
+       LEFT JOIN workspaces w ON w.id = u.workspace_id
+       WHERE LOWER(u.email) = ? OR LOWER(u.username) = ?`,
+      [cleanInput, cleanHandle]
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Nenhuma conta encontrada com esse @usuário ou e-mail.' });
+    }
+
+    // Define destino do Telegram do usuário (prioriza phone/Telegram do perfil, com fallback para o Telegram conectado no workspace)
+    const rawTarget =
+      (user.phone && user.phone.trim()) ||
+      (user.telegram_phone && user.telegram_phone.trim()) ||
+      (user.telegram_username && user.telegram_username.trim() ? `@${user.telegram_username.trim().replace(/^@+/, '')}` : '') ||
+      (user.telegram_user_id && String(user.telegram_user_id).trim()) ||
+      '';
+
+    if (!rawTarget) {
+      return res.status(400).json({
+        success: false,
+        error: 'Esta conta ainda não possui um Telefone ou @Telegram vinculado para recuperação. Solicite a redefinição ao administrador.'
+      });
+    }
+
+    const targetTelegram = normalizeRecoveryTarget(rawTarget);
+
+    // Localiza o Workspace do Admin que possui Telegram conectado (prioriza Workspace 1 ou conta admin)
+    const adminWs = await database.get(
+      `SELECT w.id, w.telegram_session, w.telegram_token
+       FROM workspaces w
+       LEFT JOIN users u ON u.workspace_id = w.id AND LOWER(u.role) IN ('admin', 'master', 'administrador', 'owner')
+       WHERE (w.telegram_session IS NOT NULL AND TRIM(w.telegram_session) != '')
+          OR (w.telegram_token IS NOT NULL AND TRIM(w.telegram_token) != '')
+       ORDER BY (w.id = 1) DESC, (LOWER(u.role) = 'admin') DESC, w.id ASC
+       LIMIT 1`
+    );
+
+    if (!adminWs) {
+      return res.status(503).json({
+        success: false,
+        error: 'O Telegram do administrador não está conectado no momento para enviar a senha temporária.'
+      });
+    }
+
+    // Gera senha temporária de 6 dígitos
+    const tempPassword = String(Math.floor(100000 + Math.random() * 900000));
+    const displayHandle = user.username ? `@${user.username.replace(/^@+/, '')}` : user.email;
+    const msgText =
+      `🔐 Recuperação de Senha — Unico\n\n` +
+      `Olá, ${user.name || displayHandle}!\n` +
+      `Sua senha temporária de acesso para a conta ${displayHandle} é:\n\n` +
+      `${tempPassword}\n\n` +
+      `Acesse o sistema com esta senha e altere-a em Configurações > Minha Conta.`;
+
+    // Envia pelo Telegram da conta do Admin (prioriza Conta de Usuário MTProto, que aceita telefone e @username)
+    const telegramUserApi = require('./telegram_user');
+    const telegramBotApi = require('./telegram');
+    let sentOk = false;
+    let lastSendErr = null;
+
+    if (adminWs.telegram_session && adminWs.telegram_session.trim()) {
+      try {
+        await telegramUserApi.sendMessage(adminWs.id, targetTelegram, msgText, null, user.name);
+        sentOk = true;
+      } catch (err) {
+        lastSendErr = err;
+      }
+    }
+
+    if (!sentOk && adminWs.telegram_token && adminWs.telegram_token.trim()) {
+      try {
+        await telegramBotApi.sendMessage(adminWs.id, `${targetTelegram}@telegram`, msgText, null, user.name);
+        sentOk = true;
+      } catch (err) {
+        lastSendErr = err;
+      }
+    }
+
+    if (!sentOk) {
+      console.error('Erro ao enviar senha temporária pelo Telegram do Admin:', lastSendErr);
+      return res.status(502).json({
+        success: false,
+        error: `Não foi possível entregar a mensagem no Telegram (${maskRecoveryTarget(targetTelegram)}). Verifique se o número/@Telegram está correto e ativo no Telegram.`
+      });
+    }
+
+    // Atualiza o hash da senha apenas após confirmar o envio no Telegram
+    const newHash = await bcrypt.hash(tempPassword, 10);
+    await database.run('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, user.id]);
+
+    const masked = maskRecoveryTarget(targetTelegram);
+    res.json({
+      success: true,
+      maskedTarget: masked,
+      message: `Enviamos uma senha temporária pelo Telegram para ${masked}.`
+    });
+  } catch (error) {
+    console.error('Erro em forgot-password:', error);
+    res.status(500).json({ success: false, error: 'Erro interno ao processar a recuperação de senha.' });
   }
 });
 
@@ -1828,7 +2003,11 @@ app.get('/api/users/me', async (req, res) => {
 
     const database = await db.getDB();
     const user = await database.get(
-      'SELECT id, workspace_id, name, username, email, role, created_at FROM users WHERE id = ?',
+      `SELECT u.id, u.workspace_id, u.name, u.username, u.email, u.phone, u.role, u.created_at,
+              w.telegram_phone, w.telegram_username
+       FROM users u
+       LEFT JOIN workspaces w ON w.id = u.workspace_id
+       WHERE u.id = ?`,
       [userId]
     );
 
@@ -1837,6 +2016,7 @@ app.get('/api/users/me', async (req, res) => {
     }
 
     user.username = user.username ? `@${user.username.replace(/^@+/, '')}` : '';
+    user.phone = user.phone || user.telegram_phone || (user.telegram_username ? `@${user.telegram_username.replace(/^@+/, '')}` : '') || '';
     res.json(user);
   } catch (error) {
     console.error('Erro ao buscar dados do usuário:', error);
@@ -1851,13 +2031,15 @@ app.put('/api/users/me', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Usuário não autenticado.' });
     }
 
-    const { name, username, email, password } = req.body;
+    const { name, username, email, phone, password } = req.body;
     const database = await db.getDB();
 
-    const currentUser = await database.get('SELECT id FROM users WHERE id = ?', [userId]);
+    const currentUser = await database.get('SELECT id, phone FROM users WHERE id = ?', [userId]);
     if (!currentUser) {
       return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
     }
+
+    const cleanPhone = phone !== undefined ? normalizeRecoveryTarget(phone) : (currentUser.phone || '');
 
     let cleanHandle = null;
     if (username) {
@@ -1894,13 +2076,13 @@ app.put('/api/users/me', async (req, res) => {
       }
       const hashedPassword = await bcrypt.hash(password, 10);
       await database.run(
-        'UPDATE users SET name = ?, username = ?, email = ?, password_hash = ? WHERE id = ?',
-        [name, cleanHandle, email, hashedPassword, userId]
+        'UPDATE users SET name = ?, username = ?, email = ?, phone = ?, password_hash = ? WHERE id = ?',
+        [name, cleanHandle, email, cleanPhone, hashedPassword, userId]
       );
     } else {
       await database.run(
-        'UPDATE users SET name = ?, username = ?, email = ? WHERE id = ?',
-        [name, cleanHandle, email, userId]
+        'UPDATE users SET name = ?, username = ?, email = ?, phone = ? WHERE id = ?',
+        [name, cleanHandle, email, cleanPhone, userId]
       );
     }
 
@@ -1910,7 +2092,8 @@ app.put('/api/users/me', async (req, res) => {
         id: Number(userId),
         name,
         username: cleanHandle ? `@${cleanHandle}` : '',
-        email
+        email,
+        phone: cleanPhone
       }
     });
   } catch (error) {

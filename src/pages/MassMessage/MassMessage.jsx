@@ -24,6 +24,7 @@ import {
   Shield
 } from 'pixelarticons/react';
 import { getWorkspaceId } from '../../utils/workspace';
+import { parseContactLines, resultToText } from '../../utils/contactParser';
 
 export default function MassMessage() {
   const workspaceId = getWorkspaceId();
@@ -142,16 +143,31 @@ export default function MassMessage() {
 
   const fetchChannelStatuses = async () => {
     try {
-      const [waRes, tgRes] = await Promise.all([
+      const [waRes, tgRes, tgUserRes] = await Promise.all([
         fetch(`/api/connections/whatsapp?workspace_id=${workspaceId}`),
-        fetch(`/api/connections/telegram?workspace_id=${workspaceId}`)
+        fetch(`/api/connections/telegram?workspace_id=${workspaceId}`),
+        fetch(`/api/connections/telegram-user?workspace_id=${workspaceId}`).catch(() => null)
       ]);
       const waData = await waRes.json();
       const tgData = await tgRes.json();
+      const tgUserData = tgUserRes && tgUserRes.ok ? await tgUserRes.json().catch(() => null) : null;
+
       setWaStatus(waData.status || 'disconnected');
-      setTgStatus(tgData.status || 'disconnected');
-      if (tgData.botInfo) {
-        setTgBotInfo(tgData.botInfo);
+
+      if (tgUserData && tgUserData.connected) {
+        setTgStatus('connected');
+        setTgBotInfo({
+          username: tgUserData.username || tgUserData.phone || '',
+          first_name: tgUserData.firstName || 'Minha Conta Telegram',
+          isUserAccount: true
+        });
+      } else if (tgData && tgData.status === 'connected') {
+        setTgStatus('connected');
+        if (tgData.botInfo) {
+          setTgBotInfo(tgData.botInfo);
+        }
+      } else {
+        setTgStatus('disconnected');
       }
     } catch (e) {
       console.error('Erro ao verificar status das conexões:', e);
@@ -298,7 +314,7 @@ export default function MassMessage() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const text = event.target.result;
+        const text = resultToText(event.target.result);
         const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
         if (lines.length === 0) {
           alert('O arquivo selecionado está vazio.');
@@ -313,34 +329,7 @@ export default function MassMessage() {
           return hasPlus ? `+${digits}` : digits;
         };
 
-        const parsedContacts = [];
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (i === 0 && /(nome|phone|telefone|contato|celular)/i.test(line)) {
-            continue;
-          }
-
-          const parts = line.split(/[;,\t]/).map(p => p.trim().replace(/^["']|["']$/g, ''));
-          let name = '';
-          let phone = '';
-
-          if (parts.length >= 2) {
-            if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
-              phone = parsePhone(parts[0]);
-              name = parts[1];
-            } else {
-              name = parts[0];
-              phone = parsePhone(parts[1]);
-            }
-          } else if (parts.length === 1) {
-            phone = parsePhone(parts[0]);
-            name = 'Contato ' + (i + 1);
-          }
-
-          if (phone && phone.replace(/\D/g, '').length >= 8) {
-            parsedContacts.push({ name: name || 'Lead', phone });
-          }
-        }
+        const parsedContacts = parseContactLines(lines);
 
         if (parsedContacts.length === 0) {
           alert('Nenhum contato com telefone válido foi encontrado no arquivo.');
@@ -369,7 +358,8 @@ export default function MassMessage() {
         alert('Erro ao processar arquivo: ' + err.message);
       }
     };
-    reader.readAsText(file);
+    if (/\.xlsx?$/i.test(file.name)) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
     e.target.value = null;
   };
 
@@ -859,7 +849,7 @@ export default function MassMessage() {
                     type="file" 
                     ref={csvInputRef} 
                     style={{display: 'none'}} 
-                    accept=".csv,.txt"
+                    accept=".csv,.txt,.xlsx,.xls"
                     onChange={handleImportCSV} 
                   />
                   <button className="btn-pill btn-light" onClick={() => csvInputRef.current?.click()} title="Importar arquivo CSV com contatos">

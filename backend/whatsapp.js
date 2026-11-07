@@ -406,7 +406,7 @@ async function disconnectWhatsApp(workspaceId) {
   return { success: true, message: 'WhatsApp desconectado com sucesso' };
 }
 
-async function sendMessage(workspaceId, jid, text, file, contactName = '', options = {}) {
+async function sendMessageRaw(workspaceId, jid, text, file, contactName = '', options = {}) {
   const session = sessions[workspaceId];
   if (!session || session.status !== 'connected' || !session.sock) {
     throw new Error('WhatsApp não está conectado. Conecte o WhatsApp no menu Conexões antes de enviar mensagens.');
@@ -565,6 +565,13 @@ async function sendMessage(workspaceId, jid, text, file, contactName = '', optio
   });
 
   return sentMsg;
+}
+
+// Envio protegido pela política anti-ban (fila, intervalo aleatório e limites de volume)
+function sendMessage(workspaceId, jid, text, file, contactName = '', options = {}) {
+  return require('./antiban').run('whatsapp', workspaceId, () =>
+    sendMessageRaw(workspaceId, jid, text, file, contactName, options)
+  );
 }
 
 async function getProfilePicUrl(workspaceId, jid) {

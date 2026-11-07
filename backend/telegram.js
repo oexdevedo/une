@@ -281,7 +281,7 @@ async function disconnectTelegram(workspaceId, clearToken = false) {
   }
 }
 
-async function sendMessage(workspaceId, jid, text, file, contactName = '') {
+async function sendMessageRaw(workspaceId, jid, text, file, contactName = '') {
   let session = sessions[workspaceId];
   if (!session || !session.bot) {
     const database = await db.getDB();
@@ -340,6 +340,15 @@ async function sendMessage(workspaceId, jid, text, file, contactName = '') {
     }
   }
 
+  // Simulação de presença humana (Anti-Ban): "digitando..." antes de enviar texto
+  if (!file && text) {
+    try {
+      await session.bot.telegram.sendChatAction(chatId, 'typing');
+      const typingMs = Math.min(Math.max(text.length * 30, 800), 3000) + Math.floor(Math.random() * 500);
+      await new Promise(resolve => setTimeout(resolve, typingMs));
+    } catch (e) {}
+  }
+
   try {
     if (file) {
       const filePath = file.path;
@@ -395,6 +404,13 @@ async function sendMessage(workspaceId, jid, text, file, contactName = '') {
   );
 
   return { success: true, messageId };
+}
+
+// Envio protegido pela política anti-ban (fila, intervalo aleatório e limites de volume)
+function sendMessage(workspaceId, jid, text, file, contactName = '') {
+  return require('./antiban').run('telegram_bot', workspaceId, () =>
+    sendMessageRaw(workspaceId, jid, text, file, contactName)
+  );
 }
 
 module.exports = { connectToTelegram, getStatus, sendMessage, disconnectTelegram, saveToken };

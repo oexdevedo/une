@@ -17,6 +17,7 @@ window.fetch = function (url, options = {}) {
   const isApi = urlStr.startsWith('/api/') || urlStr.includes('/api/');
   const isPublicAuth = urlStr.includes('/api/auth/login') ||
                        urlStr.includes('/api/auth/register') ||
+                       urlStr.includes('/api/auth/forgot-password') ||
                        urlStr.includes('/api/users/check-username');
 
   let finalOptions = { ...options };

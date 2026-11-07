@@ -73,8 +73,9 @@ function normalizePhone(rawPhone, defaultDdi = '66') {
     };
   }
 
-  // 4. Já possui DDI 66 (Tailândia com 10 a 12 dígitos)
-  if (digits.startsWith('66') && digits.length >= 10 && digits.length <= 12) {
+  // 4. Já possui DDI 66 (Tailândia com 10 a 12 dígitos) — exceto DDD 66 (Mato Grosso) quando o workspace é Brasil (55)
+  const isBrazilMatoGrosso = defaultDdi === '55' && (digits.length === 10 || (digits.length === 11 && digits[2] === '9'));
+  if (digits.startsWith('66') && digits.length >= 10 && digits.length <= 12 && !isBrazilMatoGrosso) {
     let rest = digits.slice(2);
     if (rest.startsWith('0')) rest = rest.slice(1);
     return {

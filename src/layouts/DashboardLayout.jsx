@@ -54,9 +54,10 @@ export default function DashboardLayout() {
   const fetchConnectionStatuses = async (wsId) => {
     const id = wsId || (currentUser?.workspace_id ? Number(currentUser.workspace_id) : getWorkspaceId());
     try {
-      const [waRes, tgRes, mailRes] = await Promise.all([
+      const [waRes, tgRes, tgUserRes, mailRes] = await Promise.all([
         fetch(`/api/connections/whatsapp?workspace_id=${id}`).catch(() => null),
         fetch(`/api/connections/telegram?workspace_id=${id}`).catch(() => null),
+        fetch(`/api/connections/telegram-user?workspace_id=${id}`).catch(() => null),
         fetch(`/api/emails/accounts?workspace_id=${id}`).catch(() => null)
       ]);
 
@@ -67,12 +68,16 @@ export default function DashboardLayout() {
         setWaConnected(false);
       }
 
+      let isTgConnected = false;
       if (tgRes && tgRes.ok) {
         const tgData = await tgRes.json();
-        setTgConnected(Boolean(tgData && tgData.status === 'connected'));
-      } else {
-        setTgConnected(false);
+        if (tgData && tgData.status === 'connected') isTgConnected = true;
       }
+      if (!isTgConnected && tgUserRes && tgUserRes.ok) {
+        const tgUserData = await tgUserRes.json();
+        if (tgUserData && tgUserData.connected) isTgConnected = true;
+      }
+      setTgConnected(isTgConnected);
 
       if (mailRes && mailRes.ok) {
         const mailData = await mailRes.json();

@@ -560,7 +560,7 @@ async function disconnectTelegramUser(workspaceId) {
 /**
  * 6. Enviar mensagem direta via Telegram MTProto
  */
-async function sendMessage(workspaceId, to, text, file, contactName = '') {
+async function sendMessageRaw(workspaceId, to, text, file, contactName = '') {
   const client = await getClient(workspaceId);
   if (!client) {
     throw new Error('Sessão do Telegram (Conta de Usuário) não conectada');
@@ -573,22 +573,82 @@ async function sendMessage(workspaceId, to, text, file, contactName = '') {
 
   // Tenta resolver o peer (número de telefone, username ou ID)
   let peer = cleanTarget;
+  let resolvedEntity = null;
   if (/^\+?\d+$/.test(cleanTarget)) {
-    // Número de telefone: se não começar com +, adiciona
-    peer = cleanTarget.startsWith('+') ? cleanTarget : `+${cleanTarget}`;
+    let digits = cleanTarget.replace(/\D/g, '');
+    // Se for número brasileiro sem DDI (10 ou 11 dígitos), adiciona 55
+    if (digits.length === 10 || digits.length === 11) {
+      digits = `55${digits}`;
+    }
+    const candidates = [`+${digits}`];
+    // Para números do Brasil (+55 + DDD + 8 ou 9 dígitos), testa com e sem o 9º dígito
+    if (digits.startsWith('55') && digits.length === 12) {
+      const ddd = digits.slice(2, 4);
+      const rest = digits.slice(4);
+      candidates.unshift(`+55${ddd}9${rest}`);
+    } else if (digits.startsWith('55') && digits.length === 13 && digits[4] === '9') {
+      const ddd = digits.slice(2, 4);
+      const rest = digits.slice(5);
+      candidates.push(`+55${ddd}${rest}`);
+    }
+    peer = candidates[0];
+
+    for (const cand of candidates) {
+      try {
+        resolvedEntity = await client.getInputEntity(cand);
+        if (resolvedEntity) {
+          peer = cand;
+          break;
+        }
+      } catch (_) {
+        try {
+          const imported = await client.invoke(
+            new Api.contacts.ImportContacts({
+              contacts: [
+                new Api.InputPhoneContact({
+                  clientId: BigInt(Date.now() + Math.floor(Math.random() * 1000)),
+                  phone: cand.replace(/^\+/, ''),
+                  firstName: (contactName || 'Contato').split(' ')[0] || 'Contato',
+                  lastName: (contactName || '').split(' ').slice(1).join(' ') || ''
+                })
+              ]
+            })
+          );
+          if (imported && imported.users && imported.users.length > 0) {
+            resolvedEntity = imported.users[0];
+            peer = cand;
+            break;
+          }
+        } catch (__) {}
+      }
+    }
   }
 
+  const targetEntity = resolvedEntity || peer;
   console.log(`✈️ [TelegramUser] Enviando mensagem para ${peer}...`);
+
+  // Simulação de presença humana (Anti-Ban): "digitando..." proporcional ao texto
+  try {
+    const inputPeer = resolvedEntity || (await client.getInputEntity(peer));
+    await client.invoke(new Api.messages.SetTyping({
+      peer: inputPeer,
+      action: new Api.SendMessageTypingAction()
+    }));
+    const typingMs = Math.min(Math.max((text || '').length * 30, 1000), 4000) + Math.floor(Math.random() * 600);
+    await new Promise(resolve => setTimeout(resolve, typingMs));
+  } catch (typingErr) {
+    // Não-bloqueante: se não conseguir resolver o peer aqui, o envio segue normalmente
+  }
 
   let sent;
   try {
     if (file && file.path) {
-      sent = await client.sendFile(peer, {
+      sent = await client.sendFile(targetEntity, {
         file: file.path,
         caption: text || ''
       });
     } else {
-      sent = await client.sendMessage(peer, {
+      sent = await client.sendMessage(targetEntity, {
         message: text || ''
       });
     }
@@ -764,6 +824,13 @@ async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, d
     total: contacts.length,
     message: `Disparo iniciado para ${contacts.length} contatos em segundo plano.`
   };
+}
+
+// Envio protegido pela política anti-ban (fila, intervalo aleatório e limites de volume)
+function sendMessage(workspaceId, to, text, file, contactName = '') {
+  return require('./antiban').run('telegram_user', workspaceId, () =>
+    sendMessageRaw(workspaceId, to, text, file, contactName)
+  );
 }
 
 module.exports = {

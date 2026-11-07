@@ -135,6 +135,7 @@ async function init() {
       name TEXT NOT NULL,
       username TEXT UNIQUE,
       email TEXT NOT NULL UNIQUE,
+      phone TEXT,
       password_hash TEXT NOT NULL,
       role TEXT DEFAULT 'agent',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -417,8 +418,21 @@ async function init() {
   await ensureColumn(db, 'workspaces', 'briefing_last_text', 'TEXT');
 
   await ensureColumn(db, 'users', 'username', 'TEXT');
+  await ensureColumn(db, 'users', 'phone', 'TEXT');
   try {
     await db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(LOWER(username)) WHERE username IS NOT NULL;");
+    // Sincroniza telefone de recuperação a partir do Telegram conectado no workspace quando o usuário ainda não tem phone preenchido
+    await db.exec(`
+      UPDATE users
+      SET phone = (SELECT telegram_phone FROM workspaces WHERE workspaces.id = users.workspace_id)
+      WHERE (phone IS NULL OR TRIM(phone) = '')
+        AND EXISTS (
+          SELECT 1 FROM workspaces
+          WHERE workspaces.id = users.workspace_id
+            AND telegram_phone IS NOT NULL
+            AND TRIM(telegram_phone) != ''
+        );
+    `);
   } catch (idxErr) {}
 
   await ensureColumn(db, 'agents', 'prompt', 'TEXT');

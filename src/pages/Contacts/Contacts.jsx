@@ -1,14 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import * as XLSX from 'xlsx';
+import { parseContactLines, resultToText } from '../../utils/contactParser';
 import './Contacts.css';
 
-// Converte o resultado do FileReader (texto CSV ou ArrayBuffer de Excel) em linhas separadas por ';'
-const resultToText = (result) => {
-  if (typeof result === 'string') return result;
-  const wb = XLSX.read(result, { type: 'array' });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_csv(sheet, { FS: ';', blankrows: false });
-};
 import {
   Upload,
   Plus,
@@ -215,29 +208,7 @@ export default function Contacts() {
           return hasPlus ? `+${digits}` : digits;
         };
 
-        const parsedContacts = [];
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (i === 0 && /(nome|phone|telefone|contato|celular)/i.test(line)) continue;
-          const parts = line.split(/[;,\t]/).map(p => p.trim().replace(/^["']|["']$/g, ''));
-          let name = '';
-          let phone = '';
-          if (parts.length >= 2) {
-            if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
-              phone = parsePhone(parts[0]);
-              name = parts[1];
-            } else {
-              name = parts[0];
-              phone = parsePhone(parts[1]);
-            }
-          } else if (parts.length === 1) {
-            phone = parsePhone(parts[0]);
-            name = 'Contato ' + (i + 1);
-          }
-          if (phone && phone.replace(/\D/g, '').length >= 8) {
-            parsedContacts.push({ name: name || 'Lead', phone });
-          }
-        }
+        const parsedContacts = parseContactLines(lines, parsePhone);
 
         let importedCount = 0;
         if (parsedContacts.length > 0) {
@@ -294,29 +265,7 @@ export default function Contacts() {
           return hasPlus ? `+${digits}` : digits;
         };
 
-        const parsedContacts = [];
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (i === 0 && /(nome|phone|telefone|contato|celular)/i.test(line)) continue;
-          const parts = line.split(/[;,\t]/).map(p => p.trim().replace(/^["']|["']$/g, ''));
-          let name = '';
-          let phone = '';
-          if (parts.length >= 2) {
-            if (/\d{8,}/.test(parts[0].replace(/\D/g, ''))) {
-              phone = parsePhone(parts[0]);
-              name = parts[1];
-            } else {
-              name = parts[0];
-              phone = parsePhone(parts[1]);
-            }
-          } else if (parts.length === 1) {
-            phone = parsePhone(parts[0]);
-            name = 'Contato ' + (i + 1);
-          }
-          if (phone && phone.replace(/\D/g, '').length >= 8) {
-            parsedContacts.push({ name: name || 'Lead', phone });
-          }
-        }
+        const parsedContacts = parseContactLines(lines, parsePhone);
 
         if (parsedContacts.length === 0) {
           alert('Nenhum telefone válido encontrado.');

@@ -8,15 +8,18 @@ import './Login.css';
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
 
   // Estados de Login
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [recoverIdentifier, setRecoverIdentifier] = useState('');
 
   // Estados de Cadastro
   const [regName, setRegName] = useState('');
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
+  const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
 
@@ -110,6 +113,7 @@ export default function Login() {
           name: regName,
           username: regUsername,
           email: regEmail,
+          phone: regPhone,
           password: regPassword
         })
       });
@@ -133,6 +137,39 @@ export default function Login() {
     setIsLoading(false);
   };
 
+  const handleRecoverPassword = async (e) => {
+    e.preventDefault();
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    if (!recoverIdentifier.trim()) {
+      setErrorMessage('Informe seu @usuário ou e-mail cadastrado.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: recoverIdentifier.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage(data.message || 'Senha temporária enviada para o seu Telegram!');
+        setLoginIdentifier(recoverIdentifier.trim());
+        setLoginPassword('');
+        setIsRecovering(false);
+      } else {
+        setErrorMessage(data.error || 'Não foi possível recuperar a senha.');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMessage('Erro de comunicação com o servidor.');
+    }
+    setIsLoading(false);
+  };
+
   return (
     <div className="login-container">
       
@@ -140,7 +177,12 @@ export default function Login() {
       <div className="login-left">
         <div className="login-form-wrapper">
           <div className="login-header">
-            {isRegistering ? (
+            {isRecovering ? (
+              <>
+                <h1>Recuperar Senha</h1>
+                <p>Enviaremos uma <strong>senha temporária</strong> no seu Telegram cadastrado.</p>
+              </>
+            ) : isRegistering ? (
               <>
                 <h1>Crie sua conta</h1>
                 <p>Cadastre seu <strong>@usuário exclusivo</strong> e comece agora.</p>
@@ -165,6 +207,44 @@ export default function Login() {
             </div>
           )}
 
+          {isRecovering ? (
+            <form className="login-form" onSubmit={handleRecoverPassword}>
+              <div className="form-group">
+                <input
+                  type="text"
+                  className="login-input"
+                  placeholder="Seu @usuário ou e-mail cadastrado"
+                  value={recoverIdentifier}
+                  onChange={(e) => setRecoverIdentifier(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn-login-submit"
+                style={{ marginTop: '8px' }}
+                disabled={isLoading}
+              >
+                {isLoading ? 'Enviando pelo Telegram...' : 'Enviar Senha Temporária via Telegram'}
+              </button>
+
+              <p className="register-link">
+                Lembrou a senha?{' '}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setIsRecovering(false);
+                    setErrorMessage('');
+                  }}
+                >
+                  Voltar para o Login
+                </a>
+              </p>
+            </form>
+          ) : (
           <form className="login-form" onSubmit={isRegistering ? handleRegister : handleLogin}>
             
             {/* Campo Nome (Apenas Registro) */}
@@ -227,6 +307,20 @@ export default function Login() {
               )}
             </div>
 
+            {/* Campo Telefone ou @Telegram para recuperação de senha (Apenas Registro) */}
+            {isRegistering && (
+              <div className="form-group">
+                <input 
+                  type="text" 
+                  className="login-input" 
+                  placeholder="Telefone com DDD ou @Telegram (para recuperar senha)" 
+                  value={regPhone}
+                  onChange={(e) => setRegPhone(e.target.value)}
+                  required 
+                />
+              </div>
+            )}
+
             {/* Campo Senha */}
             <div className="form-group password-group">
               <input 
@@ -263,7 +357,16 @@ export default function Login() {
 
             {!isRegistering && (
               <div className="forgot-password">
-                <a href="#" onClick={(e) => { e.preventDefault(); alert('Para redefinir sua senha, solicite ao administrador ou use o painel de configurações.'); }}>
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setRecoverIdentifier(loginIdentifier);
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                    setIsRecovering(true);
+                  }}
+                >
                   Esqueceu a senha?
                 </a>
               </div>
@@ -286,6 +389,7 @@ export default function Login() {
               )}
             </p>
           </form>
+          )}
         </div>
       </div>
 
