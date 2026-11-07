@@ -5,41 +5,190 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config();
+const bcrypt = require('bcryptjs');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+if (!process.env.AWS_ACCESS_KEY_ID && fs.existsSync(path.resolve(__dirname, '../.env'))) {
+  require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+}
 const db = require('./db');
 const { connectToWhatsApp, getMessages, sendMessage, getProfilePicUrl } = require('./whatsapp');
 const { connectToTelegram } = require('./telegram');
 const aiHandler = require('./ai_handler');
 const { DB_PATH, UPLOADS_DIR } = require('./storage');
 const { normalizePhone, formatDisplayPhone } = require('./phone_utils');
+const { generateToken, requireAuth, requireAdmin, optionalAuth, JWT_SECRET } = require('./auth_middleware');
 
 const app = express();
-const upload = multer({ dest: UPLOADS_DIR });
+
+// Upload seguro com restrição de tamanho e filtro de extensões perigosas (SEC-09)
+const upload = multer({
+  dest: UPLOADS_DIR,
+  limits: {
+    fileSize: 25 * 1024 * 1024 // 25 MB máximo por arquivo
+  },
+  fileFilter: (req, file, cb) => {
+    const blockedExtensions = ['.exe', '.bat', '.cmd', '.sh', '.php', '.phtml', '.py', '.js', '.vbs', '.msi', '.com'];
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (blockedExtensions.includes(ext)) {
+      return cb(new Error('Tipo de arquivo não permitido por motivos de segurança.'));
+    }
+    cb(null, true);
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static(UPLOADS_DIR));
+// 1. Headers de segurança HTTP (SEC-10)
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+
+// 2. CORS com origens controladas (SEC-10)
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()) 
+  : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:3001'];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Bloqueado pela política CORS.'));
+    }
+  },
+  credentials: true
+}));
+
+// 3. Rate Limiters contra força bruta e flooding (SEC-10)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Muitas requisições. Tente novamente mais tarde.' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Muitas tentativas de login ou cadastro. Aguarde 15 minutos.' }
+});
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Servir arquivos de uploads com proteção nosniff (SEC-09)
+app.use('/uploads', express.static(UPLOADS_DIR, {
+  setHeaders: (res) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+}));
+
+// Aplicação de Rate Limiting
+app.use('/api/', apiLimiter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+
+// Gateway de Autenticação Geral para /api (SEC-01)
+// Libera apenas rotas públicas essenciais; exige JWT nas demais.
+app.use('/api', (req, res, next) => {
+  const publicPaths = ['/health', '/auth/login', '/auth/register'];
+  if (publicPaths.includes(req.path) || req.path.startsWith('/users/check-username/') || req.path.startsWith('/avatar/')) {
+    return next();
+  }
+  return requireAuth(req, res, next);
+});
 
 // Rota de Teste (Healthcheck)
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'API rodando perfeitamente!' });
 });
 
-// Helper para validação de privilégios de Administrador
+// Helper de verificação de Super Admin (acesso global ao sistema)
+function isSuperAdmin(user) {
+  if (!user) return false;
+  const r = (user.role || '').toLowerCase().trim();
+  const u = (user.username || '').toLowerCase().trim().replace(/^@+/, '');
+  return r === 'admin' || r === 'master' || r === 'administrador' || u === 'admin' || user.id === 1 || (r === 'owner' && Number(user.workspace_id) === 1);
+}
+
+// Helper para validação de privilégios de Administrador (sem bypass de header forjado - SEC-01)
 async function isRequestAdmin(req) {
-  const userId = req.headers['x-user-id'] || req.query.user_id || req.body?.user_id || req.query?.userId;
-  if (!userId) return false;
+  if (req.user) {
+    const r = (req.user.role || '').toLowerCase().trim();
+    return ['admin', 'owner', 'master', 'administrador'].includes(r);
+  }
+  const authHeader = req.headers['authorization'];
+  let token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  if (!token && req.query?.token) token = String(req.query.token).trim();
+  if (!token) return false;
+
   try {
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, JWT_SECRET);
     const database = await db.getDB();
-    const user = await database.get('SELECT role FROM users WHERE id = ?', [userId]);
+    const user = await database.get('SELECT id, workspace_id, role, name, username, email FROM users WHERE id = ?', [decoded.id]);
     if (!user) return false;
+    req.user = user;
+    req.workspaceId = user.workspace_id;
     const r = (user.role || '').toLowerCase().trim();
     return ['admin', 'owner', 'master', 'administrador'].includes(r);
   } catch (e) {
     return false;
   }
 }
+
+// Helper para resolução segura do Workspace do usuário autenticado (Prevenção BOLA / IDOR - SEC-03)
+function getEffectiveWorkspaceId(req) {
+  if (req.user) {
+    if (isSuperAdmin(req.user)) {
+      const explicitWs = Number(req.query?.workspace_id || req.body?.workspace_id || req.params?.id);
+      if (!isNaN(explicitWs) && explicitWs > 0) return explicitWs;
+    }
+    return req.user.workspace_id || 1;
+  }
+  const fallback = Number(req.query?.workspace_id || req.body?.workspace_id || req.params?.id);
+  return (!isNaN(fallback) && fallback > 0) ? fallback : 1;
+}
+
+// Helper para validar permissão de acesso ao Workspace específico
+function canAccessWorkspace(req, targetWorkspaceId) {
+  if (!req.user) return false;
+  if (isSuperAdmin(req.user)) return true;
+  return Number(targetWorkspaceId) === Number(req.user.workspace_id);
+}
+
+// Helper para detecção de hosts privados / SSRF (SEC-07)
+function isPrivateOrReservedHost(hostname) {
+  if (!hostname) return true;
+  const clean = String(hostname).toLowerCase().trim();
+  if (clean === 'localhost' || clean === '::1' || clean === '0.0.0.0') return true;
+  const parts = clean.split('.');
+  if (parts.length === 4 && parts.every(p => !isNaN(p) && Number(p) >= 0 && Number(p) <= 255)) {
+    const [a, b] = [Number(parts[0]), Number(parts[1])];
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true; // Link-local e AWS/cloud metadata (169.254.169.254)
+    if (a === 0) return true;
+  }
+  return false;
+}
+
+
+// Middleware de proteção de Acesso por Workspace (Prevenção BOLA / IDOR - SEC-03)
+app.use('/api/workspaces/:id', (req, res, next) => {
+  if (!canAccessWorkspace(req, req.params.id)) {
+    return res.status(403).json({ success: false, error: 'Acesso negado: Você não possui permissão para acessar este workspace.' });
+  }
+  next();
+});
 
 // Endpoint de Workspace Settings
 app.get('/api/workspaces/:id/settings', async (req, res) => {
@@ -109,6 +258,26 @@ app.post('/api/workspaces/:id/settings', async (req, res) => {
     ];
 
     if (isAdmin) {
+      if (ai_base_url && ai_provider !== 'bedrock') {
+        try {
+          const parsed = new URL(ai_base_url);
+          if (!['http:', 'https:'].includes(parsed.protocol) || isPrivateOrReservedHost(parsed.hostname)) {
+            return res.status(400).json({ error: 'URL do provedor de IA não permitida (endereço de rede interna ou reservado bloqueado).' });
+          }
+        } catch (e) {
+          return res.status(400).json({ error: 'URL do provedor de IA inválida.' });
+        }
+      } else if (ai_base_url && ai_provider === 'bedrock' && (ai_base_url.startsWith('http://') || ai_base_url.startsWith('https://'))) {
+        try {
+          const parsed = new URL(ai_base_url);
+          if (isPrivateOrReservedHost(parsed.hostname)) {
+            return res.status(400).json({ error: 'URL do endpoint Bedrock não permitida (rede interna bloqueada).' });
+          }
+        } catch (e) {
+          return res.status(400).json({ error: 'URL do endpoint Bedrock inválida.' });
+        }
+      }
+
       updateQuery += ', ai_provider = ?, ai_base_url = ?, ai_model = ?';
       queryParams.push(ai_provider || 'openai', ai_base_url || '', ai_model || '');
 
@@ -137,6 +306,28 @@ app.post('/api/workspaces/:id/ai/test', async (req, res) => {
     }
 
     const { ai_provider, ai_api_key, ai_base_url, ai_model } = req.body;
+
+    // Proteção contra SSRF e varredura de rede interna (SEC-07)
+    if (ai_base_url && ai_provider !== 'bedrock') {
+      try {
+        const parsed = new URL(ai_base_url);
+        if (!['http:', 'https:'].includes(parsed.protocol) || isPrivateOrReservedHost(parsed.hostname)) {
+          return res.status(400).json({ success: false, error: 'URL do provedor de IA não permitida (endereço de rede interna ou reservado bloqueado).' });
+        }
+      } catch (e) {
+        return res.status(400).json({ success: false, error: 'URL do provedor de IA inválida.' });
+      }
+    } else if (ai_base_url && ai_provider === 'bedrock' && (ai_base_url.startsWith('http://') || ai_base_url.startsWith('https://'))) {
+      try {
+        const parsed = new URL(ai_base_url);
+        if (isPrivateOrReservedHost(parsed.hostname)) {
+          return res.status(400).json({ success: false, error: 'URL do endpoint Bedrock não permitida (rede interna bloqueada).' });
+        }
+      } catch (e) {
+        return res.status(400).json({ success: false, error: 'URL do endpoint Bedrock inválida.' });
+      }
+    }
+
     const result = await aiHandler.testAiConnection({
       workspaceId: req.params.id,
       provider: ai_provider,
@@ -214,7 +405,7 @@ app.post('/api/workspaces/:id/auto_respond', async (req, res) => {
 // APIs para Automações
 app.get('/api/automations', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all('SELECT * FROM automations WHERE workspace_id = ? ORDER BY id ASC', [workspaceId]);
     res.json(rows);
@@ -226,8 +417,8 @@ app.get('/api/automations', async (req, res) => {
 
 app.post('/api/automations', async (req, res) => {
   try {
-    const { workspace_id, name, mode, porteiro_prompt, agents_json, nodes_json } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { name, mode, porteiro_prompt, agents_json, nodes_json } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const result = await database.run(
       'INSERT INTO automations (workspace_id, name, mode, porteiro_prompt, agents_json, nodes_json) VALUES (?, ?, ?, ?, ?, ?)',
@@ -269,7 +460,7 @@ app.delete('/api/automations/:id', async (req, res) => {
 // APIs para Templates de Mensagens
 app.get('/api/templates', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all('SELECT * FROM templates WHERE workspace_id = ? ORDER BY id DESC', [workspaceId]);
     res.json(rows);
@@ -281,8 +472,8 @@ app.get('/api/templates', async (req, res) => {
 
 app.post('/api/templates', async (req, res) => {
   try {
-    const { workspace_id, title, content } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { title, content } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const result = await database.run(
       'INSERT INTO templates (workspace_id, title, content) VALUES (?, ?, ?)',
@@ -324,7 +515,7 @@ app.delete('/api/templates/:id', async (req, res) => {
 // APIs para Eventos Manuais da Agenda
 app.get('/api/calendar/events', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all('SELECT * FROM calendar_events WHERE workspace_id = ? ORDER BY id DESC', [workspaceId]);
     res.json(rows);
@@ -336,8 +527,8 @@ app.get('/api/calendar/events', async (req, res) => {
 
 app.post('/api/calendar/events', async (req, res) => {
   try {
-    const { workspace_id, title, date, time, type } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { title, date, time, type } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const result = await database.run(
       'INSERT INTO calendar_events (workspace_id, title, date, time, type) VALUES (?, ?, ?, ?, ?)',
@@ -525,7 +716,7 @@ app.post('/api/workspaces/:id/briefing/trigger', async (req, res) => {
 // 1. Listar Modelos de Contrato
 app.get('/api/contracts/templates', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all(
       'SELECT * FROM contract_templates WHERE workspace_id = ? ORDER BY id DESC',
@@ -544,7 +735,7 @@ app.get('/api/contracts/templates', async (req, res) => {
 // 2. Criar Modelo de Contrato
 app.post('/api/contracts/templates', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const { title, description, content, variables, agent_id } = req.body;
     const database = await db.getDB();
     const result = await database.run(
@@ -606,7 +797,7 @@ app.delete('/api/contracts/templates/:id', async (req, res) => {
 // 5. Listar Contratos Confeccionados
 app.get('/api/contracts', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all(`
       SELECT c.*, t.title as template_title 
@@ -630,7 +821,7 @@ app.get('/api/contracts', async (req, res) => {
 // 6. Confeccionar Contrato Manualmente / Gerar PDF
 app.post('/api/contracts/generate', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const { templateId, clientName, clientPhone, data } = req.body;
     const database = await db.getDB();
     const template = await database.get('SELECT * FROM contract_templates WHERE id = ?', [templateId]);
@@ -680,7 +871,7 @@ app.post('/api/contracts/generate', async (req, res) => {
 // 7. Iniciar Coleta com Agente de IA via WhatsApp
 app.post('/api/contracts/start-collection', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const { templateId, clientName, clientPhone, remoteJid } = req.body;
     
     let targetJid = remoteJid;
@@ -711,7 +902,7 @@ app.post('/api/contracts/start-collection', async (req, res) => {
 // 8. Enviar PDF no WhatsApp
 app.post('/api/contracts/:id/send-whatsapp', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const contractService = require('./contract_service');
     const result = await contractService.sendContractViaWhatsapp(workspaceId, req.params.id);
     res.json(result);
@@ -724,7 +915,7 @@ app.post('/api/contracts/:id/send-whatsapp', async (req, res) => {
 // ==================== APIs de E-mails (Hostinger IMAP/SMTP e Agente de IA) ====================
 app.get('/api/emails/accounts', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all(`
       SELECT ea.*, a.name as agent_name, a.icon as agent_icon,
@@ -749,11 +940,10 @@ app.post('/api/emails/accounts', async (req, res) => {
       imap_host, imap_port, imap_secure,
       smtp_host, smtp_port, smtp_secure,
       username, password,
-      agent_id, auto_reply_enabled,
-      workspace_id
+      agent_id, auto_reply_enabled
     } = req.body;
 
-    const workspaceId = workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
 
     const result = await database.run(`
@@ -874,7 +1064,7 @@ app.post('/api/emails/accounts/:id/sync', async (req, res) => {
 
 app.get('/api/emails/messages', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const accountId = req.query.account_id;
     const folder = req.query.folder || 'INBOX';
     const search = req.query.search || '';
@@ -999,7 +1189,7 @@ app.delete('/api/emails/messages/:id', async (req, res) => {
 // APIs para Listas e Contatos
 app.get('/api/lists', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
 
     // Sincroniza e garante a existência da lista automática "Agendados"
@@ -1028,7 +1218,7 @@ app.get('/api/lists', async (req, res) => {
 
 app.post('/api/lists/sync-agenda', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const reminderService = require('./reminder_service');
     const listId = await reminderService.syncAgendaToAgendadosList(workspaceId);
     const database = await db.getDB();
@@ -1042,8 +1232,8 @@ app.post('/api/lists/sync-agenda', async (req, res) => {
 
 app.post('/api/lists', async (req, res) => {
   try {
-    const { workspace_id, name } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { name } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const result = await database.run('INSERT INTO lists (workspace_id, name) VALUES (?, ?)', [workspaceId, name]);
     res.json({ success: true, id: result.lastID });
@@ -1072,8 +1262,8 @@ app.delete('/api/lists/:id', async (req, res) => {
 app.post('/api/lists/:id/import-channel-contacts', async (req, res) => {
   try {
     const listId = req.params.id;
-    const { workspace_id, channel } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { channel } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
     const defaultDdi = ws?.default_ddi || '66';
@@ -1132,7 +1322,7 @@ app.post('/api/lists/:id/import-channel-contacts', async (req, res) => {
 
 app.get('/api/contacts', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const listId = req.query.list_id;
     const database = await db.getDB();
     let query = 'SELECT * FROM contacts WHERE workspace_id = ?';
@@ -1151,8 +1341,8 @@ app.get('/api/contacts', async (req, res) => {
 
 app.post('/api/contacts', async (req, res) => {
   try {
-    const { workspace_id, list_id, name, phone, status } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { list_id, name, phone, status } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
     const defaultDdi = ws?.default_ddi || '66';
@@ -1173,8 +1363,8 @@ app.post('/api/contacts', async (req, res) => {
 
 app.post('/api/contacts/bulk', async (req, res) => {
   try {
-    const { workspace_id, list_id, contacts } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { list_id, contacts } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     if (!Array.isArray(contacts) || contacts.length === 0) {
       return res.status(400).json({ error: 'Lista de contatos vazia ou inválida' });
     }
@@ -1183,16 +1373,23 @@ app.post('/api/contacts/bulk', async (req, res) => {
     const defaultDdi = ws?.default_ddi || '66';
 
     let inserted = 0;
-    for (const c of contacts) {
-      if (!c.phone && !c.name) continue;
-      const normalized = normalizePhone(c.phone, defaultDdi);
-      const phoneToSave = normalized.e164 || c.phone || '';
+    await database.run('BEGIN');
+    try {
+      for (const c of contacts) {
+        if (!c.phone && !c.name) continue;
+        const normalized = normalizePhone(c.phone, defaultDdi);
+        const phoneToSave = normalized.e164 || c.phone || '';
 
-      await database.run(
-        'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
-        [workspaceId, list_id || null, c.name || 'Sem nome', phoneToSave, c.status || 'Novo']
-      );
-      inserted++;
+        await database.run(
+          'INSERT INTO contacts (workspace_id, list_id, name, phone, status) VALUES (?, ?, ?, ?, ?)',
+          [workspaceId, list_id || null, c.name || 'Sem nome', phoneToSave, c.status || 'Novo']
+        );
+        inserted++;
+      }
+      await database.run('COMMIT');
+    } catch (e) {
+      await database.run('ROLLBACK').catch(() => {});
+      throw e;
     }
     res.json({ success: true, count: inserted });
   } catch (error) {
@@ -1214,9 +1411,9 @@ app.delete('/api/contacts/:id', async (req, res) => {
 
 app.put('/api/contacts/:id', async (req, res) => {
   try {
-    const { name, phone, status, workspace_id } = req.body;
+    const { name, phone, status } = req.body;
     const database = await db.getDB();
-    const workspaceId = workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const ws = await database.get('SELECT default_ddi FROM workspaces WHERE id = ?', [workspaceId]);
     const defaultDdi = ws?.default_ddi || '66';
 
@@ -1275,23 +1472,37 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Usuário ou e-mail não encontrado.' });
     }
 
-    // Valida senha (compatível com plain text ou hash)
-    if (user.password_hash !== password && user.password_hash !== `plain:${password}`) {
+    // Valida senha (compatível com bcrypt e auto-migração de legados) - SEC-02
+    let validPassword = false;
+    if (user.password_hash.startsWith('$2a$') || user.password_hash.startsWith('$2b$')) {
+      validPassword = await bcrypt.compare(password, user.password_hash);
+    } else if (user.password_hash === password || user.password_hash === `plain:${password}`) {
+      validPassword = true;
+      const newHash = await bcrypt.hash(password, 10);
+      await database.run('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, user.id]);
+    }
+
+    if (!validPassword) {
       return res.status(401).json({ success: false, error: 'Senha incorreta. Tente novamente.' });
     }
 
     const displayUsername = user.username ? `@${user.username.replace(/^@+/, '')}` : '';
 
+    const userPayload = {
+      id: user.id,
+      workspace_id: user.workspace_id,
+      name: user.name,
+      username: displayUsername,
+      email: user.email,
+      role: user.role
+    };
+
+    const token = generateToken(userPayload);
+
     res.json({
       success: true,
-      user: {
-        id: user.id,
-        workspace_id: user.workspace_id,
-        name: user.name,
-        username: displayUsername,
-        email: user.email,
-        role: user.role
-      }
+      token,
+      user: userPayload
     });
 
     // Recupera chaves salvas no banco e conecta WhatsApp, Telegram, Cal.com e Email sempre que logar
@@ -1354,23 +1565,31 @@ app.post('/api/auth/register', async (req, res) => {
     const { seedWorkspaceDefaults } = require('./workspace_seeder');
     await seedWorkspaceDefaults(database, newWorkspaceId, wsName);
 
-    // 3. Cadastra o usuário como proprietário (owner) do seu próprio workspace
+    // 3. Hash criptográfico com Bcrypt (SEC-02)
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // 4. Cadastra o usuário como proprietário (owner) do seu próprio workspace
     const result = await database.run(
       `INSERT INTO users (workspace_id, name, username, email, password_hash, role)
        VALUES (?, ?, ?, ?, ?, 'owner')`,
-      [newWorkspaceId, cleanName, cleanHandle, cleanEmail, password]
+      [newWorkspaceId, cleanName, cleanHandle, cleanEmail, passwordHash]
     );
+
+    const userPayload = {
+      id: result.lastID,
+      workspace_id: newWorkspaceId,
+      name: cleanName,
+      username: `@${cleanHandle}`,
+      email: cleanEmail,
+      role: 'owner'
+    };
+
+    const token = generateToken(userPayload);
 
     res.json({
       success: true,
-      user: {
-        id: result.lastID,
-        workspace_id: newWorkspaceId,
-        name: cleanName,
-        username: `@${cleanHandle}`,
-        email: cleanEmail,
-        role: 'owner'
-      }
+      token,
+      user: userPayload
     });
   } catch (error) {
     console.error('Erro no cadastro:', error);
@@ -1402,7 +1621,7 @@ app.get('/api/users/check-username/:username', async (req, res) => {
 // API de Resumo Completo do Dashboard (Visão Geral do Sistema)
 app.get('/api/dashboard/summary', async (req, res) => {
   try {
-    const workspaceId = Number(req.query.workspace_id || 1);
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
 
     // 1. Mensagens e Conversas
@@ -1599,10 +1818,10 @@ app.get('/api/dashboard/summary', async (req, res) => {
   }
 });
 
-// APIs para Usuário / Perfil
+// APIs para Usuário / Perfil (SEC-01 & SEC-02)
 app.get('/api/users/me', async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'] || req.query.user_id || req.query.userId;
+    const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'Usuário não autenticado.' });
     }
@@ -1627,7 +1846,7 @@ app.get('/api/users/me', async (req, res) => {
 
 app.put('/api/users/me', async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'] || req.body.user_id || req.body.id;
+    const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ success: false, error: 'Usuário não autenticado.' });
     }
@@ -1670,9 +1889,13 @@ app.put('/api/users/me', async (req, res) => {
     }
 
     if (password && password.trim()) {
+      if (password.length < 6) {
+        return res.status(400).json({ success: false, error: 'A senha deve ter no mínimo 6 caracteres.' });
+      }
+      const hashedPassword = await bcrypt.hash(password, 10);
       await database.run(
         'UPDATE users SET name = ?, username = ?, email = ?, password_hash = ? WHERE id = ?',
-        [name, cleanHandle, email, password, userId]
+        [name, cleanHandle, email, hashedPassword, userId]
       );
     } else {
       await database.run(
@@ -1696,11 +1919,10 @@ app.put('/api/users/me', async (req, res) => {
   }
 });
 
-// APIs para Backup e Restauração de Banco de Dados (.sqlite) - Restrito a Admin
+// APIs para Backup e Restauração de Banco de Dados (.sqlite) - Restrito a SuperAdmin (SEC-04)
 app.get('/api/admin/database/download', async (req, res) => {
-  const isAdmin = await isRequestAdmin(req);
-  if (!isAdmin) {
-    return res.status(403).json({ error: 'Acesso negado: Apenas administradores podem baixar o backup do banco de dados.' });
+  if (!isSuperAdmin(req.user)) {
+    return res.status(403).json({ error: 'Acesso negado: Apenas administradores do sistema podem baixar o backup do banco de dados.' });
   }
   const dbPath = DB_PATH;
   if (!fs.existsSync(dbPath)) {
@@ -1711,10 +1933,9 @@ app.get('/api/admin/database/download', async (req, res) => {
 
 app.post('/api/admin/database/upload', upload.single('database'), async (req, res) => {
   try {
-    const isAdmin = await isRequestAdmin(req);
-    if (!isAdmin) {
+    if (!isSuperAdmin(req.user)) {
       if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-      return res.status(403).json({ success: false, error: 'Acesso negado: Apenas administradores podem restaurar o banco de dados.' });
+      return res.status(403).json({ success: false, error: 'Acesso negado: Apenas administradores do sistema podem restaurar o banco de dados.' });
     }
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado.' });
@@ -1760,7 +1981,7 @@ app.post('/api/admin/database/upload', upload.single('database'), async (req, re
 // APIs para Configuração e Padrão de Calendário
 app.get('/api/calendar/settings', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const row = await database.get('SELECT cal_api_key, cal_link FROM workspaces WHERE id = ?', [workspaceId]);
     res.json(row || { cal_api_key: '', cal_link: '' });
@@ -1772,8 +1993,8 @@ app.get('/api/calendar/settings', async (req, res) => {
 
 app.post('/api/calendar/settings', async (req, res) => {
   try {
-    const { workspace_id, cal_api_key, cal_link } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { cal_api_key, cal_link } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     await database.run(
       'UPDATE workspaces SET cal_api_key = ?, cal_link = ? WHERE id = ?',
@@ -1789,7 +2010,7 @@ app.post('/api/calendar/settings', async (req, res) => {
 // Endpoint para buscar tags (Simulando Workspace 1 por enquanto)
 app.get('/api/tags', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all('SELECT * FROM tags WHERE workspace_id = ?', [workspaceId]);
     res.json(rows);
@@ -1802,7 +2023,7 @@ app.get('/api/tags', async (req, res) => {
 // APIs de Agentes de IA
 app.get('/api/agents', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all('SELECT * FROM agents WHERE workspace_id = ?', [workspaceId]);
     res.json(rows);
@@ -1814,8 +2035,8 @@ app.get('/api/agents', async (req, res) => {
 
 app.post('/api/agents', async (req, res) => {
   try {
-    const { name, icon, prompt, role, workspace_id } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { name, icon, prompt, role } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const result = await database.run(
       'INSERT INTO agents (workspace_id, name, icon, prompt, role) VALUES (?, ?, ?, ?, ?)',
@@ -1856,14 +2077,14 @@ app.delete('/api/agents/:id', async (req, res) => {
 
 // APIs de Conexão WhatsApp
 app.get('/api/connections/whatsapp', (req, res) => {
-  const workspaceId = req.query.workspace_id || 1;
+  const workspaceId = getEffectiveWorkspaceId(req);
   const whatsappApi = require('./whatsapp');
   res.json(whatsappApi.getStatus(workspaceId));
 });
 
 app.post('/api/connections/whatsapp/start', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const forceNew = Boolean(req.body.force_new);
     const whatsappApi = require('./whatsapp');
     await whatsappApi.connectToWhatsApp(workspaceId, forceNew);
@@ -1876,7 +2097,7 @@ app.post('/api/connections/whatsapp/start', async (req, res) => {
 
 app.post('/api/connections/whatsapp/disconnect', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const whatsappApi = require('./whatsapp');
     const result = await whatsappApi.disconnectWhatsApp(workspaceId);
     res.json(result);
@@ -1888,13 +2109,13 @@ app.post('/api/connections/whatsapp/disconnect', async (req, res) => {
 
 // APIs de Mensagens do WhatsApp
 app.get('/api/messages', async (req, res) => {
-  const workspaceId = req.query.workspace_id || 1;
+  const workspaceId = getEffectiveWorkspaceId(req);
   const messages = await getMessages(workspaceId);
   res.json(messages);
 });
 
 app.get('/api/contacts/:jid/avatar', async (req, res) => {
-  const workspaceId = req.query.workspace_id || 1;
+  const workspaceId = getEffectiveWorkspaceId(req);
   const jid = req.params.jid;
   const url = await getProfilePicUrl(workspaceId, jid);
   if (url) {
@@ -1905,13 +2126,13 @@ app.get('/api/contacts/:jid/avatar', async (req, res) => {
 });
 
 app.post('/api/messages/send', upload.single('file'), async (req, res) => {
-  console.log('--- POST /api/messages/send ---');
-  console.log('req.body:', req.body);
-  console.log('req.file:', req.file);
-  
-  const { workspace_id, to, text, contact_name } = req.body;
-  const workspaceId = workspace_id || 1;
+  const { to, text, contact_name, simulate_typing } = req.body;
+  const workspaceId = getEffectiveWorkspaceId(req);
   const file = req.file;
+
+  if (!to || (!text && !file)) {
+    return res.status(400).json({ success: false, error: 'Destinatário (to) e conteúdo (text ou arquivo) são obrigatórios.' });
+  }
 
   try {
     let result;
@@ -1926,7 +2147,10 @@ app.post('/api/messages/send', upload.single('file'), async (req, res) => {
       }
     } else {
       const whatsappApi = require('./whatsapp');
-      result = await whatsappApi.sendMessage(workspaceId, to, text, file, contact_name);
+      const shouldSimulate = simulate_typing === undefined ? true : (simulate_typing === true || simulate_typing === 'true');
+      result = await whatsappApi.sendMessage(workspaceId, to, text, file, contact_name, {
+        simulateTyping: shouldSimulate
+      });
     }
     res.json({ success: true, result });
   } catch (error) {
@@ -1936,7 +2160,7 @@ app.post('/api/messages/send', upload.single('file'), async (req, res) => {
 });
 
 app.delete('/api/messages/:jid', async (req, res) => {
-  const workspaceId = req.query.workspace_id || 1;
+  const workspaceId = getEffectiveWorkspaceId(req);
   const jid = req.params.jid;
   try {
     const database = await db.getDB();
@@ -1949,8 +2173,8 @@ app.delete('/api/messages/:jid', async (req, res) => {
 });
 
 app.post('/api/ai/trigger', async (req, res) => {
-  const { workspace_id, remote_jid, text, agent_id } = req.body;
-  const workspaceId = workspace_id || 1;
+  const { remote_jid, text, agent_id } = req.body;
+  const workspaceId = getEffectiveWorkspaceId(req);
   const aiHandler = require('./ai_handler');
   const msgObj = {
     id: 'trig_' + Date.now(),
@@ -1974,7 +2198,7 @@ app.post('/api/ai/trigger', async (req, res) => {
 // APIs de Conexão Telegram
 app.get('/api/connections/telegram', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramApi = require('./telegram');
     const statusData = await telegramApi.getStatus(workspaceId);
     res.json(statusData);
@@ -1986,8 +2210,8 @@ app.get('/api/connections/telegram', async (req, res) => {
 
 app.post('/api/connections/telegram/start', async (req, res) => {
   try {
-    const { token, workspace_id } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { token } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramApi = require('./telegram');
     const result = await telegramApi.connectToTelegram(workspaceId, token);
     res.json(result);
@@ -1999,8 +2223,8 @@ app.post('/api/connections/telegram/start', async (req, res) => {
 
 app.post('/api/connections/telegram/disconnect', async (req, res) => {
   try {
-    const { workspace_id, clear_token } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { clear_token } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramApi = require('./telegram');
     const result = await telegramApi.disconnectTelegram(workspaceId, Boolean(clear_token));
     res.json(result);
@@ -2012,8 +2236,8 @@ app.post('/api/connections/telegram/disconnect', async (req, res) => {
 
 app.post('/api/connections/telegram/save', async (req, res) => {
   try {
-    const { workspace_id, token } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { token } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramApi = require('./telegram');
     const result = await telegramApi.saveToken(workspaceId, token);
     res.json(result);
@@ -2028,7 +2252,7 @@ app.post('/api/connections/telegram/save', async (req, res) => {
 // ==========================================
 app.get('/api/connections/telegram-user', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const status = await telegramUser.getStatus(workspaceId);
     res.json(status);
@@ -2040,8 +2264,8 @@ app.get('/api/connections/telegram-user', async (req, res) => {
 
 app.post('/api/connections/telegram-user/send-code', async (req, res) => {
   try {
-    const { workspace_id, phone, api_id, api_hash } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { phone, api_id, api_hash } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const result = await telegramUser.sendCode(workspaceId, phone, api_id, api_hash);
     res.json(result);
@@ -2053,8 +2277,8 @@ app.post('/api/connections/telegram-user/send-code', async (req, res) => {
 
 app.post('/api/connections/telegram-user/sign-in', async (req, res) => {
   try {
-    const { workspace_id, code, password } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { code, password } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const result = await telegramUser.signIn(workspaceId, { code, password });
     res.json(result);
@@ -2066,7 +2290,7 @@ app.post('/api/connections/telegram-user/sign-in', async (req, res) => {
 
 app.post('/api/connections/telegram-user/sync-contacts', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const result = await telegramUser.syncContacts(workspaceId);
     res.json(result);
@@ -2078,7 +2302,7 @@ app.post('/api/connections/telegram-user/sync-contacts', async (req, res) => {
 
 app.post('/api/connections/telegram-user/disconnect', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const result = await telegramUser.disconnectTelegramUser(workspaceId);
     res.json(result);
@@ -2090,8 +2314,8 @@ app.post('/api/connections/telegram-user/disconnect', async (req, res) => {
 
 app.post('/api/connections/telegram-user/start-mass', async (req, res) => {
   try {
-    const { workspace_id, list_id, message, delay_min, delay_max } = req.body;
-    const workspaceId = workspace_id || 1;
+    const { list_id, message, delay_min, delay_max } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const result = await telegramUser.startMassDispatch(workspaceId, {
       listId: list_id,
@@ -2108,7 +2332,7 @@ app.post('/api/connections/telegram-user/start-mass', async (req, res) => {
 
 app.get('/api/connections/telegram-user/mass-status', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const status = telegramUser.getMassDispatchStatus(workspaceId);
     res.json(status);
@@ -2119,7 +2343,7 @@ app.get('/api/connections/telegram-user/mass-status', async (req, res) => {
 
 app.post('/api/connections/telegram-user/stop-mass', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const telegramUser = require('./telegram_user');
     const result = telegramUser.stopMassDispatch(workspaceId);
     res.json(result);
@@ -2130,7 +2354,7 @@ app.post('/api/connections/telegram-user/stop-mass', async (req, res) => {
 
 app.post('/api/connections/reconnect-all', async (req, res) => {
   try {
-    const workspaceId = req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const status = await reconnectAllConnections(workspaceId);
     res.json({ success: true, status });
   } catch (err) {
@@ -2146,7 +2370,7 @@ app.post('/api/connections/reconnect-all', async (req, res) => {
 // --- POST-ITS (CHECKLIST NOTES) ---
 app.get('/api/tasks/notes', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all(
       'SELECT * FROM task_notes WHERE workspace_id = ? ORDER BY is_pinned DESC, id DESC',
@@ -2167,8 +2391,8 @@ app.get('/api/tasks/notes', async (req, res) => {
 
 app.post('/api/tasks/notes', async (req, res) => {
   try {
-    const { title, color = 'yellow', category = 'Geral', items = [], is_pinned = 0, workspace_id } = req.body;
-    const workspaceId = workspace_id || req.query.workspace_id || 1;
+    const { title, color = 'yellow', category = 'Geral', items = [], is_pinned = 0 } = req.body;
+    const workspaceId = getEffectiveWorkspaceId(req);
     if (!title) return res.status(400).json({ error: 'Título é obrigatório' });
 
     const database = await db.getDB();
@@ -2271,7 +2495,7 @@ app.delete('/api/tasks/notes/:id', async (req, res) => {
 // --- KANBAN PROJECTS ---
 app.get('/api/tasks/kanban', async (req, res) => {
   try {
-    const workspaceId = req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     const rows = await database.all(
       'SELECT * FROM kanban_projects WHERE workspace_id = ? ORDER BY position ASC, id DESC',
@@ -2296,10 +2520,9 @@ app.post('/api/tasks/kanban', async (req, res) => {
       assignee_name = 'Equipe',
       assignee_avatar = 'EQ',
       checklist_total = 0,
-      checklist_done = 0,
-      workspace_id
+      checklist_done = 0
     } = req.body;
-    const workspaceId = workspace_id || req.query.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
 
     if (!title) return res.status(400).json({ error: 'Título do projeto é obrigatório' });
 
@@ -2396,7 +2619,7 @@ app.delete('/api/tasks/kanban/:id', async (req, res) => {
 app.delete('/api/tasks/kanban/column/:status', async (req, res) => {
   try {
     const { status } = req.params;
-    const workspaceId = req.query.workspace_id || req.body.workspace_id || 1;
+    const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
     await database.run('DELETE FROM kanban_projects WHERE workspace_id = ? AND status = ?', [workspaceId, status]);
     res.json({ success: true });
@@ -2406,12 +2629,11 @@ app.delete('/api/tasks/kanban/column/:status', async (req, res) => {
   }
 });
 
-// --- DATABASE CONNECTION & ENVIRONMENT VARIABLES (RESTRITO A ADMIN) ---
+// --- DATABASE CONNECTION & ENVIRONMENT VARIABLES (RESTRITO A SUPERADMIN - SEC-07 & SEC-08) ---
 app.get('/api/connections/database', async (req, res) => {
   try {
-    const isAdmin = await isRequestAdmin(req);
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Acesso negado: As configurações e variáveis de banco de dados são restritas a administradores.' });
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ error: 'Acesso negado: As configurações e variáveis de banco de dados são restritas a administradores do sistema.' });
     }
 
     const envPath = path.resolve(__dirname, '.env');
@@ -2432,15 +2654,18 @@ app.get('/api/connections/database', async (req, res) => {
       }
     });
 
+    const hasDbPassword = Boolean(parsed.DB_PASSWORD || process.env.DB_PASSWORD);
+    const hasDbUrl = Boolean(parsed.DATABASE_URL || process.env.DATABASE_URL);
+
     res.json({
       db_type: parsed.DB_TYPE || process.env.DB_TYPE || 'mysql',
       db_host: parsed.DB_HOST || process.env.DB_HOST || '',
       db_port: parsed.DB_PORT || process.env.DB_PORT || '3306',
       db_user: parsed.DB_USER || process.env.DB_USER || '',
-      db_password: parsed.DB_PASSWORD || process.env.DB_PASSWORD || '',
+      db_password: hasDbPassword ? '••••••••••••' : '',
       db_name: parsed.DB_NAME || process.env.DB_NAME || '',
       db_ssl: (parsed.DB_SSL || process.env.DB_SSL) === 'true',
-      database_url: parsed.DATABASE_URL || process.env.DATABASE_URL || '',
+      database_url: hasDbUrl ? 'mysql://***:***@host/db' : '',
       active_driver: 'sqlite3',
       sqlite_file: 'database.sqlite'
     });
@@ -2452,9 +2677,8 @@ app.get('/api/connections/database', async (req, res) => {
 
 app.post('/api/connections/database/test', async (req, res) => {
   try {
-    const isAdmin = await isRequestAdmin(req);
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'Acesso negado: Apenas administradores podem testar a conexão de banco de dados.' });
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, message: 'Acesso negado: Apenas administradores do sistema podem testar conexões de banco de dados.' });
     }
 
     const {
@@ -2480,13 +2704,23 @@ app.post('/api/connections/database/test', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Host do banco de dados (DB_HOST) é obrigatório.' });
     }
 
+    // Proteção contra SSRF / varredura de metadados de nuvem e hosts reservados (SEC-07)
+    const cleanHost = String(db_host).toLowerCase().trim();
+    if (cleanHost === '169.254.169.254' || cleanHost.startsWith('169.254.') || cleanHost === '0.0.0.0') {
+      return res.status(400).json({ success: false, message: 'Host de banco de dados não permitido (endereço de metadados ou reservado bloqueado).' });
+    }
+
+    const resolvedPassword = (db_password && db_password !== '••••••••••••') 
+      ? db_password 
+      : (process.env.DB_PASSWORD || '');
+
     if (db_type === 'mysql' || db_type === 'mariadb') {
       const mysql = require('mysql2/promise');
       const config = {
         host: db_host,
         port: parseInt(db_port, 10) || 3306,
         user: db_user || '',
-        password: db_password || '',
+        password: resolvedPassword,
         database: db_name || undefined,
         connectTimeout: 5000
       };
@@ -2504,29 +2738,9 @@ app.post('/api/connections/database/test', async (req, res) => {
         message: `Conexão com MySQL em ${db_host}:${db_port} realizada com sucesso!`
       });
     } else {
-      const net = require('net');
-      const port = parseInt(db_port, 10) || 5432;
-
-      await new Promise((resolve, reject) => {
-        const socket = new net.Socket();
-        socket.setTimeout(4000);
-        socket.on('connect', () => {
-          socket.destroy();
-          resolve();
-        });
-        socket.on('timeout', () => {
-          socket.destroy();
-          reject(new Error('Timeout de conexão (porta inacessível ou firewall bloqueando)'));
-        });
-        socket.on('error', (err) => {
-          reject(err);
-        });
-        socket.connect(port, db_host);
-      });
-
-      return res.json({
-        success: true,
-        message: `Servidor em ${db_host}:${port} acessível via rede!`
+      return res.status(400).json({
+        success: false,
+        message: 'Tipo de banco de dados não suportado para teste direto de conexão.'
       });
     }
   } catch (error) {
@@ -2541,9 +2755,8 @@ app.post('/api/connections/database/test', async (req, res) => {
 
 app.post('/api/connections/database/save', async (req, res) => {
   try {
-    const isAdmin = await isRequestAdmin(req);
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, error: 'Acesso negado: Apenas administradores podem alterar as variáveis de banco de dados.' });
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso negado: Apenas administradores do sistema podem alterar as variáveis de banco de dados.' });
     }
 
     const {
@@ -2563,18 +2776,33 @@ app.post('/api/connections/database/save', async (req, res) => {
       content = fs.readFileSync(envPath, 'utf8');
     }
 
-    const computedUrl = database_url || (db_host ? `${db_type}://${encodeURIComponent(db_user)}:${encodeURIComponent(db_password)}@${db_host}:${db_port}/${db_name}` : '');
+    const parsedExisting = {};
+    content.split('\n').forEach(line => {
+      const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
+      if (match) parsedExisting[match[1]] = match[2].trim();
+    });
+
+    const finalPassword = (db_password && db_password !== '••••••••••••')
+      ? db_password
+      : (parsedExisting.DB_PASSWORD || process.env.DB_PASSWORD || '');
+
+    const computedUrl = (database_url && !database_url.includes('***'))
+      ? database_url
+      : (db_host ? `${db_type}://${encodeURIComponent(db_user)}:${encodeURIComponent(finalPassword)}@${db_host}:${db_port}/${db_name}` : '');
 
     const updates = {
       DB_TYPE: db_type,
       DB_HOST: db_host,
       DB_PORT: db_port,
       DB_USER: db_user,
-      DB_PASSWORD: db_password,
       DB_NAME: db_name,
       DB_SSL: db_ssl ? 'true' : 'false',
       DATABASE_URL: computedUrl
     };
+
+    if (finalPassword) {
+      updates.DB_PASSWORD = finalPassword;
+    }
 
     const lines = content.split('\n');
     const keysUpdated = new Set();
@@ -2601,10 +2829,14 @@ app.post('/api/connections/database/save', async (req, res) => {
 
     fs.writeFileSync(envPath, newLines.join('\n').trim() + '\n', 'utf8');
 
+    const safeEnv = { ...updates };
+    if (safeEnv.DB_PASSWORD) safeEnv.DB_PASSWORD = '••••••••••••';
+    if (safeEnv.DATABASE_URL) safeEnv.DATABASE_URL = 'mysql://***:***@host/db';
+
     res.json({
       success: true,
       message: 'Variáveis de ambiente do banco de dados salvas no arquivo .env com sucesso!',
-      env: updates
+      env: safeEnv
     });
   } catch (error) {
     console.error('Erro ao salvar .env do banco:', error);

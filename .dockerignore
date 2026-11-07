@@ -1,3 +1,4 @@
+# Dependências e caches
 node_modules
 backend/node_modules
 .git
@@ -5,6 +6,18 @@ backend/node_modules
 dist
 dist-ssr
 *.log
+
+# Segredos e variáveis de ambiente (CRÍTICO - SEC-08)
+.env
+.env.*
+backend/.env
+backend/*.env
+*.env
+
+# Dados persistentes locais e bancos SQLite
 backend/*.sqlite*
+*.sqlite*
 backend/auth_info_baileys*
 backend/data/*
+uploads/*
+backend/uploads/*

@@ -20,7 +20,8 @@ import {
   WarningDiamond,
   Trash,
   Telegram,
-  Smartphone
+  Smartphone,
+  Shield
 } from 'pixelarticons/react';
 import { getWorkspaceId } from '../../utils/workspace';
 
@@ -67,11 +68,14 @@ export default function MassMessage() {
       .catch(() => {});
   }, [workspaceId]);
 
-  // Configurações Anti-Ban
-  const [minDelay, setMinDelay] = useState(15);
-  const [maxDelay, setMaxDelay] = useState(40);
-  const [batchSize, setBatchSize] = useState(15);
-  const [batchPause, setBatchPause] = useState(60);
+  // Configurações Anti-Ban Inteligentes
+  const [minDelay, setMinDelay] = useState(25);
+  const [maxDelay, setMaxDelay] = useState(50);
+  const [batchSize, setBatchSize] = useState(12);
+  const [batchPause, setBatchPause] = useState(120);
+  const [simulateTyping, setSimulateTyping] = useState(true);
+  const [enableDailyLimit, setEnableDailyLimit] = useState(true);
+  const [dailySafeLimit, setDailySafeLimit] = useState(35);
 
   // Disparo e Logs
   const [isDispatching, setIsDispatching] = useState(false);
@@ -496,6 +500,19 @@ export default function MassMessage() {
 
       const contact = contacts[i];
 
+      // Verificação de Opt-out (Anti-Ban: não envia para contatos que pediram cancelamento)
+      if (channel === 'whatsapp' && contact.status === 'Opt-out') {
+        addLog('warning', `⏭️ [WHATSAPP] Ignorado: Contato ${contact.name} solicitou Opt-out previamente.`);
+        continue;
+      }
+
+      // Trava de Segurança Diária Anti-Ban (Impede ultrapassar limite seguro para evitar bloqueio)
+      if (channel === 'whatsapp' && enableDailyLimit && sentCount >= dailySafeLimit) {
+        addLog('warning', `🛡️ [ANTI-BAN] Trava de segurança atingida: ${dailySafeLimit} envios concluídos. Disparo pausado preventivamente para evitar bloqueio pelo WhatsApp.`);
+        alert(`🛡️ Trava de Segurança Anti-Ban Ativada!\n\nForam disparadas ${sentCount} mensagens com sucesso. Para evitar o bloqueio da sua linha (muito comum ao ultrapassar 35-50 mensagens em chips novos ou pouco maturados), o disparo foi interrompido com segurança.\n\nVocê pode alterar ou desmarcar a trava na aba 'Configuração'.`);
+        break;
+      }
+
       // Pausa Anti-Ban a cada lote de envios bem sucedidos
       if (sentCount > 0 && sentCount % batchSize === 0) {
         addLog('warning', `⏸️ Pausa anti-ban acionada: aguardando ${batchPause} segundos após ${batchSize} envios...`);
@@ -588,6 +605,9 @@ export default function MassMessage() {
         }
 
         const displayDest = targetDest.replace('@s.whatsapp.net', '').replace('@telegram', '').replace('@lid', '');
+        if (channel === 'whatsapp' && simulateTyping) {
+          addLog('info', `✍️ [${channelName.toUpperCase()}] Simulando presença "Digitando..." para ${contact.name}...`);
+        }
         addLog('info', `[${i + 1}/${contacts.length}] [${channelName.toUpperCase()}] Enviando para ${contact.name} (${displayDest})...`);
 
         let res;
@@ -598,6 +618,7 @@ export default function MassMessage() {
           formData.append('contact_name', contact.name || '');
           formData.append('text', contactMsg);
           formData.append('file', attachment);
+          formData.append('simulate_typing', String(simulateTyping));
           res = await fetch('/api/messages/send', {
             method: 'POST',
             body: formData
@@ -610,7 +631,8 @@ export default function MassMessage() {
               workspace_id: workspaceId,
               to: targetDest,
               contact_name: contact.name || '',
-              text: contactMsg
+              text: contactMsg,
+              simulate_typing: simulateTyping
             })
           });
         }
@@ -905,7 +927,24 @@ export default function MassMessage() {
                   <div className="var-tag" style={{border: '1px dashed var(--primary)', color: 'var(--text-main)', backgroundColor: 'var(--primary-light)'}} onClick={() => insertVariable('{OpçãoA|OpçãoB}')}>
                     + Inserir Spintax
                   </div>
+                  <div 
+                    className="var-tag" 
+                    style={{ border: '1px solid #fed7aa', color: '#c2410c', backgroundColor: '#fff7ed', fontWeight: 600 }}
+                    onClick={() => setMessageText(prev => prev.trim() + '\n\n_Para não receber mais mensagens, responda SAIR._')}
+                    title="Adiciona aviso de cancelamento no rodapé para evitar que o lead clique em Denunciar Spam"
+                  >
+                    + Opt-out (Responda SAIR)
+                  </div>
                 </div>
+
+                {channel === 'whatsapp' && (!messageText.includes('{') || !messageText.includes('|')) && (
+                  <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '10px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#92400e' }}>
+                    <WarningDiamond size={18} style={{ flexShrink: 0, color: '#d97706' }} />
+                    <div>
+                      <strong>Aviso Anti-Ban:</strong> Sua mensagem não possui variações (Spintax). Enviar o mesmo texto idêntico para dezenas de contatos é uma das principais causas de bloqueio no WhatsApp. Recomendamos usar <code>{'{Olá|Oi|Como vai}'}</code>.
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="attachment-box">
@@ -996,7 +1035,59 @@ export default function MassMessage() {
                 </div>
               </div>
 
-              <div className="form-group">
+              {/* CONTROLES AVANÇADOS DE ANTI-BAN */}
+              <div style={{ marginTop: '20px', padding: '16px', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Shield size={18} color="#16a34a" /> Recursos Ativos de Proteção da Conta
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={simulateTyping} 
+                    onChange={(e) => setSimulateTyping(e.target.checked)} 
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div>
+                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Simular Digitação Humana ('Digitando...' / 'Gravando...')</span>
+                    <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.8rem' }}>
+                      Envia pacotes de presença para o WhatsApp antes de cada envio, aguardando um intervalo realista de acordo com a extensão da mensagem.
+                    </p>
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={enableDailyLimit} 
+                    onChange={(e) => setEnableDailyLimit(e.target.checked)} 
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div>
+                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Trava Diária Anti-Ban (Chips Novos / Em Maturação)</span>
+                    <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.8rem' }}>
+                      Interrompe o envio automaticamente ao atingir o limite estipulado abaixo para proteger seu número contra o banimento automático de 50 mensagens.
+                    </p>
+                  </div>
+                </label>
+
+                {enableDailyLimit && (
+                  <div style={{ paddingLeft: '26px' }}>
+                    <label style={{ fontSize: '0.85rem', color: '#475569', display: 'block', marginBottom: '4px' }}>
+                      Limite seguro de envios por campanha (Recomendado: 25 a 35 para chips novos):
+                    </label>
+                    <input 
+                      type="number" 
+                      className="modern-input" 
+                      style={{ maxWidth: '160px', padding: '6px 10px', fontSize: '0.85rem' }}
+                      value={dailySafeLimit}
+                      onChange={(e) => setDailySafeLimit(Math.max(5, Number(e.target.value)))}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="form-group" style={{ marginTop: '20px' }}>
                 <label>Canal e Linha de Remetente Ativa</label>
                 <div style={{ display: 'flex', gap: '14px', alignItems: 'center', padding: '16px 20px', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
                   {channel === 'whatsapp' ? (
@@ -1030,21 +1121,30 @@ export default function MassMessage() {
                 </div>
               </div>
               
-              <div style={{marginTop: '24px', padding: '16px', backgroundColor: channel === 'telegram' ? '#f0f9ff' : '#fff8db', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'flex-start', border: channel === 'telegram' ? '1px solid #bae6fd' : '1px solid #fef08a'}}>
-                {channel === 'telegram' ? (
-                  <Telegram size={24} color="#0284c7" style={{flexShrink: 0}} />
-                ) : (
-                  <WarningDiamond size={24} color="#b48300" style={{flexShrink: 0}} />
-                )}
+              {/* GUIA COMPLETO ANTI-BAN */}
+              <div style={{marginTop: '24px', padding: '18px', backgroundColor: '#f0fdf4', borderRadius: '14px', display: 'flex', gap: '14px', alignItems: 'flex-start', border: '1px solid #bbf7d0'}}>
+                <Shield size={24} color="#16a34a" style={{flexShrink: 0, marginTop: '2px'}} />
                 <div>
-                  <h4 style={{margin: '0 0 4px 0', color: channel === 'telegram' ? '#0369a1' : '#b48300', fontSize: '0.95rem'}}>
-                    {channel === 'telegram' ? 'Diretrizes de Segurança Telegram' : 'Recomendação de Segurança WhatsApp'}
+                  <h4 style={{margin: '0 0 6px 0', color: '#15803d', fontSize: '0.98rem'}}>
+                    🛡️ Por que o WhatsApp bloqueia por volta de 50 mensagens?
                   </h4>
-                  <p style={{margin: 0, color: channel === 'telegram' ? '#0c4a6e' : '#8c6600', fontSize: '0.85rem'}}>
-                    {channel === 'telegram'
-                      ? 'O Telegram Bot API permite até 30 mensagens por segundo em broadcasts globais e cerca de 1 mensagem por segundo por chat individual para evitar erros 429 Too Many Requests.'
-                      : 'Para listas frias no WhatsApp, recomendamos enviar com intervalos de 15 a 40 segundos por mensagem e utilizar spintax ativamente para evitar denúncias ou bloqueios temporários.'}
+                  <p style={{margin: '0 0 10px 0', color: '#166534', fontSize: '0.85rem', lineHeight: '1.5'}}>
+                    O algoritmo da Meta possui um <strong>limite heurístico estrito</strong> para contatos desconhecidos. Quando um número envia 40 a 50 mensagens frias (para quem não tem o número na agenda) sem interação bidirecional, <strong>apenas 2 a 3 cliques no botão "Denunciar Spam"</strong> acionam o banimento imediato.
                   </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', marginTop: '12px' }}>
+                    <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
+                      <strong>1. Maturação de Chip (Warm-up):</strong> Nunca inicie com 50 envios em chips com menos de 20 dias. Comece com 15 a 20 e aumente gradualmente.
+                    </div>
+                    <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
+                      <strong>2. Spintax Obrigatório:</strong> Use variações <code>{'{Olá|Oi|Tudo bem}'}</code>. Mensagens com o mesmo hash idêntico são rotuladas como robô pelo WhatsApp.
+                    </div>
+                    <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
+                      <strong>3. Cláusula de Opt-out:</strong> Adicione "Responda SAIR". Quando a pessoa responde SAIR, o sistema a bloqueia no CRM e você evita a denúncia.
+                    </div>
+                    <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
+                      <strong>4. Intervalos Amplos:</strong> Mantenha o atraso entre 25s e 50s com pausas de 2 a 3 minutos a cada lote de 12 mensagens.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

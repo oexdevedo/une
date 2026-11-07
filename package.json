@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node backend/server.js",
     "init-db": "node backend/initialize_db.js",
     "backup-db": "node backend/backup_db.js",
     "migrate-schema": "node backend/migrate_schema.js",
@@ -17,6 +18,7 @@
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@tanstack/react-query": "^5.104.1",
+    "dompurify": "^3.4.17",
     "emoji-mart": "^5.6.0",
     "emoji-picker-react": "^4.22.3",
     "lucide-react": "^0.428.0",
@@ -24,7 +26,8 @@
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",

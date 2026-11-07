@@ -93,6 +93,9 @@ async function connectToWhatsApp(workspaceId, forceNew = false) {
       console.log(`✅ WhatsApp CONECTADO com sucesso para Workspace ${workspaceId}! User:`, sock.user?.id);
       session.status = 'connected';
       session.currentQR = '';
+      try {
+        sock.sendPresenceUpdate('available').catch(() => {});
+      } catch (e) {}
     }
   });
 
@@ -100,6 +103,13 @@ async function connectToWhatsApp(workspaceId, forceNew = false) {
     const messages = m.messages || [];
     for (const msg of messages) {
       if (!msg.key.fromMe && msg.message) {
+        // Envia confirmação de leitura para simular comportamento de app real (Anti-Ban)
+        try {
+          if (sock && sock.readMessages && msg.key) {
+            await sock.readMessages([msg.key]);
+          }
+        } catch (readErr) {}
+
         try {
           const database = await db.getDB();
           const settings = await database.get('SELECT allow_stories, allow_ephemeral, allow_groups FROM workspaces WHERE id = ?', [workspaceId]);
@@ -216,6 +226,25 @@ async function connectToWhatsApp(workspaceId, forceNew = false) {
           try {
             await saveMessageToDB(workspaceId, msgObj);
             console.log(`💬 Mensagem salva de [${msgObj.from}]: "${msgObj.text}"`);
+
+            // Tratamento de Opt-Out inteligente (Anti-Ban: impede reenvio a quem não quer mensagens)
+            try {
+              const optOutWords = ['sair', 'parar', 'cancelar', 'stop', 'descadastrar', 'não quero', 'nao quero'];
+              const normalizedMsg = (msgObj.text || '').trim().toLowerCase();
+              if (optOutWords.includes(normalizedMsg)) {
+                const database = await db.getDB();
+                const digits = msgObj.from.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+                if (digits) {
+                  await database.run(
+                    "UPDATE contacts SET status = 'Opt-out' WHERE workspace_id = ? AND (phone LIKE ? OR phone LIKE ?)",
+                    [workspaceId, `%${digits.slice(-8)}%`, `%${digits}%`]
+                  );
+                  console.log(`🚫 [Anti-Ban] Contato ${msgObj.from} solicitou Opt-out ('${normalizedMsg}'). Status atualizado no CRM para evitar novos disparos.`);
+                }
+              }
+            } catch (optErr) {
+              console.error('Erro ao processar opt-out:', optErr.message);
+            }
 
             // Identifica e cadastra automaticamente o contato no CRM se não existir
             try {
@@ -377,7 +406,7 @@ async function disconnectWhatsApp(workspaceId) {
   return { success: true, message: 'WhatsApp desconectado com sucesso' };
 }
 
-async function sendMessage(workspaceId, jid, text, file, contactName = '') {
+async function sendMessage(workspaceId, jid, text, file, contactName = '', options = {}) {
   const session = sessions[workspaceId];
   if (!session || session.status !== 'connected' || !session.sock) {
     throw new Error('WhatsApp não está conectado. Conecte o WhatsApp no menu Conexões antes de enviar mensagens.');
@@ -473,6 +502,34 @@ async function sendMessage(workspaceId, jid, text, file, contactName = '') {
       msgType = 'file';
     }
     fileUrl = '/uploads/' + file.filename;
+  }
+
+  // Simulação de presença humana (Anti-Ban)
+  const simulateTyping = options.simulateTyping !== false;
+  if (simulateTyping && session.sock) {
+    try {
+      const isAudio = msgType === 'audio';
+      // 1. Sinaliza presença online (available)
+      await session.sock.sendPresenceUpdate('available').catch(() => {});
+      
+      // 2. Sinaliza "digitando..." (composing) ou "gravando áudio..." (recording)
+      await session.sock.sendPresenceUpdate(isAudio ? 'recording' : 'composing', cleanJid).catch(() => {});
+      
+      // 3. Tempo humano realista proporcional ao tamanho da mensagem
+      // Mínimo 1.5s, máx 4.8s (~30ms por caractere + jitter aleatório)
+      const baseChars = (text || '').length || 30;
+      const calculatedDuration = Math.min(Math.max(baseChars * 30, 1500), 4800);
+      const jitter = Math.floor(Math.random() * 700);
+      const typingMs = options.typingDurationMs || (calculatedDuration + jitter);
+      
+      await new Promise(resolve => setTimeout(resolve, typingMs));
+      
+      // 4. Pausa a digitação antes do envio
+      await session.sock.sendPresenceUpdate('paused', cleanJid).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 250 + Math.floor(Math.random() * 300)));
+    } catch (presenceErr) {
+      console.warn('[WhatsApp] Erro não-bloqueante ao atualizar presença:', presenceErr.message);
+    }
   }
 
   const sentMsg = await session.sock.sendMessage(cleanJid, messageOptions);

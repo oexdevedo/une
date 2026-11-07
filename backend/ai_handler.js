@@ -2,6 +2,10 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+if (!process.env.AWS_ACCESS_KEY_ID && fs.existsSync(path.resolve(__dirname, '../.env'))) {
+  require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+}
 const db = require('./db');
 const { getWhatsAppAuthDir } = require('./storage');
 let fetchDispatcher = undefined;
@@ -13,7 +17,62 @@ try {
     connectTimeout: 45000
   });
 } catch (e) {
-  // undici é opcional; caso não esteja disponível, o fetch nativo do Node.js usa seus timeouts padrão
+}
+
+/**
+ * Executa uma chamada unificada ao AWS Bedrock via Converse API
+ */
+async function executeBedrockConverse({ systemPrompt, messages, modelId, region, accessKeyId, secretAccessKey }) {
+  const { BedrockRuntimeClient, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
+  
+  const client = new BedrockRuntimeClient({
+    region: region || process.env.AWS_REGION || 'us-east-1',
+    credentials: {
+      accessKeyId: accessKeyId || process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY
+    }
+  });
+
+  const rawList = (messages || [])
+    .filter(m => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .map(m => ({ role: m.role, text: m.content.trim() }));
+
+  while (rawList.length > 0 && rawList[0].role !== 'user') {
+    rawList.shift();
+  }
+
+  if (rawList.length === 0) {
+    throw new Error('A conversa para o Bedrock precisa conter ao menos uma mensagem do usuário.');
+  }
+
+  const formattedMessages = [];
+  for (const item of rawList) {
+    if (formattedMessages.length > 0 && formattedMessages[formattedMessages.length - 1].role === item.role) {
+      formattedMessages[formattedMessages.length - 1].content[0].text += `\n\n${item.text}`;
+    } else {
+      formattedMessages.push({
+        role: item.role,
+        content: [{ text: item.text }]
+      });
+    }
+  }
+
+  const effectiveModel = modelId || process.env.BEDROCK_MODEL_ID || 'openai.gpt-oss-20b-1:0';
+
+  const command = new ConverseCommand({
+    modelId: effectiveModel,
+    messages: formattedMessages,
+    ...(systemPrompt ? { system: [{ text: systemPrompt }] } : {}),
+    inferenceConfig: { maxTokens: 2000, temperature: 0.7 }
+  });
+
+  const response = await client.send(command);
+  const text = (response.output?.message?.content || [])
+    .filter(b => b.text)
+    .map(b => b.text)
+    .join('');
+
+  return text;
 }
 
 function getPhoneNumberFromJid(jid, workspaceId = 1) {
@@ -57,8 +116,18 @@ async function processMessage(workspaceId, msgObj, agentId) {
     const baseUrl = settings.ai_base_url || process.env.AI_BASE_URL || 'https://api.openai.com/v1';
     const aiModel = settings.ai_model || process.env.AI_MODEL || 'gpt-3.5-turbo';
 
-    if (!apiKey) {
+    const isBedrock = provider === 'bedrock';
+    const awsAccessKey = (apiKey && apiKey.includes(':')) ? apiKey.split(':')[0] : (process.env.AWS_ACCESS_KEY_ID || apiKey);
+    const awsSecretKey = (apiKey && apiKey.includes(':')) ? apiKey.split(':')[1] : (process.env.AWS_SECRET_ACCESS_KEY || apiKey);
+    const awsRegion = (baseUrl && !baseUrl.startsWith('http')) ? baseUrl : (process.env.AWS_REGION || 'us-east-1');
+    const effectiveBedrockModel = aiModel || process.env.BEDROCK_MODEL_ID || 'openai.gpt-oss-20b-1:0';
+
+    if (!isBedrock && !apiKey) {
       console.log('AI Provider not configured or missing API key.');
+      return;
+    }
+    if (isBedrock && (!awsAccessKey || !awsSecretKey)) {
+      console.log('AWS Bedrock credentials missing (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).');
       return;
     }
     // 2. Fetch Agent or Automation Settings
@@ -127,23 +196,27 @@ async function processMessage(workspaceId, msgObj, agentId) {
 
     // 4. Call AI API
     if (provider === 'openai' || provider === 'custom') {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: aiModel,
-          messages: messagesPayload
-        })
-      });
-      
-      const data = await response.json();
-      if (data.choices && data.choices[0]) {
-        replyText = data.choices[0].message.content;
-      } else {
-        console.error('AI API Error:', data);
+      try {
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: aiModel,
+            messages: messagesPayload
+          })
+        });
+        
+        const data = await response.json();
+        if (data.choices && data.choices[0]) {
+          replyText = data.choices[0].message.content;
+        } else {
+          console.error('AI API Error:', data);
+        }
+      } catch (openAiErr) {
+        console.error('❌ [ai_handler] Erro na chamada OpenAI/Custom:', openAiErr.message);
       }
     } else if (provider === 'anythingllm') {
       // Anything LLM native workspace chat API
@@ -203,6 +276,20 @@ async function processMessage(workspaceId, msgObj, agentId) {
         replyText = data.candidates[0].content.parts[0].text;
       } else {
         console.error('Gemini API Error:', data);
+      }
+    } else if (provider === 'bedrock') {
+      try {
+        console.log(`☁️ [ai_handler] Chamando AWS Bedrock (modelo: ${effectiveBedrockModel}, região: ${awsRegion})...`);
+        replyText = await executeBedrockConverse({
+          systemPrompt,
+          messages: messagesPayload.filter(m => m.role !== 'system'),
+          modelId: effectiveBedrockModel,
+          region: awsRegion,
+          accessKeyId: awsAccessKey,
+          secretAccessKey: awsSecretKey
+        });
+      } catch (err) {
+        console.error('❌ [ai_handler] Falha ao comunicar com AWS Bedrock:', err.message);
       }
     } else {
       console.log('Provider not fully supported yet:', settings.ai_provider);
@@ -327,8 +414,18 @@ async function generateAgentResponseForEmail({ workspaceId = 1, agentId, emailSu
     const baseUrl = settings.ai_base_url || process.env.AI_BASE_URL || 'https://api.openai.com/v1';
     const aiModel = settings.ai_model || process.env.AI_MODEL || 'gpt-3.5-turbo';
 
-    if (!apiKey) {
+    const isBedrock = provider === 'bedrock';
+    const awsAccessKey = (apiKey && apiKey.includes(':')) ? apiKey.split(':')[0] : (process.env.AWS_ACCESS_KEY_ID || apiKey);
+    const awsSecretKey = (apiKey && apiKey.includes(':')) ? apiKey.split(':')[1] : (process.env.AWS_SECRET_ACCESS_KEY || apiKey);
+    const awsRegion = (baseUrl && !baseUrl.startsWith('http')) ? baseUrl : (process.env.AWS_REGION || 'us-east-1');
+    const effectiveBedrockModel = aiModel || process.env.BEDROCK_MODEL_ID || 'openai.gpt-oss-20b-1:0';
+
+    if (!isBedrock && !apiKey) {
       console.log('AI Provider not configured or missing API key.');
+      return null;
+    }
+    if (isBedrock && (!awsAccessKey || !awsSecretKey)) {
+      console.log('AWS Bedrock credentials missing (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).');
       return null;
     }
 
@@ -424,6 +521,19 @@ Por favor, escreva a resposta completa a este e-mail.`;
       if (data.candidates && data.candidates[0]) {
         replyText = data.candidates[0].content.parts[0].text;
       }
+    } else if (provider === 'bedrock') {
+      try {
+        replyText = await executeBedrockConverse({
+          systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+          modelId: effectiveBedrockModel,
+          region: awsRegion,
+          accessKeyId: awsAccessKey,
+          secretAccessKey: awsSecretKey
+        });
+      } catch (err) {
+        console.error('Erro na chamada ao AWS Bedrock para e-mail:', err);
+      }
     }
 
     if (replyText) {
@@ -453,7 +563,7 @@ async function testAiConnection({ workspaceId = 1, provider, apiKey, baseUrl, mo
     const effectiveBaseUrl = (baseUrl || dbSettings.ai_base_url || process.env.AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
     const effectiveModel = model || dbSettings.ai_model || process.env.AI_MODEL || (effectiveProvider === 'anythingllm' ? 'meu-workspace' : 'gpt-4o-mini');
 
-    if (!effectiveApiKey) {
+    if (effectiveProvider !== 'bedrock' && !effectiveApiKey) {
       return { success: false, error: 'Chave de API não informada.' };
     }
 
@@ -519,6 +629,30 @@ async function testAiConnection({ workspaceId = 1, provider, apiKey, baseUrl, mo
       } else {
         return { success: false, error: data.error?.message || JSON.stringify(data) };
       }
+    } else if (effectiveProvider === 'bedrock') {
+      try {
+        const awsAccessKey = (effectiveApiKey && effectiveApiKey.includes(':')) ? effectiveApiKey.split(':')[0] : (process.env.AWS_ACCESS_KEY_ID || effectiveApiKey);
+        const awsSecretKey = (effectiveApiKey && effectiveApiKey.includes(':')) ? effectiveApiKey.split(':')[1] : (process.env.AWS_SECRET_ACCESS_KEY || effectiveApiKey);
+        const awsRegion = (baseUrl && !baseUrl.startsWith('http')) ? baseUrl : (process.env.AWS_REGION || 'us-east-1');
+        const effectiveBedrockModel = model || process.env.BEDROCK_MODEL_ID || 'openai.gpt-oss-20b-1:0';
+
+        if (!awsAccessKey || !awsSecretKey) {
+          return { success: false, error: 'Credenciais AWS Bedrock não informadas (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).' };
+        }
+
+        const reply = await executeBedrockConverse({
+          systemPrompt: 'Responda confirmando em 1 frase curta que a inteligência artificial está operando normalmente.',
+          messages: [{ role: 'user', content: testPrompt }],
+          modelId: effectiveBedrockModel,
+          region: awsRegion,
+          accessKeyId: awsAccessKey,
+          secretAccessKey: awsSecretKey
+        });
+
+        return { success: true, reply, model: effectiveBedrockModel, provider: 'bedrock' };
+      } catch (err) {
+        return { success: false, error: `Falha na requisição AWS Bedrock: ${err.message}` };
+      }
     } else {
       return { success: false, error: `Provedor "${effectiveProvider}" não suporta teste automático.` };
     }
@@ -527,5 +661,5 @@ async function testAiConnection({ workspaceId = 1, provider, apiKey, baseUrl, mo
   }
 }
 
-module.exports = { processMessage, generateAgentResponseForEmail, testAiConnection };
+module.exports = { processMessage, generateAgentResponseForEmail, testAiConnection, executeBedrockConverse };
 

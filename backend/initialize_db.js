@@ -472,8 +472,8 @@ async function init() {
     const allUsers = await db.all('SELECT id, workspace_id, name, username, email FROM users ORDER BY id ASC');
     const { seedWorkspaceDefaults } = require('./workspace_seeder');
     for (const u of allUsers) {
-      // Usuário Yuri Assis é o titular oficial do Workspace 1
-      if (u.username === 'yuri' || (u.id === 1 && !allUsers.some(x => x.username === 'yuri' && x.id !== 1))) {
+      // Usuários administradores do sistema (Yuri Assis e Admin) são titulares oficiais do Workspace 1
+      if (u.username === 'yuri' || u.username === 'admin' || u.id === 1 || u.role === 'admin') {
         continue;
       }
       // Qualquer outra conta cadastrada que esteja erroneamente no Workspace 1 ganha seu workspace próprio

@@ -3,14 +3,41 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
-// Intercepta chamadas de API para produção (Hostinger)
+// Intercepta chamadas de API para produção (Hostinger) e injeta token JWT (SEC-01)
 const originalFetch = window.fetch;
-window.fetch = function (url, options) {
-  if (typeof url === 'string' && url.includes('http://localhost:3001')) {
+window.fetch = function (url, options = {}) {
+  let finalUrl = url;
+  if (typeof finalUrl === 'string' && finalUrl.includes('http://localhost:3001')) {
     const apiBase = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://localhost:3001');
-    url = url.replace('http://localhost:3001', apiBase);
+    finalUrl = finalUrl.replace('http://localhost:3001', apiBase);
   }
-  return originalFetch.call(this, url, options);
+
+  const token = localStorage.getItem('unne_token');
+  const urlStr = typeof finalUrl === 'string' ? finalUrl : '';
+  const isApi = urlStr.startsWith('/api/') || urlStr.includes('/api/');
+  const isPublicAuth = urlStr.includes('/api/auth/login') ||
+                       urlStr.includes('/api/auth/register') ||
+                       urlStr.includes('/api/users/check-username');
+
+  let finalOptions = { ...options };
+  if (token && isApi && !isPublicAuth) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    finalOptions.headers = headers;
+  }
+
+  return originalFetch.call(this, finalUrl, finalOptions).then(response => {
+    if (response.status === 401 && !isPublicAuth && typeof window !== 'undefined') {
+      if (!window.location.pathname.startsWith('/login')) {
+        localStorage.removeItem('unne_user');
+        localStorage.removeItem('unne_token');
+        window.location.href = '/login';
+      }
+    }
+    return response;
+  });
 };
 
 class ErrorBoundary extends React.Component {

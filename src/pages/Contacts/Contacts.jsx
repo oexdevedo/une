@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import './Contacts.css';
+
+// Converte o resultado do FileReader (texto CSV ou ArrayBuffer de Excel) em linhas separadas por ';'
+const resultToText = (result) => {
+  if (typeof result === 'string') return result;
+  const wb = XLSX.read(result, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_csv(sheet, { FS: ';', blankrows: false });
+};
 import {
   Upload,
   Plus,
@@ -15,7 +24,8 @@ import {
   Refresh,
   Trash,
   Check,
-  Pencil
+  Pencil,
+  Download
 } from 'pixelarticons/react';
 import PhoneInput, { detectCountryFromPhone } from '../../components/PhoneInput/PhoneInput';
 import { getWorkspaceId } from '../../utils/workspace';
@@ -183,7 +193,7 @@ export default function Contacts() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const text = event.target.result;
+        const text = resultToText(event.target.result);
         const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
         if (lines.length === 0) return;
 
@@ -229,8 +239,9 @@ export default function Contacts() {
           }
         }
 
+        let importedCount = 0;
         if (parsedContacts.length > 0) {
-          await fetch('/api/contacts/bulk', {
+          const bulkRes = await fetch('/api/contacts/bulk', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -239,16 +250,24 @@ export default function Contacts() {
               contacts: parsedContacts
             })
           });
+          const bulkData = await bulkRes.json().catch(() => ({}));
+          if (!bulkRes.ok || !bulkData.success) {
+            alert('Erro ao importar contatos: ' + (bulkData.error || `HTTP ${bulkRes.status}`));
+            await fetchLists();
+            return;
+          }
+          importedCount = bulkData.count ?? parsedContacts.length;
         }
 
-        alert(`✅ Lista "${baseName}" criada com ${parsedContacts.length} contatos!`);
+        alert(`✅ Lista "${baseName}" criada com ${importedCount} contatos!`);
         await fetchLists();
       } catch (err) {
         console.error(err);
         alert('Erro ao importar arquivo.');
       }
     };
-    reader.readAsText(file);
+    if (/\.xlsx?$/i.test(file.name)) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
     e.target.value = null;
   };
 
@@ -260,7 +279,7 @@ export default function Contacts() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const text = event.target.result;
+        const text = resultToText(event.target.result);
         const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
         if (lines.length === 0) {
           alert('Arquivo vazio.');
@@ -326,11 +345,31 @@ export default function Contacts() {
         alert('Erro ao processar arquivo: ' + err.message);
       }
     };
-    reader.readAsText(file);
+    if (/\.xlsx?$/i.test(file.name)) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file);
     e.target.value = null;
   };
 
   // Adicionar Contato Manualmente na lista ativa
+  // Exportar contatos da lista ativa em CSV (compatível com Excel)
+  const handleExportList = () => {
+    if (!activeList || leads.length === 0) {
+      alert('Não há contatos para exportar.');
+      return;
+    }
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = [['Nome', 'Telefone', 'Status'].map(esc).join(';')];
+    leads.forEach(l => rows.push([l.name, l.phone, l.status].map(esc).join(';')));
+    const blob = new Blob(['\uFEFF' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeList.name.replace(/[^\w\-]+/g, '_')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
   const handleAddManual = async (e) => {
     e.preventDefault();
     if (!manualContact.name || !manualContact.phone || !activeList) return;
@@ -509,6 +548,9 @@ export default function Contacts() {
             </div>
           </div>
           <div className="contacts-actions">
+            <button className="btn-secondary" onClick={handleExportList} disabled={leads.length === 0}>
+              <Download size={18} /> Exportar
+            </button>
             {isAgendadosList ? (
               <button 
                 className="btn-secondary" 

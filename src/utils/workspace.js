@@ -35,3 +35,11 @@ export function isUserAdmin(user) {
   const role = (u.role || '').toLowerCase().trim();
   return ['admin', 'owner', 'master', 'administrador'].includes(role);
 }
+
+export function getAuthToken() {
+  try {
+    return localStorage.getItem('unne_token') || null;
+  } catch (err) {
+    return null;
+  }
+}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import './Emails.css';
 
 const API = '';
@@ -686,9 +687,20 @@ export default function Emails() {
 
               {/* Corpo da Mensagem */}
               <div className="message-view-body">
-                {selectedMessage.body_text || (
-                  <div dangerouslySetInnerHTML={{ __html: selectedMessage.body_html || '' }} />
-                ) || '(Sem conteúdo de texto)'}
+                {selectedMessage.body_text ? (
+                  <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{selectedMessage.body_text}</pre>
+                ) : selectedMessage.body_html ? (
+                  <div
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(selectedMessage.body_html, {
+                        USE_PROFILES: { html: true },
+                        ADD_ATTR: ['target']
+                      })
+                    }}
+                  />
+                ) : (
+                  '(Sem conteúdo de texto)'
+                )}
               </div>
 
               {/* Área de Resposta */}

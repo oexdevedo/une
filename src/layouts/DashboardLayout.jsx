@@ -152,6 +152,7 @@ export default function DashboardLayout() {
 
   const handleLogout = () => {
     localStorage.removeItem('unne_user');
+    localStorage.removeItem('unne_token');
     localStorage.removeItem('unne_cal_api_key');
     localStorage.removeItem('unne_cal_embed_url');
     localStorage.removeItem('unne_tg_token');

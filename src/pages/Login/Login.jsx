@@ -63,6 +63,9 @@ export default function Login() {
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('unne_user', JSON.stringify(data.user));
+        if (data.token) {
+          localStorage.setItem('unne_token', data.token);
+        }
         setSuccessMessage(`Olá, ${data.user.name || data.user.username}! Entrando no sistema...`);
         setTimeout(() => {
           window.location.href = '/';
@@ -113,6 +116,9 @@ export default function Login() {
       const data = await res.json();
       if (data.success) {
         localStorage.setItem('unne_user', JSON.stringify(data.user));
+        if (data.token) {
+          localStorage.setItem('unne_token', data.token);
+        }
         setSuccessMessage(`Conta @${regUsername} criada com sucesso! Entrando...`);
         setTimeout(() => {
           window.location.href = '/';

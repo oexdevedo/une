@@ -171,14 +171,19 @@ export default function Connections({ isSubpage = false }) {
   const startWhatsApp = async (forceNew = false) => {
     setIsLoadingWA(true);
     try {
-      await fetch('/api/connections/whatsapp/start', { 
+      const res = await fetch('/api/connections/whatsapp/start', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: workspaceId, force_new: forceNew })
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || 'Erro ao inicializar o WhatsApp no servidor.');
+      }
       await fetchWAStatus();
     } catch (e) {
       console.error(e);
+      alert('Não foi possível se comunicar com o backend (porta 3001). Verifique se o servidor backend está iniciado.');
     }
     setIsLoadingWA(false);
   };
@@ -1136,11 +1141,29 @@ export default function Connections({ isSubpage = false }) {
             </div>
           )}
 
+          {settings.ai_provider === 'bedrock' && (
+            <div style={{
+              background: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              color: '#1E40AF',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              lineHeight: '1.5'
+            }}>
+              <strong>☁️ AWS Bedrock integrado:</strong>
+              <div style={{ marginTop: '4px' }}>
+                As credenciais da AWS (<code>AWS_ACCESS_KEY_ID</code> e <code>AWS_SECRET_ACCESS_KEY</code>) e a região (<code>AWS_REGION</code>) foram configuradas no arquivo <code>.env</code> do servidor. Se deixar os campos abaixo vazios, o sistema utilizará automaticamente as credenciais e o modelo padrão do servidor (<code>openai.gpt-oss-20b-1:0</code>).
+              </div>
+            </div>
+          )}
+
           <div className="form-group">
             <label>
               {settings.ai_provider === 'anythingllm' ? 'Chave de API do AnythingLLM (Bearer Token)' :
                settings.ai_provider === 'openai' ? 'Chave de API OpenAI (sk-proj-...)' :
                settings.ai_provider === 'gemini' ? 'Chave de API Google AI Studio (AIzaSy...)' :
+               settings.ai_provider === 'bedrock' ? 'AWS Secret Key / Credenciais (Opcional se no .env)' :
                'Chave de API (API Key)'}
             </label>
             <input 
@@ -1150,6 +1173,7 @@ export default function Connections({ isSubpage = false }) {
                 settings.ai_provider === 'anythingllm' ? 'Ex: SDD1V84-F1EMHXV-H0B7XHQ-3ZT4HS5' :
                 settings.ai_provider === 'openai' ? 'Ex: sk-proj-...' :
                 settings.ai_provider === 'gemini' ? 'Ex: AIzaSy...' :
+                settings.ai_provider === 'bedrock' ? 'Deixe em branco para usar do .env ou ACCESS_KEY:SECRET_KEY' :
                 'Ex: gsk_... ou sk-...'
               } 
               value={settings.ai_api_key} 
@@ -1163,6 +1187,7 @@ export default function Connections({ isSubpage = false }) {
                 {settings.ai_provider === 'anythingllm' ? 'Slug do Workspace no AnythingLLM' :
                  settings.ai_provider === 'gemini' ? 'Modelo Gemini' :
                  settings.ai_provider === 'openai' ? 'Modelo OpenAI' :
+                 settings.ai_provider === 'bedrock' ? 'ID do Modelo Bedrock' :
                  'Nome do Modelo'}
               </label>
               <input 
@@ -1172,6 +1197,7 @@ export default function Connections({ isSubpage = false }) {
                   settings.ai_provider === 'anythingllm' ? 'Ex: meu-workspace' :
                   settings.ai_provider === 'gemini' ? 'Ex: gemini-1.5-flash ou gemini-2.0-flash' :
                   settings.ai_provider === 'openai' ? 'Ex: gpt-4o-mini ou gpt-4o' :
+                  settings.ai_provider === 'bedrock' ? 'Ex: openai.gpt-oss-20b-1:0 ou anthropic.claude-3-haiku-20240307-v1:0' :
                   'Ex: llama-3.3-70b-versatile, deepseek-chat...'
                 } 
                 value={settings.ai_model} 
@@ -1183,6 +1209,7 @@ export default function Connections({ isSubpage = false }) {
               <label>
                 {settings.ai_provider === 'anythingllm' ? 'URL da API do AnythingLLM' :
                  settings.ai_provider === 'custom' ? 'Endpoint OpenAI-compatível' :
+                 settings.ai_provider === 'bedrock' ? 'Região AWS (Opcional)' :
                  'Base URL (Opcional)'}
               </label>
               <input 
@@ -1191,6 +1218,7 @@ export default function Connections({ isSubpage = false }) {
                 placeholder={
                   settings.ai_provider === 'anythingllm' ? 'Ex: https://area-51-anything-llm.mypaeg.easypanel.host/api/v1' :
                   settings.ai_provider === 'custom' ? 'Ex: https://api.groq.com/openai/v1 ou https://api.deepseek.com/v1' :
+                  settings.ai_provider === 'bedrock' ? 'Ex: us-east-1 (padrão us-east-1)' :
                   'Ex: https://api.openai.com/v1'
                 } 
                 value={settings.ai_base_url} 

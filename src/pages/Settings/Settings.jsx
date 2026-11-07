@@ -80,6 +80,7 @@ export default function Settings({ initialTab }) {
       .then(r => {
         if (r.status === 401 || r.status === 404) {
           localStorage.removeItem('unne_user');
+          localStorage.removeItem('unne_token');
           window.location.href = '/login';
           return null;
         }
@@ -360,7 +361,7 @@ export default function Settings({ initialTab }) {
 
               <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '16px' }}>
                 <a 
-                  href={`/api/admin/database/download?user_id=${currentUser?.id || ''}`} 
+                  href={`/api/admin/database/download?token=${localStorage.getItem('unne_token') || ''}`} 
                   download="database.sqlite" 
                   className="btn-light" 
                   style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', background: '#F4F4F5', fontWeight: 600, color: 'var(--text-main)' }}
@@ -393,6 +394,7 @@ export default function Settings({ initialTab }) {
               onClick={() => {
                 if (window.confirm('Deseja realmente sair da conta?')) {
                   localStorage.removeItem('unne_user');
+                  localStorage.removeItem('unne_token');
                   window.location.href = '/login';
                 }
               }}
