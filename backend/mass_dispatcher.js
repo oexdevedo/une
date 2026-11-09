@@ -10,8 +10,47 @@ const campaigns = {};
 // Controle de execução em memória (timers e flags de interrupção): { ["ws_list"]: RuntimeControl }
 const runtimes = {};
 
+function parseListIds(listId) {
+  if (Array.isArray(listId)) {
+    return Array.from(new Set(listId.map(x => String(x).trim()).filter(Boolean))).sort((a, b) => Number(a) - Number(b));
+  }
+  return Array.from(
+    new Set(String(listId || '').split(',').map(x => x.trim()).filter(Boolean))
+  ).sort((a, b) => Number(a) - Number(b));
+}
+
+function normalizeListKey(listId) {
+  return parseListIds(listId).join(',');
+}
+
 function getKey(workspaceId, listId) {
-  return `${workspaceId}_${listId}`;
+  return `${workspaceId}_${normalizeListKey(listId)}`;
+}
+
+async function loadContactsForLists(database, workspaceId, listId) {
+  const listIds = parseListIds(listId);
+  if (listIds.length === 0) return [];
+  const placeholders = listIds.map(() => '?').join(',');
+  const rows = await database.all(
+    `SELECT * FROM contacts WHERE workspace_id = ? AND list_id IN (${placeholders}) ORDER BY id DESC`,
+    [workspaceId, ...listIds]
+  );
+  if (listIds.length <= 1 || !Array.isArray(rows)) {
+    return rows || [];
+  }
+  // Remove duplicados por telefone/JID quando mais de uma lista é selecionada
+  const seen = new Set();
+  const unique = [];
+  for (const r of rows) {
+    const rawKey = String(r.phone || r.remote_jid || '').trim().toLowerCase();
+    const dedupKey = rawKey
+      ? (rawKey.startsWith('@') || rawKey.includes('@') ? rawKey : rawKey.replace(/\D/g, '') || rawKey)
+      : `id_${r.id}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    unique.push(r);
+  }
+  return unique;
 }
 
 function loadPersistedState() {
@@ -209,10 +248,7 @@ async function runCampaignLoop(workspaceId, listId) {
   if (!state || !runtime) return;
 
   const database = await db.getDB();
-  const contacts = await database.all(
-    'SELECT * FROM contacts WHERE workspace_id = ? AND list_id = ? ORDER BY id DESC',
-    [workspaceId, listId]
-  );
+  const contacts = await loadContactsForLists(database, workspaceId, listId);
 
   state.total = contacts.length;
   const channel = state.channel || 'whatsapp';
@@ -409,8 +445,8 @@ async function runCampaignLoop(workspaceId, listId) {
 }
 
 async function startCampaign(workspaceId, params) {
-  const listId = String(params.listId || '');
-  if (!listId) throw new Error('Selecione uma lista de contatos.');
+  const listId = normalizeListKey(params.listId || '');
+  if (!listId) throw new Error('Selecione ao menos uma lista de contatos.');
 
   const key = getKey(workspaceId, listId);
   if (runtimes[key] && campaigns[key]?.status === 'running') {
@@ -418,12 +454,9 @@ async function startCampaign(workspaceId, params) {
   }
 
   const database = await db.getDB();
-  const contacts = await database.all(
-    'SELECT * FROM contacts WHERE workspace_id = ? AND list_id = ? ORDER BY id DESC',
-    [workspaceId, listId]
-  );
+  const contacts = await loadContactsForLists(database, workspaceId, listId);
   if (!contacts || contacts.length === 0) {
-    throw new Error('A lista selecionada não possui contatos cadastrados para envio.');
+    throw new Error('As listas selecionadas não possuem contatos cadastrados para envio.');
   }
 
   const existing = campaigns[key];

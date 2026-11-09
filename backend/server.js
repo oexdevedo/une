@@ -1355,11 +1355,37 @@ app.get('/api/contacts', async (req, res) => {
     const database = await db.getDB();
     let query = 'SELECT * FROM contacts WHERE workspace_id = ?';
     const params = [workspaceId];
-    if (listId) {
+    const listIds = String(listId || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    if (listIds.length === 1) {
       query += ' AND list_id = ?';
-      params.push(listId);
+      params.push(listIds[0]);
+    } else if (listIds.length > 1) {
+      query += ` AND list_id IN (${listIds.map(() => '?').join(',')})`;
+      params.push(...listIds);
     }
+    query += ' ORDER BY id DESC';
     const rows = await database.all(query, params);
+
+    // Se mais de uma lista foi selecionada, remove contatos duplicados pelo telefone/JID para não enviar duas vezes
+    if (listIds.length > 1 && Array.isArray(rows)) {
+      const seen = new Set();
+      const uniqueRows = [];
+      for (const r of rows) {
+        const rawKey = String(r.phone || r.remote_jid || '').trim().toLowerCase();
+        const dedupKey = rawKey
+          ? (rawKey.startsWith('@') || rawKey.includes('@') ? rawKey : rawKey.replace(/\D/g, '') || rawKey)
+          : `id_${r.id}`;
+        if (seen.has(dedupKey)) continue;
+        seen.add(dedupKey);
+        uniqueRows.push(r);
+      }
+      return res.json(uniqueRows);
+    }
+
     res.json(rows);
   } catch (error) {
     console.error(error);

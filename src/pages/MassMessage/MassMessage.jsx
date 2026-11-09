@@ -60,9 +60,38 @@ export default function MassMessage() {
   );
   const [previewText, setPreviewText] = useState('');
   
-  // Listas e Contatos reais do banco
+  // Listas e Contatos reais do banco (suporta seleção de 1 ou mais listas simultaneamente)
   const [lists, setLists] = useState([]);
-  const [selectedListId, setSelectedListId] = useState(initialDraft.selectedListId || '');
+  const [selectedListIds, setSelectedListIds] = useState(() => {
+    if (Array.isArray(initialDraft.selectedListIds) && initialDraft.selectedListIds.length > 0) {
+      return initialDraft.selectedListIds.map(String).filter(Boolean);
+    }
+    if (initialDraft.selectedListId) {
+      return String(initialDraft.selectedListId).split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [];
+  });
+  const selectedListId = selectedListIds.slice().sort((a, b) => Number(a) - Number(b)).join(',');
+  const primaryListId = selectedListIds[0] || '';
+  const setSelectedListId = (val) => {
+    if (!val) {
+      setSelectedListIds([]);
+      return;
+    }
+    const arr = Array.isArray(val)
+      ? val.map(String).filter(Boolean)
+      : String(val).split(',').map(s => s.trim()).filter(Boolean);
+    setSelectedListIds(Array.from(new Set(arr)));
+  };
+  const toggleListSelection = (id) => {
+    const strId = String(id);
+    setSelectedListIds(prev => {
+      if (prev.includes(strId)) {
+        return prev.filter(item => item !== strId);
+      }
+      return [...prev, strId];
+    });
+  };
   const [contacts, setContacts] = useState([]);
   const [isLoadingLists, setIsLoadingLists] = useState(false);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
@@ -474,14 +503,14 @@ export default function MassMessage() {
 
   // Importar contatos das conversas do WhatsApp ou Telegram para a lista selecionada
   const handleImportChannelContacts = async (targetChannel) => {
-    if (!selectedListId) {
+    if (!primaryListId) {
       alert('Selecione ou crie uma lista antes de importar contatos.');
       return;
     }
     const channelName = targetChannel === 'telegram' ? 'Telegram' : 'WhatsApp';
     setIsImportingChannel(true);
     try {
-      const res = await fetch(`/api/lists/${selectedListId}/import-channel-contacts`, {
+      const res = await fetch(`/api/lists/${primaryListId}/import-channel-contacts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: workspaceId, channel: targetChannel })
@@ -489,7 +518,7 @@ export default function MassMessage() {
       const data = await res.json();
       if (data.success) {
         alert(`✅ ${data.count} contato(s) do ${channelName} importado(s) para a lista com sucesso!`);
-        fetchLists(selectedListId);
+        fetchLists();
         fetchContacts(selectedListId);
       } else {
         alert('Erro ao importar contatos: ' + (data.error || 'Erro desconhecido'));
@@ -570,9 +599,7 @@ export default function MassMessage() {
       const res = await fetch(`/api/lists/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
-        if (String(selectedListId) === String(id)) {
-          setSelectedListId('');
-        }
+        setSelectedListIds(prev => prev.filter(item => String(item) !== String(id)));
         fetchLists();
       } else {
         alert(data.error || 'Erro ao excluir lista.');
@@ -588,7 +615,7 @@ export default function MassMessage() {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
-    if (!selectedListId) {
+    if (!primaryListId) {
       alert('Por favor, selecione ou crie uma lista antes de importar contatos.');
       e.target.value = null;
       return;
@@ -624,14 +651,14 @@ export default function MassMessage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             workspace_id: workspaceId,
-            list_id: selectedListId,
+            list_id: primaryListId,
             contacts: parsedContacts
           })
         });
         const data = await res.json();
         if (data.success) {
           alert(`✅ ${data.count || parsedContacts.length} contatos importados com sucesso!`);
-          fetchLists(selectedListId);
+          fetchLists();
           fetchContacts(selectedListId);
         } else {
           alert('Erro ao importar contatos: ' + (data.error || 'Erro desconhecido'));
@@ -1153,7 +1180,13 @@ export default function MassMessage() {
     setIsDispatching(false);
   };
 
-  const currentList = lists.find(l => String(l.id) === String(selectedListId));
+  const selectedLists = lists.filter(l => selectedListIds.includes(String(l.id)));
+  const selectedListsLabel = selectedLists.length > 0
+    ? selectedLists.map(l => l.name).join(' + ')
+    : 'Nenhuma';
+  const currentList = selectedLists.length > 0
+    ? { ...selectedLists[0], name: selectedListsLabel }
+    : null;
 
   return (
     <div className="mass-container">
@@ -1303,38 +1336,114 @@ export default function MassMessage() {
               </div>
             </div>
 
-            {/* DESTINATÁRIOS DA CAMPANHA */}
+            {/* DESTINATÁRIOS DA CAMPANHA (SUPORTE A MÚLTIPLAS LISTAS) */}
             <div className="premium-card" style={{ marginBottom: '24px' }}>
               <div className="card-header">
                 <div className="card-title"><Users size={20} /> Destinatários da Campanha</div>
-                <button className="btn-pill btn-light" onClick={() => setIsListModalOpen(true)}>
-                  <Bulletlist size={14}/> Listas Salvas
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {lists.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-pill btn-light"
+                        style={{ fontSize: '0.78rem', padding: '5px 10px' }}
+                        onClick={() => setSelectedListIds(lists.map(l => String(l.id)))}
+                      >
+                        ✓ Selecionar Todas ({lists.length})
+                      </button>
+                      {selectedListIds.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn-pill btn-light"
+                          style={{ fontSize: '0.78rem', padding: '5px 10px' }}
+                          onClick={() => setSelectedListIds(lists.length > 0 ? [String(lists[0].id)] : [])}
+                        >
+                          Apenas 1ª Lista
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <button className="btn-pill btn-light" onClick={() => setIsListModalOpen(true)}>
+                    <Bulletlist size={14}/> Gerenciar / Criar Lista
+                  </button>
+                </div>
               </div>
               
               <div className="form-group">
-                <label>Selecionar Lista de Contatos:</label>
-                <select 
-                  className="modern-input"
-                  value={selectedListId}
-                  onChange={(e) => setSelectedListId(e.target.value)}
-                  disabled={isLoadingLists}
-                >
-                  {lists.length === 0 ? (
-                    <option value="">Nenhuma lista cadastrada (clique em Listas Salvas para criar)</option>
-                  ) : (
-                    lists.map(list => (
-                      <option key={list.id} value={list.id}>
-                        {list.is_system || list.name === 'Agendados' ? `📅 [Automática] ${list.name}` : list.name} ({list.count || 0} contatos)
-                      </option>
-                    ))
+                <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                  <span>Selecionar Lista(s) de Contatos (você pode marcar mais de uma):</span>
+                  {selectedListIds.length > 1 && (
+                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#15803d', backgroundColor: '#dcfce7', padding: '2px 10px', borderRadius: '999px' }}>
+                      {selectedListIds.length} listas combinadas (sem duplicar telefones)
+                    </span>
                   )}
-                </select>
+                </label>
+
+                {lists.length === 0 ? (
+                  <div style={{ padding: '16px', borderRadius: '10px', border: '1px dashed #cbd5e1', textAlign: 'center', color: '#64748b', fontSize: '0.88rem' }}>
+                    Nenhuma lista cadastrada. Clique em <strong>"Gerenciar / Criar Lista"</strong> acima para criar a primeira!
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
+                    gap: '8px',
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    padding: '4px'
+                  }}>
+                    {lists.map(list => {
+                      const isChecked = selectedListIds.includes(String(list.id));
+                      return (
+                        <div
+                          key={list.id}
+                          onClick={() => toggleListSelection(list.id)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '10px 12px',
+                            borderRadius: '10px',
+                            border: isChecked ? '2px solid #16a34a' : '1px solid #e2e8f0',
+                            backgroundColor: isChecked ? '#f0fdf4' : '#ffffff',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            userSelect: 'none'
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}}
+                            style={{ width: 16, height: 16, accentColor: '#16a34a', cursor: 'pointer', flexShrink: 0 }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              fontWeight: 700,
+                              fontSize: '0.86rem',
+                              color: '#1e293b',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }}>
+                              {list.is_system || list.name === 'Agendados' ? `📅 ${list.name}` : list.name}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: isChecked ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                              {list.count || 0} contato(s)
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'}}>
-                <span style={{fontSize: '0.85rem', color: '#a1a5b7'}}>
-                  {isLoadingContacts ? 'Carregando contatos...' : `${contacts.length} contato(s) carregado(s)`}
+                <span style={{fontSize: '0.85rem', color: '#475569', fontWeight: 600}}>
+                  {isLoadingContacts
+                    ? 'Carregando contatos...'
+                    : `${selectedListIds.length} lista(s) selecionada(s) • ${contacts.length} contato(s) único(s) carregado(s)`}
                 </span>
                 
                 <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
@@ -1993,7 +2102,9 @@ export default function MassMessage() {
                   </p>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-                    {lists.map(l => (
+                    {lists.map(l => {
+                      const isSelected = selectedListIds.includes(String(l.id));
+                      return (
                       <div 
                         key={l.id} 
                         style={{
@@ -2001,18 +2112,21 @@ export default function MassMessage() {
                           justifyContent: 'space-between',
                           alignItems: 'center',
                           padding: '12px 16px',
-                          border: String(selectedListId) === String(l.id) ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
                           borderRadius: '8px',
-                          backgroundColor: String(selectedListId) === String(l.id) ? '#F0FDF4' : 'var(--surface)',
+                          backgroundColor: isSelected ? '#F0FDF4' : 'var(--surface)',
                           cursor: 'pointer'
                         }}
-                        onClick={() => {
-                          setSelectedListId(String(l.id));
-                          setIsListModalOpen(false);
-                        }}
+                        onClick={() => toggleListSelection(l.id)}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              style={{ width: 16, height: 16, accentColor: '#16a34a', cursor: 'pointer' }}
+                            />
                             <strong style={{ color: 'var(--text-main)', fontSize: '0.95rem' }}>{l.name}</strong>
                             {(l.is_system || l.name === 'Agendados') && (
                               <span style={{ fontSize: '0.7rem', background: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
@@ -2020,20 +2134,17 @@ export default function MassMessage() {
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', paddingLeft: '24px' }}>
                             {l.count || 0} contato(s)
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                           <button 
                             className="btn-pill btn-light"
-                            onClick={() => {
-                              setSelectedListId(String(l.id));
-                              setIsListModalOpen(false);
-                            }}
+                            onClick={() => toggleListSelection(l.id)}
                             style={{ fontSize: '0.75rem', padding: '4px 10px' }}
                           >
-                            Selecionar
+                            {isSelected ? '✓ Selecionada' : 'Incluir'}
                           </button>
                           {!(l.is_system || l.name === 'Agendados') && (
                             <button 
@@ -2047,7 +2158,8 @@ export default function MassMessage() {
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
