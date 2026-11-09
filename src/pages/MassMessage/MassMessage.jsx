@@ -30,19 +30,36 @@ import { parseContactLines, resultToText } from '../../utils/contactParser';
 
 export default function MassMessage() {
   const workspaceId = getWorkspaceId();
-  const [activeTab, setActiveTab] = useState('mensagem');
-  const [channel, setChannel] = useState('whatsapp'); // 'whatsapp' | 'telegram'
+  const draftStorageKey = `unne_mass_draft_ws_${workspaceId}`;
+
+  const loadDraft = () => {
+    try {
+      const raw = localStorage.getItem(draftStorageKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const initialDraft = loadDraft();
+
+  const [activeTab, setActiveTab] = useState(initialDraft.activeTab || 'mensagem');
+  const [channel, setChannel] = useState(initialDraft.channel || 'whatsapp'); // 'whatsapp' | 'telegram'
   const [waStatus, setWaStatus] = useState('disconnected');
   const [tgStatus, setTgStatus] = useState('disconnected');
   const [tgBotInfo, setTgBotInfo] = useState(null);
   const [isImportingChannel, setIsImportingChannel] = useState(false);
 
-  const [messageText, setMessageText] = useState('Oi {primeiro_nome}! {Tudo bem?|Como vai?}\n\nAqui é a equipe Unne, passando para avisar sobre a nossa novidade.');
+  const [messageText, setMessageText] = useState(
+    initialDraft.messageText !== undefined
+      ? initialDraft.messageText
+      : 'Oi {primeiro_nome}! {Tudo bem?|Como vai?}\n\nAqui é a equipe Unne, passando para avisar sobre a nossa novidade.'
+  );
   const [previewText, setPreviewText] = useState('');
   
   // Listas e Contatos reais do banco
   const [lists, setLists] = useState([]);
-  const [selectedListId, setSelectedListId] = useState('');
+  const [selectedListId, setSelectedListId] = useState(initialDraft.selectedListId || '');
   const [contacts, setContacts] = useState([]);
   const [isLoadingLists, setIsLoadingLists] = useState(false);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
@@ -72,13 +89,45 @@ export default function MassMessage() {
   }, [workspaceId]);
 
   // Configurações Anti-Ban Inteligentes
-  const [minDelay, setMinDelay] = useState(25);
-  const [maxDelay, setMaxDelay] = useState(50);
-  const [batchSize, setBatchSize] = useState(12);
-  const [batchPause, setBatchPause] = useState(120);
-  const [simulateTyping, setSimulateTyping] = useState(true);
-  const [enableDailyLimit, setEnableDailyLimit] = useState(true);
-  const [dailySafeLimit, setDailySafeLimit] = useState(35);
+  const [minDelay, setMinDelay] = useState(initialDraft.minDelay || 25);
+  const [maxDelay, setMaxDelay] = useState(initialDraft.maxDelay || 50);
+  const [batchSize, setBatchSize] = useState(initialDraft.batchSize || 12);
+  const [batchPause, setBatchPause] = useState(initialDraft.batchPause || 120);
+  const [simulateTyping, setSimulateTyping] = useState(initialDraft.simulateTyping !== undefined ? initialDraft.simulateTyping : true);
+  const [enableDailyLimit, setEnableDailyLimit] = useState(initialDraft.enableDailyLimit !== undefined ? initialDraft.enableDailyLimit : true);
+  const [dailySafeLimit, setDailySafeLimit] = useState(initialDraft.dailySafeLimit || 35);
+
+  // Persiste rascunho e configurações para não perder ao trocar de aba/página
+  useEffect(() => {
+    try {
+      localStorage.setItem(draftStorageKey, JSON.stringify({
+        activeTab,
+        channel,
+        messageText,
+        selectedListId,
+        minDelay,
+        maxDelay,
+        batchSize,
+        batchPause,
+        simulateTyping,
+        enableDailyLimit,
+        dailySafeLimit
+      }));
+    } catch (e) {}
+  }, [
+    draftStorageKey,
+    activeTab,
+    channel,
+    messageText,
+    selectedListId,
+    minDelay,
+    maxDelay,
+    batchSize,
+    batchPause,
+    simulateTyping,
+    enableDailyLimit,
+    dailySafeLimit
+  ]);
 
   // Disparo, Pausa, Retomada e Logs
   const [isDispatching, setIsDispatching] = useState(false);
@@ -131,9 +180,53 @@ export default function MassMessage() {
     };
   });
 
-  const handlePauseDispatch = () => {
+  const applyServerCampaignState = (camp) => {
+    if (!camp) return false;
+    const isRunning = camp.status === 'running';
+    const isPausedState = camp.status === 'paused' && camp.resumeIndex > 0;
+    setIsDispatching(isRunning);
+    setIsPaused(isPausedState);
+    setResumeIndex(Number(camp.resumeIndex) || 0);
+    setProcessedKeys(Array.isArray(camp.processedKeys) ? camp.processedKeys : []);
+    setStats({
+      total: Number(camp.total) || contacts.length,
+      sent: Number(camp.sent) || 0,
+      failed: Number(camp.failed) || 0
+    });
+    if (Array.isArray(camp.logs) && camp.logs.length > 0) {
+      setDispatchLogs(camp.logs);
+    }
+    if (camp.resumeIndex > 0 || isPausedState || isRunning) {
+      saveCheckpoint(camp.listId || selectedListId, {
+        resumeIndex: Number(camp.resumeIndex) || 0,
+        sent: Number(camp.sent) || 0,
+        failed: Number(camp.failed) || 0,
+        processedKeys: Array.isArray(camp.processedKeys) ? camp.processedKeys : [],
+        channel: camp.channel || channel
+      });
+    } else if (camp.status === 'completed' || camp.status === 'idle') {
+      clearCheckpoint(camp.listId || selectedListId);
+    }
+    return true;
+  };
+
+  const handlePauseDispatch = async () => {
     isPauseRequestedRef.current = true;
     if (sleepResolveRef.current) sleepResolveRef.current();
+    try {
+      const res = await fetch('/api/mass-dispatch/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, list_id: selectedListId })
+      });
+      const data = await res.json();
+      if (data && data.campaign) {
+        applyServerCampaignState(data.campaign);
+        return;
+      }
+    } catch (e) {
+      console.error('Erro ao pausar disparo no servidor:', e);
+    }
     const time = new Date().toLocaleTimeString('pt-BR');
     setDispatchLogs(prev => [...prev, {
       id: Date.now() + Math.random(),
@@ -143,7 +236,7 @@ export default function MassMessage() {
     }]);
   };
 
-  const handleStopDispatch = () => {
+  const handleStopDispatch = async () => {
     if (isDispatching && !confirm('Deseja encerrar o disparo e zerar o progresso desta lista? (Se quiser apenas pausar para continuar depois, clique em "Pausar Disparo").')) {
       return;
     }
@@ -154,6 +247,20 @@ export default function MassMessage() {
     setIsPaused(false);
     setResumeIndex(0);
     setProcessedKeys([]);
+    try {
+      const res = await fetch('/api/mass-dispatch/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, list_id: selectedListId })
+      });
+      const data = await res.json();
+      if (data && data.campaign) {
+        applyServerCampaignState(data.campaign);
+        return;
+      }
+    } catch (e) {
+      console.error('Erro ao parar disparo no servidor:', e);
+    }
     const time = new Date().toLocaleTimeString('pt-BR');
     setDispatchLogs(prev => [...prev, {
       id: Date.now() + Math.random(),
@@ -163,13 +270,27 @@ export default function MassMessage() {
     }]);
   };
 
-  const handleResetProgress = () => {
+  const handleResetProgress = async () => {
     if (!confirm('Deseja descartar o progresso salvo e voltar a fila para o início (contato #1)?')) return;
     clearCheckpoint(selectedListId);
     setIsPaused(false);
     setResumeIndex(0);
     setProcessedKeys([]);
     setStats({ total: contacts.length, sent: 0, failed: 0 });
+    try {
+      const res = await fetch('/api/mass-dispatch/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, list_id: selectedListId })
+      });
+      const data = await res.json();
+      if (data && data.campaign) {
+        applyServerCampaignState(data.campaign);
+        return;
+      }
+    } catch (e) {
+      console.error('Erro ao zerar fila no servidor:', e);
+    }
     const time = new Date().toLocaleTimeString('pt-BR');
     setDispatchLogs(prev => [...prev, {
       id: Date.now() + Math.random(),
@@ -274,7 +395,43 @@ export default function MassMessage() {
     }
   }, [selectedListId]);
 
-  // Restaura progresso salvo (checkpoint) sempre que a lista de contatos carregada mudar
+  // Sincroniza em tempo real com o motor de disparo em segundo plano no servidor
+  // Assim o disparo continua ativo mesmo se o usuário navegar para outras abas/páginas ou fechar o navegador
+  useEffect(() => {
+    let isMounted = true;
+    const syncWithServer = async () => {
+      try {
+        const res = await fetch(`/api/mass-dispatch/status?workspace_id=${workspaceId}&list_id=${selectedListId || ''}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isMounted || !data || !data.success) return;
+
+        // Se existe uma campanha rodando em outra lista deste workspace e a lista atual não está rodando, seleciona a lista ativa
+        if (
+          data.activeInWorkspace &&
+          data.activeInWorkspace.status === 'running' &&
+          String(data.activeInWorkspace.listId) !== String(selectedListId)
+        ) {
+          setSelectedListId(String(data.activeInWorkspace.listId));
+          applyServerCampaignState(data.activeInWorkspace);
+          return;
+        }
+
+        if (data.campaign) {
+          applyServerCampaignState(data.campaign);
+        }
+      } catch (e) {}
+    };
+
+    syncWithServer();
+    const timer = setInterval(syncWithServer, 1500);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [workspaceId, selectedListId, contacts.length]);
+
+  // Restaura progresso salvo (checkpoint local) sempre que a lista de contatos carregada mudar
   useEffect(() => {
     if (!selectedListId || contacts.length === 0 || isDispatching) return;
     try {
@@ -597,6 +754,62 @@ export default function MassMessage() {
     setIsDispatching(true);
     setIsPaused(false);
     setActiveTab('logs');
+
+    // Inicia o disparo em segundo plano no servidor para que continue rodando mesmo se o usuário sair da aba ou fechar o navegador
+    try {
+      let startRes;
+      if (attachment) {
+        const formData = new FormData();
+        formData.append('workspace_id', String(workspaceId));
+        formData.append('list_id', String(selectedListId));
+        formData.append('channel', channel);
+        formData.append('message_text', messageText);
+        formData.append('resume', String(isResuming));
+        formData.append('min_delay', String(minDelay));
+        formData.append('max_delay', String(maxDelay));
+        formData.append('batch_size', String(batchSize));
+        formData.append('batch_pause', String(batchPause));
+        formData.append('simulate_typing', String(simulateTyping));
+        formData.append('enable_daily_limit', String(enableDailyLimit));
+        formData.append('daily_safe_limit', String(dailySafeLimit));
+        formData.append('default_ddi', String(defaultDdi));
+        formData.append('file', attachment);
+        startRes = await fetch('/api/mass-dispatch/start', {
+          method: 'POST',
+          body: formData
+        });
+      } else {
+        startRes = await fetch('/api/mass-dispatch/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workspace_id: workspaceId,
+            list_id: selectedListId,
+            channel,
+            message_text: messageText,
+            resume: isResuming,
+            min_delay: minDelay,
+            max_delay: maxDelay,
+            batch_size: batchSize,
+            batch_pause: batchPause,
+            simulate_typing: simulateTyping,
+            enable_daily_limit: enableDailyLimit,
+            daily_safe_limit: dailySafeLimit,
+            default_ddi: defaultDdi
+          })
+        });
+      }
+
+      if (startRes && startRes.ok) {
+        const startData = await startRes.json();
+        if (startData && startData.success && startData.campaign) {
+          applyServerCampaignState(startData.campaign);
+          return;
+        }
+      }
+    } catch (serverErr) {
+      console.warn('Fallback para disparo local:', serverErr);
+    }
 
     let sentCount = isResuming ? (stats.sent || 0) : 0;
     let failCount = isResuming ? (stats.failed || 0) : 0;

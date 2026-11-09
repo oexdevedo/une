@@ -2342,6 +2342,105 @@ app.post('/api/messages/send', upload.single('file'), async (req, res) => {
   }
 });
 
+// ==========================================
+// MOTOR DE DISPARO EM MASSA EM SEGUNDO PLANO (PERSISTENTE ENTRE ABAS)
+// ==========================================
+app.get('/api/mass-dispatch/status', (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const listId = req.query.list_id || '';
+    const massDispatcher = require('./mass_dispatcher');
+    const data = massDispatcher.getCampaignStatus(workspaceId, listId);
+    res.json({ success: true, ...data });
+  } catch (error) {
+    console.error('Erro ao buscar status do disparo em massa:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mass-dispatch/start', upload.single('file'), async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const {
+      list_id,
+      channel,
+      message_text,
+      resume,
+      min_delay,
+      max_delay,
+      batch_size,
+      batch_pause,
+      simulate_typing,
+      enable_daily_limit,
+      daily_safe_limit,
+      default_ddi
+    } = req.body;
+
+    const massDispatcher = require('./mass_dispatcher');
+    const state = await massDispatcher.startCampaign(workspaceId, {
+      listId: list_id,
+      channel: channel || 'whatsapp',
+      messageText: message_text || '',
+      resume: resume === true || resume === 'true',
+      file: req.file || null,
+      config: {
+        minDelay: Number(min_delay) || 25,
+        maxDelay: Number(max_delay) || 50,
+        batchSize: Number(batch_size) || 12,
+        batchPause: Number(batch_pause) || 120,
+        simulateTyping: simulate_typing === undefined ? true : (simulate_typing === true || simulate_typing === 'true'),
+        enableDailyLimit: enable_daily_limit === undefined ? true : (enable_daily_limit === true || enable_daily_limit === 'true'),
+        dailySafeLimit: Number(daily_safe_limit) || 35,
+        defaultDdi: default_ddi || '66'
+      }
+    });
+
+    res.json({ success: true, campaign: state });
+  } catch (error) {
+    console.error('Erro ao iniciar disparo em massa no servidor:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mass-dispatch/pause', (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const { list_id } = req.body;
+    const massDispatcher = require('./mass_dispatcher');
+    const state = massDispatcher.pauseCampaign(workspaceId, list_id);
+    res.json({ success: true, campaign: state });
+  } catch (error) {
+    console.error('Erro ao pausar disparo em massa:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mass-dispatch/stop', (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const { list_id } = req.body;
+    const massDispatcher = require('./mass_dispatcher');
+    const state = massDispatcher.stopCampaign(workspaceId, list_id);
+    res.json({ success: true, campaign: state });
+  } catch (error) {
+    console.error('Erro ao parar disparo em massa:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/mass-dispatch/reset', (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const { list_id } = req.body;
+    const massDispatcher = require('./mass_dispatcher');
+    const state = massDispatcher.resetCampaign(workspaceId, list_id);
+    res.json({ success: true, campaign: state });
+  } catch (error) {
+    console.error('Erro ao zerar fila de disparo:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.delete('/api/messages/:jid', async (req, res) => {
   const workspaceId = getEffectiveWorkspaceId(req);
   const jid = req.params.jid;
