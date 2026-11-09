@@ -8,7 +8,7 @@ const aiHandler = require('./ai_handler');
 const { getWhatsAppAuthDir, clearWhatsAppAuthDir, UPLOADS_DIR } = require('./storage');
 const { normalizePhone, getWhatsAppCandidates } = require('./phone_utils');
 
-const MAX_SLOTS = 3;
+const MAX_SLOTS = 5;
 const sessions = {}; 
 let reconnectTimeouts = {};
 const roundRobinCounters = {};

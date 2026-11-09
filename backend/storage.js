@@ -32,9 +32,9 @@ if (path.resolve(DB_PATH) !== legacyDbPath && !fs.existsSync(DB_PATH) && fs.exis
   }
 }
 
-// 2. Diretório de Sessão do WhatsApp (Baileys) — suporta até 3 linhas por Workspace (slot 1, 2, 3)
+// 2. Diretório de Sessão do WhatsApp (Baileys) — suporta até 5 linhas por Workspace (slot 1 a 5)
 function getWhatsAppDirName(workspaceId = 1, slot = 1) {
-  const numSlot = Math.min(Math.max(Number(slot) || 1, 1), 3);
+  const numSlot = Math.min(Math.max(Number(slot) || 1, 1), 5);
   return numSlot === 1
     ? `auth_info_baileys_${workspaceId}`
     : `auth_info_baileys_${workspaceId}_slot${numSlot}`;

@@ -1197,7 +1197,7 @@ export default function MassMessage() {
               onClick={() => setChannel('whatsapp')}
             >
               <Smartphone size={14} />
-              WhatsApp: {waStatus === 'connected' ? `${waConnectedCount || 1}/3 Conectado(s)` : 'Off'}
+              WhatsApp: {waStatus === 'connected' ? `${waConnectedCount || 1}/5 Conectado(s)` : 'Off'}
             </span>
             <span 
               className={`badge ${tgStatus === 'connected' ? 'info' : 'light'}`}
@@ -1255,12 +1255,12 @@ export default function MassMessage() {
                       <Smartphone size={24} />
                     </div>
                     <div className="channel-meta">
-                      <h4>WhatsApp (Até 3 Linhas em Rodízio)</h4>
+                      <h4>WhatsApp (Até 5 Linhas em Rodízio)</h4>
                       <p>Disparo direto alternando entre todos os números conectados</p>
                       <span className={`channel-status-pill ${waStatus === 'connected' ? 'connected' : 'disconnected'}`}>
                         {waStatus === 'connected'
-                          ? `● ${waConnectedCount || 1}/3 Linha(s) Conectada(s)${waConnectedCount > 1 ? ' (Rodízio Ativo)' : ''}`
-                          : '○ Desconectado (Conectar até 3 linhas na aba Conexões)'}
+                          ? `● ${waConnectedCount || 1}/5 Linha(s) Conectada(s)${waConnectedCount > 1 ? ' (Rodízio Ativo)' : ''}`
+                          : '○ Desconectado (Conectar até 5 linhas na aba Conexões)'}
                       </span>
                     </div>
                   </div>

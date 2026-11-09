@@ -28,7 +28,9 @@ export default function Connections({ isSubpage = false }) {
   const [waSlots, setWaSlots] = useState([
     { slot: 1, label: 'Linha 1 (Principal)', status: 'disconnected', qr: '', phone: '', name: '' },
     { slot: 2, label: 'Linha 2', status: 'disconnected', qr: '', phone: '', name: '' },
-    { slot: 3, label: 'Linha 3', status: 'disconnected', qr: '', phone: '', name: '' }
+    { slot: 3, label: 'Linha 3', status: 'disconnected', qr: '', phone: '', name: '' },
+    { slot: 4, label: 'Linha 4', status: 'disconnected', qr: '', phone: '', name: '' },
+    { slot: 5, label: 'Linha 5', status: 'disconnected', qr: '', phone: '', name: '' }
   ]);
   const [waConnectedCount, setWaConnectedCount] = useState(0);
   const [isLoadingWA, setIsLoadingWA] = useState(false);
@@ -599,7 +601,7 @@ export default function Connections({ isSubpage = false }) {
       </div>
 
       <div className="connections-grid">
-        {/* WhatsApp Card (Suporte a até 3 Números em Rodízio) */}
+        {/* WhatsApp Card (Suporte a até 5 Números em Rodízio) */}
         <div className="connection-card">
           <div className="connection-card-header">
             <div className="connection-icon" style={{ backgroundColor: '#DCFCE7', color: '#16A34A' }}>
@@ -607,7 +609,7 @@ export default function Connections({ isSubpage = false }) {
             </div>
             <div className="connection-title" style={{ flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <h2>WhatsApp (Até 3 Linhas)</h2>
+                <h2>WhatsApp (Até 5 Linhas)</h2>
                 <span style={{
                   fontSize: '0.75rem',
                   fontWeight: 700,
@@ -616,7 +618,7 @@ export default function Connections({ isSubpage = false }) {
                   backgroundColor: waConnectedCount > 0 ? '#DCFCE7' : '#F4F4F5',
                   color: waConnectedCount > 0 ? '#15803D' : '#71717A'
                 }}>
-                  {waConnectedCount}/3 conectados
+                  {waConnectedCount}/5 conectados
                 </span>
               </div>
               <span className={`status-badge status-${waStatus}`}>
@@ -625,18 +627,18 @@ export default function Connections({ isSubpage = false }) {
             </div>
           </div>
 
-          {/* Seletor das 3 Linhas de WhatsApp */}
+          {/* Seletor das 5 Linhas de WhatsApp */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '8px',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(95px, 1fr))',
+            gap: '6px',
             marginBottom: '16px',
             background: '#F8FAFC',
             padding: '6px',
             borderRadius: '12px',
             border: '1px solid #E2E8F0'
           }}>
-            {[1, 2, 3].map((slotNum) => {
+            {[1, 2, 3, 4, 5].map((slotNum) => {
               const slotObj = waSlots.find(s => s.slot === slotNum) || { slot: slotNum, status: 'disconnected', phone: '' };
               const isSelected = activeWaSlot === slotNum;
               const isSlotConnected = slotObj.status === 'connected';
@@ -665,7 +667,7 @@ export default function Connections({ isSubpage = false }) {
                     transition: 'all 0.15s ease'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '0.82rem', color: '#18181B' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '0.78rem', color: '#18181B' }}>
                     <span style={{
                       width: 8,
                       height: 8,
@@ -674,7 +676,7 @@ export default function Connections({ isSubpage = false }) {
                     }} />
                     Linha #{slotNum}
                   </div>
-                  <span style={{ fontSize: '0.7rem', color: isSlotConnected ? '#15803D' : '#64748B', fontWeight: 600 }}>
+                  <span style={{ fontSize: '0.68rem', color: isSlotConnected ? '#15803D' : '#64748B', fontWeight: 600 }}>
                     {isSlotConnected ? (slotObj.phone ? `+${slotObj.phone}` : 'Conectado') : isSlotConnecting ? 'QR Code' : 'Livre'}
                   </span>
                 </button>
@@ -696,7 +698,7 @@ export default function Connections({ isSubpage = false }) {
                 <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '4px' }}>
                   {waConnectedCount > 1
                     ? `🔄 Rodízio automático ativo entre ${waConnectedCount} números nos disparos em massa.`
-                    : 'Você pode conectar até mais 2 números nas abas Linha #2 e Linha #3 acima para rodízio.'}
+                    : 'Você pode conectar até 5 números nas abas Linha #1 a Linha #5 acima para rodízio.'}
                 </p>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'center' }}>
                   <button className="btn-secondary" onClick={() => startWhatsApp(false, activeWaSlot)}>
