@@ -101,9 +101,20 @@ export default function MassMessage() {
   const [newListName, setNewListName] = useState('');
   const [isCreatingList, setIsCreatingList] = useState(false);
 
-  // Modal de Templates
+  // Modal de Templates e Seleção Múltipla de Mensagens
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [savedTemplates, setSavedTemplates] = useState([]);
+  const [selectedTemplates, setSelectedTemplates] = useState(() => {
+    if (Array.isArray(initialDraft.selectedTemplates) && initialDraft.selectedTemplates.length > 0) {
+      return initialDraft.selectedTemplates;
+    }
+    return [];
+  });
+  const [activeTemplateIndex, setActiveTemplateIndex] = useState(0);
+  const [multiMessageMode, setMultiMessageMode] = useState(initialDraft.multiMessageMode || 'rotate'); // 'rotate' | 'sequence'
+  const [newQuickTemplateTitle, setNewQuickTemplateTitle] = useState('');
+  const [newQuickTemplateContent, setNewQuickTemplateContent] = useState('');
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
 
   // Anexo e CSV
   const [attachment, setAttachment] = useState(null);
@@ -136,6 +147,9 @@ export default function MassMessage() {
         activeTab,
         channel,
         messageText,
+        selectedTemplates,
+        multiMessageMode,
+        selectedListIds,
         selectedListId,
         minDelay,
         maxDelay,
@@ -151,6 +165,9 @@ export default function MassMessage() {
     activeTab,
     channel,
     messageText,
+    selectedTemplates,
+    multiMessageMode,
+    selectedListIds,
     selectedListId,
     minDelay,
     maxDelay,
@@ -531,30 +548,130 @@ export default function MassMessage() {
     }
   };
 
-  // Carrega Templates salvos
-  useEffect(() => {
-    if (isTemplateModalOpen) {
-      fetch(`/api/templates?workspace_id=${workspaceId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (Array.isArray(data) && data.length > 0) {
-            setSavedTemplates(data);
-          } else {
-            const st = localStorage.getItem(`unne_templates_ws_${workspaceId}`) || localStorage.getItem('unne_templates');
-            if (st) {
-              try { setSavedTemplates(JSON.parse(st)); } catch (e) {}
-            }
-          }
-        })
-        .catch(err => {
-          console.error(err);
-          const st = localStorage.getItem(`unne_templates_ws_${workspaceId}`) || localStorage.getItem('unne_templates');
-          if (st) {
-            try { setSavedTemplates(JSON.parse(st)); } catch (e) {}
-          }
-        });
+  // Carrega Templates salvos ao iniciar e quando abrir o modal
+  const fetchTemplatesList = async () => {
+    try {
+      const res = await fetch(`/api/templates?workspace_id=${workspaceId}`);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setSavedTemplates(data);
+        return;
+      }
+    } catch (err) {
+      console.error(err);
     }
+    const st = localStorage.getItem(`unne_templates_ws_${workspaceId}`) || localStorage.getItem('unne_templates');
+    if (st) {
+      try { setSavedTemplates(JSON.parse(st)); } catch (e) {}
+    }
+  };
+
+  useEffect(() => {
+    fetchTemplatesList();
   }, [isTemplateModalOpen, workspaceId]);
+
+  const isTemplateSelected = (tplId) => {
+    return selectedTemplates.some(t => String(t.id) === String(tplId));
+  };
+
+  const toggleTemplateSelection = (tpl) => {
+    if (!tpl) return;
+    setSelectedTemplates(prev => {
+      const exists = prev.some(item => String(item.id) === String(tpl.id));
+      let next;
+      if (exists) {
+        next = prev.filter(item => String(item.id) !== String(tpl.id));
+      } else {
+        next = [...prev, { id: tpl.id, title: tpl.title || 'Template', content: tpl.content || '' }];
+      }
+      if (next.length > 0) {
+        const safeIdx = Math.min(activeTemplateIndex, next.length - 1);
+        setActiveTemplateIndex(safeIdx);
+        setMessageText(next[safeIdx].content || '');
+      }
+      return next;
+    });
+  };
+
+  const handleSelectActiveTemplateTab = (idx) => {
+    if (idx < 0 || idx >= selectedTemplates.length) return;
+    setActiveTemplateIndex(idx);
+    setMessageText(selectedTemplates[idx].content || '');
+  };
+
+  const handleMessageTextChange = (val) => {
+    setMessageText(val);
+    if (selectedTemplates.length > 0) {
+      setSelectedTemplates(prev =>
+        prev.map((item, idx) => (idx === activeTemplateIndex ? { ...item, content: val } : item))
+      );
+    }
+  };
+
+  const handleAddBlankMessageVariation = () => {
+    setSelectedTemplates(prev => {
+      const base = prev.length > 0
+        ? prev
+        : [{ id: `custom_1`, title: 'Mensagem #1', content: messageText || '' }];
+      const nextNum = base.length + 1;
+      const newItem = {
+        id: `custom_${Date.now()}`,
+        title: `Mensagem #${nextNum}`,
+        content: ''
+      };
+      const next = [...base, newItem];
+      setActiveTemplateIndex(next.length - 1);
+      setMessageText('');
+      return next;
+    });
+  };
+
+  const handleRemoveSelectedTemplate = (idxToRemove) => {
+    setSelectedTemplates(prev => {
+      const next = prev.filter((_, idx) => idx !== idxToRemove);
+      if (next.length > 0) {
+        const nextIdx = Math.min(activeTemplateIndex, next.length - 1);
+        setActiveTemplateIndex(nextIdx);
+        setMessageText(next[nextIdx].content || '');
+      }
+      return next;
+    });
+  };
+
+  const handleCreateQuickTemplate = async (e) => {
+    if (e) e.preventDefault();
+    if (!newQuickTemplateTitle.trim() || !newQuickTemplateContent.trim()) {
+      alert('Preencha o título e o conteúdo do novo template.');
+      return;
+    }
+    setIsCreatingTemplate(true);
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          title: newQuickTemplateTitle.trim(),
+          content: newQuickTemplateContent.trim()
+        })
+      });
+      const data = await res.json();
+      const created = {
+        id: data.id || Date.now(),
+        title: newQuickTemplateTitle.trim(),
+        content: newQuickTemplateContent.trim()
+      };
+      setSavedTemplates(prev => [created, ...prev]);
+      toggleTemplateSelection(created);
+      setNewQuickTemplateTitle('');
+      setNewQuickTemplateContent('');
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar template.');
+    } finally {
+      setIsCreatingTemplate(false);
+    }
+  };
 
   const handleLoadTemplate = (content) => {
     setMessageText(content);
@@ -744,15 +861,19 @@ export default function MassMessage() {
   }, [messageText, contacts]);
 
   const insertVariable = (variable) => {
-    setMessageText(prev => prev + ' ' + variable);
+    handleMessageTextChange((messageText || '') + ' ' + variable);
   };
 
   const handleTestSpintax = () => {
     const previewContact = getPreviewContact();
-    setPreviewText(formatMessageForContact(messageText, previewContact));
+    const activeList = selectedTemplates.filter(t => t && String(t.content || '').trim());
+    const sourceText = activeList.length > 1
+      ? activeList[Math.floor(Math.random() * activeList.length)].content
+      : messageText;
+    setPreviewText(formatMessageForContact(sourceText, previewContact));
   };
 
-  // Motor de Disparo em Massa Multi-Canal (WhatsApp e Telegram) com suporte a Pausar e Retomar
+  // Motor de Disparo em Massa Multi-Canal (WhatsApp e Telegram) com suporte a Pausar, Retomar e Múltiplos Templates
   const handleStartDispatch = async (options = {}) => {
     const isResuming = Boolean(options && options.resume === true && resumeIndex > 0 && resumeIndex < contacts.length);
 
@@ -760,8 +881,16 @@ export default function MassMessage() {
       alert('A lista selecionada não possui contatos cadastrados para envio.');
       return;
     }
-    if (!messageText.trim()) {
-      alert('Escreva uma mensagem antes de iniciar o disparo.');
+
+    const validTemplates = selectedTemplates
+      .map(t => ({ id: t.id, title: t.title || 'Template', content: String(t.content || '').trim() }))
+      .filter(t => t.content.length > 0);
+    const effectiveTemplates = validTemplates.length > 0
+      ? validTemplates
+      : (messageText.trim() ? [{ id: 'main', title: 'Mensagem Principal', content: messageText.trim() }] : []);
+
+    if (effectiveTemplates.length === 0) {
+      alert('Escreva uma mensagem ou selecione ao menos um template antes de iniciar o disparo.');
       return;
     }
     if (isDispatching) return;
@@ -780,9 +909,13 @@ export default function MassMessage() {
     const startIdx = isResuming ? resumeIndex : 0;
     const remainingCount = contacts.length - startIdx;
 
+    const tplSummary = effectiveTemplates.length > 1
+      ? ` (${effectiveTemplates.length} templates selecionados em modo ${multiMessageMode === 'sequence' ? 'Sequencial' : 'Rodízio'})`
+      : '';
+
     const confirmMsg = isResuming
-      ? `Deseja retomar o disparo de onde parou (a partir do contato #${startIdx + 1}, faltando ${remainingCount} de ${contacts.length} contatos) via ${channelName}?`
-      : `Deseja iniciar o disparo em massa para ${contacts.length} contatos via ${channelName}?`;
+      ? `Deseja retomar o disparo de onde parou (a partir do contato #${startIdx + 1}, faltando ${remainingCount} de ${contacts.length} contatos) via ${channelName}${tplSummary}?`
+      : `Deseja iniciar o disparo em massa para ${contacts.length} contatos via ${channelName}${tplSummary}?`;
 
     if (!confirm(confirmMsg)) return;
 
@@ -800,7 +933,9 @@ export default function MassMessage() {
         formData.append('workspace_id', String(workspaceId));
         formData.append('list_id', String(selectedListId));
         formData.append('channel', channel);
-        formData.append('message_text', messageText);
+        formData.append('message_text', effectiveTemplates[0].content);
+        formData.append('message_templates', JSON.stringify(effectiveTemplates));
+        formData.append('multi_message_mode', multiMessageMode);
         formData.append('resume', String(isResuming));
         formData.append('min_delay', String(minDelay));
         formData.append('max_delay', String(maxDelay));
@@ -823,7 +958,9 @@ export default function MassMessage() {
             workspace_id: workspaceId,
             list_id: selectedListId,
             channel,
-            message_text: messageText,
+            message_text: effectiveTemplates[0].content,
+            message_templates: effectiveTemplates,
+            multi_message_mode: multiMessageMode,
             resume: isResuming,
             min_delay: minDelay,
             max_delay: maxDelay,
@@ -1493,20 +1630,138 @@ export default function MassMessage() {
               )}
             </div>
 
-            {/* COMPOR MENSAGEM */}
+            {/* COMPOR MENSAGEM (SUPORTE A MÚLTIPLOS TEMPLATES / VARIAÇÕES) */}
             <div className="premium-card">
-              <div className="card-header">
+              <div className="card-header" style={{ flexWrap: 'wrap', gap: '10px' }}>
                 <div className="card-title"><Message size={20} /> Compor Mensagem</div>
-                <button className="btn-pill btn-light" onClick={() => setIsTemplateModalOpen(true)}>
-                  <Plus size={14}/> Carregar Template
-                </button>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button className="btn-pill btn-light" onClick={handleAddBlankMessageVariation} title="Adicionar mais uma variação de mensagem para enviar junto ou em rodízio">
+                    <Plus size={14}/> +1 Variação de Mensagem
+                  </button>
+                  <button
+                    className="btn-pill"
+                    style={{
+                      backgroundColor: selectedTemplates.length > 0 ? '#dcfce7' : undefined,
+                      color: selectedTemplates.length > 0 ? '#15803d' : undefined,
+                      border: selectedTemplates.length > 0 ? '1px solid #86efac' : undefined,
+                      fontWeight: 700
+                    }}
+                    onClick={() => setIsTemplateModalOpen(true)}
+                  >
+                    <Plus size={14}/> Selecionar Templates {selectedTemplates.length > 0 ? `(${selectedTemplates.length} selecionado${selectedTemplates.length > 1 ? 's' : ''})` : ''}
+                  </button>
+                </div>
               </div>
+
+              {/* Barra de Templates / Mensagens Selecionadas */}
+              {selectedTemplates.length > 0 && (
+                <div style={{
+                  marginBottom: '16px',
+                  padding: '12px 14px',
+                  borderRadius: '12px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
+                      📋 Mensagens ativas na campanha ({selectedTemplates.length}): clique para visualizar ou editar
+                    </span>
+                    {selectedTemplates.length > 1 && (
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => setMultiMessageMode('rotate')}
+                          style={{
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            border: multiMessageMode === 'rotate' ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                            backgroundColor: multiMessageMode === 'rotate' ? '#dcfce7' : '#ffffff',
+                            color: multiMessageMode === 'rotate' ? '#15803d' : '#475569',
+                            cursor: 'pointer'
+                          }}
+                          title="Alterna entre os templates selecionados a cada contato (Contato 1 -> Msg 1, Contato 2 -> Msg 2...)"
+                        >
+                          🔄 Alternar em Rodízio (1 por contato)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMultiMessageMode('sequence')}
+                          style={{
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            border: multiMessageMode === 'sequence' ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                            backgroundColor: multiMessageMode === 'sequence' ? '#e0f2fe' : '#ffffff',
+                            color: multiMessageMode === 'sequence' ? '#0369a1' : '#475569',
+                            cursor: 'pointer'
+                          }}
+                          title="Envia todas as mensagens selecionadas em sequência para o mesmo contato"
+                        >
+                          📨 Enviar Todas em Sequência (para cada contato)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {selectedTemplates.map((tpl, idx) => {
+                      const isEditing = activeTemplateIndex === idx;
+                      return (
+                        <div
+                          key={`${tpl.id}_${idx}`}
+                          onClick={() => handleSelectActiveTemplateTab(idx)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            border: isEditing ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                            backgroundColor: isEditing ? '#f0fdf4' : '#ffffff',
+                            cursor: 'pointer',
+                            fontSize: '0.82rem',
+                            fontWeight: isEditing ? 700 : 600,
+                            color: isEditing ? '#15803d' : '#334155'
+                          }}
+                        >
+                          <span>#{idx + 1} {tpl.title || `Mensagem ${idx + 1}`}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveSelectedTemplate(idx);
+                            }}
+                            title="Remover esta mensagem da seleção"
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#ef4444',
+                              cursor: 'pointer',
+                              padding: '0 2px',
+                              fontSize: '0.9rem',
+                              lineHeight: 1
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               
               <div className="form-group">
                 <textarea 
                   className="modern-input message-textarea"
                   value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
+                  onChange={(e) => handleMessageTextChange(e.target.value)}
                   placeholder="{Olá|Oi} {primeiro_nome}! Escreva sua mensagem aqui..."
                 />
                 
@@ -1522,18 +1777,18 @@ export default function MassMessage() {
                   <div 
                     className="var-tag" 
                     style={{ border: '1px solid #fed7aa', color: '#c2410c', backgroundColor: '#fff7ed', fontWeight: 600 }}
-                    onClick={() => setMessageText(prev => prev.trim() + '\n\n_Para não receber mais mensagens, responda SAIR._')}
+                    onClick={() => handleMessageTextChange((messageText || '').trim() + '\n\n_Para não receber mais mensagens, responda SAIR._')}
                     title="Adiciona aviso de cancelamento no rodapé para evitar que o lead clique em Denunciar Spam"
                   >
                     + Opt-out (Responda SAIR)
                   </div>
                 </div>
 
-                {channel === 'whatsapp' && (!messageText.includes('{') || !messageText.includes('|')) && (
+                {channel === 'whatsapp' && selectedTemplates.length <= 1 && (!messageText.includes('{') || !messageText.includes('|')) && (
                   <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '10px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#92400e' }}>
                     <WarningDiamond size={18} style={{ flexShrink: 0, color: '#d97706' }} />
                     <div>
-                      <strong>Aviso Anti-Ban:</strong> Sua mensagem não possui variações (Spintax). Enviar o mesmo texto idêntico para dezenas de contatos é uma das principais causas de bloqueio no WhatsApp. Recomendamos usar <code>{'{Olá|Oi|Como vai}'}</code>.
+                      <strong>Aviso Anti-Ban:</strong> Sua mensagem não possui variações (Spintax) nem múltiplos templates em rodízio. Recomendamos selecionar 2 ou mais templates em <strong>"Selecionar Templates"</strong> ou usar <code>{'{Olá|Oi|Como vai}'}</code>.
                     </div>
                   </div>
                 )}
@@ -2169,46 +2424,143 @@ export default function MassMessage() {
         </div>
       )}
 
-      {/* MODAL DE TEMPLATES */}
+      {/* MODAL DE TEMPLATES (SELEÇÃO MÚLTIPLA DE MENSAGENS) */}
       {isTemplateModalOpen && (
         <div className="modal-overlay" onClick={() => setIsTemplateModalOpen(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '620px' }}>
             <div className="modal-header">
-              <h2>Carregar Template</h2>
+              <h2>Selecionar Templates da Campanha</h2>
               <button className="btn-icon" onClick={() => setIsTemplateModalOpen(false)}>
                 <Close size={24} />
               </button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ fontSize: '0.85rem', color: '#475569' }}>
+                  Marque <strong>1 ou mais templates</strong> para enviar ao mesmo tempo (em rodízio ou sequência):
+                </span>
+                {savedTemplates.length > 0 && (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className="btn-pill btn-light"
+                      style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                      onClick={() => {
+                        const all = savedTemplates.map(t => ({ id: t.id, title: t.title || 'Template', content: t.content || '' }));
+                        setSelectedTemplates(all);
+                        if (all.length > 0) {
+                          setActiveTemplateIndex(0);
+                          setMessageText(all[0].content || '');
+                        }
+                      }}
+                    >
+                      ✓ Selecionar Todos ({savedTemplates.length})
+                    </button>
+                    {selectedTemplates.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-pill btn-light"
+                        style={{ fontSize: '0.75rem', padding: '4px 10px', color: '#ef4444' }}
+                        onClick={() => setSelectedTemplates([])}
+                      >
+                        Limpar Seleção
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Lista de Templates com Checkbox */}
               {savedTemplates.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>
-                  Você ainda não salvou nenhum template. Crie-os na página Templates.
+                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0', margin: 0 }}>
+                  Nenhum template salvo ainda. Crie um abaixo ou na aba Templates!
                 </p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
-                  {savedTemplates.map(t => (
-                    <div 
-                      key={t.id} 
-                      onClick={() => handleLoadTemplate(t.content)}
-                      style={{ 
-                        padding: '12px', 
-                        border: '1px solid var(--border)', 
-                        borderRadius: '8px', 
-                        cursor: 'pointer', 
-                        backgroundColor: 'var(--surface)',
-                        transition: 'background 0.2s' 
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--surface-hover)'}
-                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--surface)'}
-                    >
-                      <h4 style={{ margin: '0 0 4px 0', fontSize: '1rem', color: 'var(--text-main)' }}>{t.title || 'Sem título'}</h4>
-                      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {t.content}
-                      </p>
-                    </div>
-                  ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                  {savedTemplates.map(t => {
+                    const checked = isTemplateSelected(t.id);
+                    return (
+                      <div 
+                        key={t.id} 
+                        onClick={() => toggleTemplateSelection(t)}
+                        style={{ 
+                          padding: '12px 14px', 
+                          border: checked ? '2px solid #16a34a' : '1px solid var(--border)', 
+                          borderRadius: '10px', 
+                          cursor: 'pointer', 
+                          backgroundColor: checked ? '#f0fdf4' : 'var(--surface)',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '12px',
+                          transition: 'all 0.15s ease' 
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {}}
+                          style={{ width: 18, height: 18, marginTop: '2px', accentColor: '#16a34a', cursor: 'pointer', flexShrink: 0 }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-main)' }}>{t.title || 'Sem título'}</h4>
+                            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: checked ? '#15803d' : '#64748b' }}>
+                              {checked ? '✓ Selecionado' : 'Clique para selecionar'}
+                            </span>
+                          </div>
+                          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {t.content}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
+
+              {/* Formulário Rápido para Criar Novo Template aqui mesmo */}
+              <form onSubmit={handleCreateQuickTemplate} style={{ padding: '12px', borderRadius: '10px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
+                  + Criar Novo Template Rápido
+                </div>
+                <input
+                  type="text"
+                  className="modern-input"
+                  placeholder="Título do template (ex: Abordagem 2 - Promoção)"
+                  value={newQuickTemplateTitle}
+                  onChange={e => setNewQuickTemplateTitle(e.target.value)}
+                  style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                />
+                <textarea
+                  className="modern-input"
+                  placeholder="Texto da mensagem (pode usar {primeiro_nome}, {saudacao}, Spintax...)"
+                  value={newQuickTemplateContent}
+                  onChange={e => setNewQuickTemplateContent(e.target.value)}
+                  rows={2}
+                  style={{ padding: '8px 12px', fontSize: '0.85rem', resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="submit"
+                    className="btn-pill btn-light"
+                    disabled={isCreatingTemplate || !newQuickTemplateTitle.trim() || !newQuickTemplateContent.trim()}
+                    style={{ fontSize: '0.8rem', fontWeight: 700 }}
+                  >
+                    {isCreatingTemplate ? 'Salvando...' : '+ Salvar e Incluir na Campanha'}
+                  </button>
+                </div>
+              </form>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '6px' }}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setIsTemplateModalOpen(false)}
+                  style={{ padding: '10px 22px' }}
+                >
+                  Confirmar Seleção ({selectedTemplates.length} template{selectedTemplates.length === 1 ? '' : 's'})
+                </button>
+              </div>
             </div>
           </div>
         </div>

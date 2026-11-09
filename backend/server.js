@@ -2394,6 +2394,8 @@ app.post('/api/mass-dispatch/start', upload.single('file'), async (req, res) => 
       list_id,
       channel,
       message_text,
+      message_templates,
+      multi_message_mode,
       resume,
       min_delay,
       max_delay,
@@ -2405,11 +2407,24 @@ app.post('/api/mass-dispatch/start', upload.single('file'), async (req, res) => 
       default_ddi
     } = req.body;
 
+    let parsedTemplates = [];
+    if (Array.isArray(message_templates)) {
+      parsedTemplates = message_templates;
+    } else if (typeof message_templates === 'string' && message_templates.trim()) {
+      try {
+        parsedTemplates = JSON.parse(message_templates);
+      } catch (e) {
+        parsedTemplates = [];
+      }
+    }
+
     const massDispatcher = require('./mass_dispatcher');
     const state = await massDispatcher.startCampaign(workspaceId, {
       listId: list_id,
       channel: channel || 'whatsapp',
       messageText: message_text || '',
+      messageTemplates: parsedTemplates,
+      multiMessageMode: multi_message_mode || 'rotate',
       resume: resume === true || resume === 'true',
       file: req.file || null,
       config: {

@@ -352,24 +352,52 @@ async function runCampaignLoop(workspaceId, listId) {
 
     const targetDest = destResult.targetDest;
     const displayDest = targetDest.replace('@s.whatsapp.net', '').replace('@telegram', '').replace('@lid', '');
-    const contactMsg = formatMessageForContact(state.messageText, contact);
+
+    // Prepara lista de mensagens/templates da campanha (suporta rodízio entre templates ou envio sequencial)
+    const rawTemplates = Array.isArray(state.messageTemplates)
+      ? state.messageTemplates
+          .map((t, idx) => (typeof t === 'string' ? { title: `Mensagem #${idx + 1}`, content: t } : t))
+          .filter(t => t && String(t.content || '').trim())
+      : [];
+    const activeTemplates = rawTemplates.length > 0
+      ? rawTemplates
+      : [{ title: 'Mensagem Principal', content: state.messageText || '' }];
+    const multiMode = state.multiMessageMode === 'sequence' ? 'sequence' : 'rotate';
+
+    const messagesToSend = multiMode === 'sequence' && activeTemplates.length > 1
+      ? activeTemplates
+      : [activeTemplates[i % activeTemplates.length]];
 
     if (channel === 'whatsapp' && simulateTyping) {
       addCampaignLog(state, 'info', `✍️ [${channelName.toUpperCase()}] Simulando presença "Digitando..." para ${contact.name}...`);
     }
-    addCampaignLog(state, 'info', `[${i + 1}/${contacts.length}] [${channelName.toUpperCase()}] Enviando para ${contact.name} (${displayDest})...`);
+    const tplHeader = activeTemplates.length > 1
+      ? (multiMode === 'sequence'
+          ? ` (${messagesToSend.length} mensagens em sequência)`
+          : ` [Template: ${messagesToSend[0].title || `#${(i % activeTemplates.length) + 1}`}]`)
+      : '';
+    addCampaignLog(state, 'info', `[${i + 1}/${contacts.length}] [${channelName.toUpperCase()}] Enviando para ${contact.name} (${displayDest})${tplHeader}...`);
     savePersistedState();
 
     let channelDisconnected = false;
     try {
-      const sentRes = await sendSingleMessage(workspaceId, targetDest, contactMsg, state.file, contact.name || '', simulateTyping);
+      let lastSentRes = null;
+      for (let mIdx = 0; mIdx < messagesToSend.length; mIdx++) {
+        const tplItem = messagesToSend[mIdx];
+        const contactMsg = formatMessageForContact(tplItem.content, contact);
+        const fileForThisMsg = mIdx === 0 ? state.file : null;
+        lastSentRes = await sendSingleMessage(workspaceId, targetDest, contactMsg, fileForThisMsg, contact.name || '', simulateTyping);
+        if (mIdx < messagesToSend.length - 1) {
+          await interruptibleSleep(runtime, 2000 + Math.floor(Math.random() * 1500));
+        }
+      }
       sentCount++;
       sessionSentCount++;
       sentSet.add(contactKey);
-      const slotTag = sentRes && sentRes.usedSlot
-        ? `${channelName.toUpperCase()} Linha #${sentRes.usedSlot}${sentRes.usedPhone ? ' • ' + sentRes.usedPhone : ''}`
+      const slotTag = lastSentRes && lastSentRes.usedSlot
+        ? `${channelName.toUpperCase()} Linha #${lastSentRes.usedSlot}${lastSentRes.usedPhone ? ' • ' + lastSentRes.usedPhone : ''}`
         : channelName.toUpperCase();
-      addCampaignLog(state, 'success', `✓ [${slotTag}] Enviado com sucesso para ${contact.name} (${displayDest})`);
+      addCampaignLog(state, 'success', `✓ [${slotTag}] Enviado com sucesso para ${contact.name} (${displayDest})${tplHeader}`);
     } catch (err) {
       const errDetail = err?.message || 'Erro no envio';
       if (errDetail.toLowerCase().includes('desconectado') || errDetail.toLowerCase().includes('não está conectado')) {
@@ -477,6 +505,10 @@ async function startCampaign(workspaceId, params) {
         total: contacts.length,
         channel,
         messageText: params.messageText || existing.messageText || '',
+        messageTemplates: Array.isArray(params.messageTemplates) && params.messageTemplates.length > 0
+          ? params.messageTemplates
+          : (existing.messageTemplates || []),
+        multiMessageMode: params.multiMessageMode || existing.multiMessageMode || 'rotate',
         file: params.file || existing.file || null,
         config: { ...(existing.config || {}), ...(params.config || {}) },
         updatedAt: Date.now()
@@ -487,6 +519,8 @@ async function startCampaign(workspaceId, params) {
         status: 'running',
         channel,
         messageText: params.messageText || '',
+        messageTemplates: Array.isArray(params.messageTemplates) ? params.messageTemplates : [],
+        multiMessageMode: params.multiMessageMode || 'rotate',
         file: params.file || null,
         config: params.config || {},
         total: contacts.length,
