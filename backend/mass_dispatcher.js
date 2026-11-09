@@ -263,18 +263,20 @@ async function runCampaignLoop(workspaceId, listId) {
       continue;
     }
 
-    // Trava Diária Anti-Ban por etapa (multiplica pela quantidade de linhas de WhatsApp conectadas em rodízio)
-    const activeWaSlots = channel === 'whatsapp' ? require('./whatsapp').getConnectedSlots(workspaceId) : [];
-    const activeLinesCount = Math.max(1, activeWaSlots.length);
+    // Trava Diária Anti-Ban por etapa (multiplica pela quantidade de linhas/contas conectadas em rodízio)
+    const activeChannelSlots = channel === 'whatsapp'
+      ? require('./whatsapp').getConnectedSlots(workspaceId)
+      : require('./telegram_user').getConnectedSlots(workspaceId);
+    const activeLinesCount = Math.max(1, activeChannelSlots.length);
     const effectiveDailyLimit = dailySafeLimit * activeLinesCount;
     const effectiveBatchSize = batchSize * activeLinesCount;
 
-    if (channel === 'whatsapp' && enableDailyLimit && sessionSentCount >= effectiveDailyLimit) {
+    if ((channel === 'whatsapp' || channel === 'telegram') && enableDailyLimit && sessionSentCount >= effectiveDailyLimit) {
       pausedAtIndex = i;
       addCampaignLog(
         state,
         'warning',
-        `🛡️ [ANTI-BAN] Trava de segurança atingida (${effectiveDailyLimit} envios nesta etapa em ${activeLinesCount} linha(s)). Disparo pausado no contato #${i + 1} — você pode retomar de onde parou depois.`
+        `🛡️ [ANTI-BAN] Trava de segurança atingida (${effectiveDailyLimit} envios nesta etapa em ${activeLinesCount} conta(s)). Disparo pausado no contato #${i + 1} — você pode retomar de onde parou depois.`
       );
       break;
     }

@@ -7,18 +7,143 @@ const db = require('./db');
 const DEFAULT_API_ID = parseInt(process.env.TELEGRAM_API_ID || '2040', 10);
 const DEFAULT_API_HASH = process.env.TELEGRAM_API_HASH || 'b18441a1ff607e10a989891a5462e627';
 
-// Sessões ativas por workspace_id: { [workspaceId]: { client, user, isSyncing, massDispatch } }
+// Suporta até 5 contas de Telegram (MTProto / Userbot) por Workspace em rodízio
+const MAX_SLOTS = 5;
+
+// Sessões ativas por sessionKey: { [sessionKey]: { client, slot, user, isSyncing } }
 const activeSessions = {};
 
-// Tentativas de login pendentes por workspace_id: { [workspaceId]: { client, phone, phoneCodeHash, apiId, apiHash, createdAt } }
+// Tentativas de login pendentes por sessionKey: { [sessionKey]: { client, slot, phone, phoneCodeHash, apiId, apiHash, createdAt } }
 const pendingLogins = {};
 
+// Contador Round-Robin por workspace_id
+const roundRobinCounters = {};
+
+let tableInitialized = false;
+
+function normalizeSlot(slot = 1) {
+  const n = Number(slot) || 1;
+  return Math.min(Math.max(n, 1), MAX_SLOTS);
+}
+
+function getSessionKey(workspaceId, slot = 1) {
+  const s = normalizeSlot(slot);
+  return s === 1 ? String(workspaceId) : `${workspaceId}_slot${s}`;
+}
+
+async function ensureSessionsTable(database, workspaceId = null) {
+  if (!tableInitialized) {
+    await database.exec(`
+      CREATE TABLE IF NOT EXISTS telegram_user_sessions (
+        workspace_id INTEGER NOT NULL,
+        slot INTEGER NOT NULL,
+        telegram_session TEXT,
+        telegram_phone TEXT,
+        telegram_user_id TEXT,
+        telegram_first_name TEXT,
+        telegram_last_name TEXT,
+        telegram_username TEXT,
+        telegram_api_id TEXT,
+        telegram_api_hash TEXT,
+        telegram_connected_at INTEGER,
+        PRIMARY KEY (workspace_id, slot)
+      );
+    `);
+    tableInitialized = true;
+  }
+
+  // Migra automaticamente a sessão legada da tabela workspaces para o Slot 1 se ainda não estiver na tabela nova
+  if (workspaceId) {
+    const slot1 = await database.get(
+      'SELECT telegram_session FROM telegram_user_sessions WHERE workspace_id = ? AND slot = 1',
+      [workspaceId]
+    );
+    if (!slot1 || !slot1.telegram_session) {
+      const ws = await database.get(
+        'SELECT telegram_session, telegram_phone, telegram_user_id, telegram_first_name, telegram_username, telegram_api_id, telegram_api_hash, telegram_connected_at FROM workspaces WHERE id = ?',
+        [workspaceId]
+      );
+      if (ws && ws.telegram_session) {
+        await database.run(
+          `INSERT OR REPLACE INTO telegram_user_sessions (
+            workspace_id, slot, telegram_session, telegram_phone, telegram_user_id,
+            telegram_first_name, telegram_last_name, telegram_username,
+            telegram_api_id, telegram_api_hash, telegram_connected_at
+          ) VALUES (?, 1, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
+          [
+            workspaceId,
+            ws.telegram_session,
+            ws.telegram_phone || '',
+            ws.telegram_user_id || '',
+            ws.telegram_first_name || '',
+            ws.telegram_username || '',
+            ws.telegram_api_id || String(DEFAULT_API_ID),
+            ws.telegram_api_hash || DEFAULT_API_HASH,
+            ws.telegram_connected_at || Math.floor(Date.now() / 1000)
+          ]
+        );
+      }
+    }
+  }
+}
+
 /**
- * Retorna o cliente ativo ou tenta inicializá-lo a partir do banco de dados
+ * Retorna os slots conectados em memória no momento (síncrono, útil para o mass_dispatcher)
  */
-async function getClient(workspaceId) {
-  if (activeSessions[workspaceId] && activeSessions[workspaceId].client) {
-    const client = activeSessions[workspaceId].client;
+function getConnectedSlots(workspaceId) {
+  const connected = [];
+  for (let s = 1; s <= MAX_SLOTS; s++) {
+    const key = getSessionKey(workspaceId, s);
+    if (activeSessions[key] && activeSessions[key].client && activeSessions[key].client.connected) {
+      connected.push(s);
+    }
+  }
+  return connected;
+}
+
+/**
+ * Retorna todos os slots que possuem sessão ativa ou salva no banco para este Workspace
+ */
+async function getAvailableSlots(workspaceId) {
+  const database = await db.getDB();
+  await ensureSessionsTable(database, workspaceId);
+  const rows = await database.all(
+    `SELECT slot FROM telegram_user_sessions
+     WHERE workspace_id = ? AND telegram_session IS NOT NULL AND TRIM(telegram_session) != ''
+     ORDER BY slot ASC`,
+    [workspaceId]
+  );
+  const slotSet = new Set(rows.map(r => normalizeSlot(r.slot)));
+  for (let s = 1; s <= MAX_SLOTS; s++) {
+    const key = getSessionKey(workspaceId, s);
+    if (activeSessions[key] && activeSessions[key].client && activeSessions[key].client.connected) {
+      slotSet.add(s);
+    }
+  }
+  return Array.from(slotSet).sort((a, b) => a - b);
+}
+
+/**
+ * Seleciona a próxima conta de Telegram em rodízio (Round-Robin)
+ */
+async function pickNextConnectedSlot(workspaceId) {
+  const available = await getAvailableSlots(workspaceId);
+  if (available.length === 0) return null;
+  const currentIdx = roundRobinCounters[workspaceId] || 0;
+  const chosenSlot = available[currentIdx % available.length];
+  roundRobinCounters[workspaceId] = (currentIdx + 1) % available.length;
+  return chosenSlot;
+}
+
+/**
+ * Retorna o cliente ativo de um slot específico ou tenta inicializá-lo a partir do banco de dados
+ */
+async function getClient(workspaceId, slot = 1) {
+  const numSlot = normalizeSlot(slot);
+  const sessionKey = getSessionKey(workspaceId, numSlot);
+
+  if (activeSessions[sessionKey] && activeSessions[sessionKey].client) {
+    const client = activeSessions[sessionKey].client;
     if (client.connected) {
       return client;
     }
@@ -26,24 +151,25 @@ async function getClient(workspaceId) {
       await client.connect();
       return client;
     } catch (e) {
-      console.warn(`[TelegramUser] Falha ao reconectar cliente existente do Workspace ${workspaceId}:`, e.message);
+      console.warn(`[TelegramUser] Falha ao reconectar cliente existente (Conta #${numSlot}, Workspace ${workspaceId}):`, e.message);
     }
   }
 
-  // Tenta restaurar do banco de dados
   const database = await db.getDB();
-  const ws = await database.get(
-    'SELECT telegram_session, telegram_api_id, telegram_api_hash, telegram_phone FROM workspaces WHERE id = ?',
-    [workspaceId]
+  await ensureSessionsTable(database, workspaceId);
+
+  const row = await database.get(
+    'SELECT * FROM telegram_user_sessions WHERE workspace_id = ? AND slot = ?',
+    [workspaceId, numSlot]
   );
 
-  if (!ws || !ws.telegram_session) {
+  if (!row || !row.telegram_session) {
     return null;
   }
 
-  const apiId = parseInt(ws.telegram_api_id || DEFAULT_API_ID, 10);
-  const apiHash = ws.telegram_api_hash || DEFAULT_API_HASH;
-  const stringSession = new StringSession(ws.telegram_session);
+  const apiId = parseInt(row.telegram_api_id || DEFAULT_API_ID, 10);
+  const apiHash = row.telegram_api_hash || DEFAULT_API_HASH;
+  const stringSession = new StringSession(row.telegram_session);
 
   const client = new TelegramClient(stringSession, apiId, apiHash, {
     connectionRetries: 5,
@@ -53,46 +179,63 @@ async function getClient(workspaceId) {
     await client.connect();
     const me = await client.getMe();
     if (me) {
-      activeSessions[workspaceId] = {
+      activeSessions[sessionKey] = {
         client,
+        slot: numSlot,
         user: {
           id: me.id ? me.id.toString() : '',
           firstName: me.firstName || '',
           lastName: me.lastName || '',
           username: me.username || '',
-          phone: me.phone || ws.telegram_phone || ''
+          phone: me.phone || row.telegram_phone || ''
         },
         isSyncing: false
       };
-      console.log(`✅ [TelegramUser] Conta conectada para Workspace ${workspaceId}: ${me.firstName} (@${me.username || 'sem_user'})`);
+      console.log(`✅ [TelegramUser] Conta #${numSlot} conectada para Workspace ${workspaceId}: ${me.firstName} (@${me.username || 'sem_user'})`);
       return client;
     }
   } catch (err) {
-    console.error(`❌ [TelegramUser] Erro ao restaurar sessão MTProto do Workspace ${workspaceId}:`, err.message);
+    console.error(`❌ [TelegramUser] Erro ao restaurar sessão MTProto (Conta #${numSlot}, Workspace ${workspaceId}):`, err.message);
   }
 
   return null;
 }
 
 /**
+ * Reconecta todas as contas de Telegram salvas do Workspace (Slots 1 a 5)
+ */
+async function connectAllSavedSlots(workspaceId) {
+  const slots = await getAvailableSlots(workspaceId);
+  const connected = [];
+  for (const s of slots) {
+    const client = await getClient(workspaceId, s);
+    if (client) connected.push(s);
+  }
+  return connected;
+}
+
+/**
  * 1. Enviar código de verificação para o aplicativo do Telegram do usuário
  */
-async function sendCode(workspaceId, phone, customApiId, customApiHash) {
+async function sendCode(workspaceId, phone, customApiId, customApiHash, slot = 1) {
   if (!phone) {
     throw new Error('Número de telefone obrigatório');
   }
+
+  const numSlot = normalizeSlot(slot);
+  const sessionKey = getSessionKey(workspaceId, numSlot);
 
   // Sanitiza o número: garante formato internacional com código do país (ex: 5561981684300 ou +5561981684300)
   const cleanPhone = phone.replace(/[^\d+]/g, '');
   const apiId = parseInt(customApiId || DEFAULT_API_ID, 10);
   const apiHash = (customApiHash && customApiHash.trim()) || DEFAULT_API_HASH;
 
-  // Se já houver um cliente anterior pendente, desconecta
-  if (pendingLogins[workspaceId] && pendingLogins[workspaceId].client) {
+  // Se já houver um cliente anterior pendente neste slot, desconecta
+  if (pendingLogins[sessionKey] && pendingLogins[sessionKey].client) {
     try {
-      await pendingLogins[workspaceId].client.disconnect();
+      await pendingLogins[sessionKey].client.disconnect();
     } catch (e) {}
-    delete pendingLogins[workspaceId];
+    delete pendingLogins[sessionKey];
   }
 
   const stringSession = new StringSession('');
@@ -102,7 +245,7 @@ async function sendCode(workspaceId, phone, customApiId, customApiHash) {
 
   await client.connect();
 
-  console.log(`📲 [TelegramUser] Solicitando código de login para ${cleanPhone} (Workspace ${workspaceId})...`);
+  console.log(`📲 [TelegramUser] Solicitando código de login para ${cleanPhone} (Conta #${numSlot}, Workspace ${workspaceId})...`);
   
   const { phoneCodeHash } = await client.sendCode(
     {
@@ -112,8 +255,9 @@ async function sendCode(workspaceId, phone, customApiId, customApiHash) {
     cleanPhone
   );
 
-  pendingLogins[workspaceId] = {
+  pendingLogins[sessionKey] = {
     client,
+    slot: numSlot,
     phone: cleanPhone,
     phoneCodeHash,
     apiId,
@@ -123,19 +267,22 @@ async function sendCode(workspaceId, phone, customApiId, customApiHash) {
 
   return {
     success: true,
+    slot: numSlot,
     phone: cleanPhone,
     phoneCodeHash,
-    message: 'Código de confirmação enviado para o seu aplicativo Telegram!'
+    message: `Código de confirmação enviado para o seu aplicativo Telegram (Conta #${numSlot})!`
   };
 }
 
 /**
  * 2. Concluir login com código (e senha 2FA se exigida)
  */
-async function signIn(workspaceId, { code, password }) {
-  const pending = pendingLogins[workspaceId];
+async function signIn(workspaceId, { code, password, slot = 1 }) {
+  const numSlot = normalizeSlot(slot);
+  const sessionKey = getSessionKey(workspaceId, numSlot);
+  const pending = pendingLogins[sessionKey];
   if (!pending || !pending.client) {
-    throw new Error('Nenhum login em andamento. Solicite um novo código primeiro.');
+    throw new Error(`Nenhum login em andamento na Conta #${numSlot}. Solicite um novo código primeiro.`);
   }
 
   const { client, phone, phoneCodeHash, apiId, apiHash } = pending;
@@ -145,7 +292,6 @@ async function signIn(workspaceId, { code, password }) {
     throw new Error('Código de confirmação obrigatório');
   }
 
-  // Garante que o cliente MTProto está conectado
   if (!client.connected) {
     await client.connect();
   }
@@ -169,7 +315,6 @@ async function signIn(workspaceId, { code, password }) {
     if (errText.includes('SESSION_PASSWORD_NEEDED')) {
       needPasswordCheck = true;
     } else if (password) {
-      // Caso o código de 5 dígitos já tenha sido aceito e a sessão esteja aguardando a senha 2FA
       try {
         const pwdTest = await client.invoke(new Api.account.GetPassword());
         if (pwdTest && pwdTest.hasPassword) {
@@ -224,35 +369,63 @@ async function signIn(workspaceId, { code, password }) {
     me = await client.getMe();
   }
   const sessionString = client.session.save();
+  const connectedAt = Math.floor(Date.now() / 1000);
 
-  // Salva permanentemente no banco SQLite do Workspace
   const database = await db.getDB();
+  await ensureSessionsTable(database, workspaceId);
+
   await database.run(
-    `UPDATE workspaces SET 
-      telegram_session = ?, 
-      telegram_phone = ?, 
-      telegram_user_id = ?, 
-      telegram_first_name = ?, 
-      telegram_username = ?,
-      telegram_api_id = ?,
-      telegram_api_hash = ?,
-      telegram_connected_at = ?
-     WHERE id = ?`,
+    `INSERT OR REPLACE INTO telegram_user_sessions (
+      workspace_id, slot, telegram_session, telegram_phone, telegram_user_id,
+      telegram_first_name, telegram_last_name, telegram_username,
+      telegram_api_id, telegram_api_hash, telegram_connected_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      workspaceId,
+      numSlot,
       sessionString,
-      phone,
+      me.phone || phone,
       me.id ? me.id.toString() : '',
       me.firstName || '',
+      me.lastName || '',
       me.username || '',
       String(apiId),
       apiHash,
-      Math.floor(Date.now() / 1000),
-      workspaceId
+      connectedAt
     ]
   );
 
-  activeSessions[workspaceId] = {
+  // Mantém a coluna legada em workspaces sincronizada para o Slot 1 (ou se for a primeira conta conectada)
+  const wsRow = await database.get('SELECT telegram_session FROM workspaces WHERE id = ?', [workspaceId]);
+  if (numSlot === 1 || !wsRow || !wsRow.telegram_session) {
+    await database.run(
+      `UPDATE workspaces SET 
+        telegram_session = ?, 
+        telegram_phone = ?, 
+        telegram_user_id = ?, 
+        telegram_first_name = ?, 
+        telegram_username = ?,
+        telegram_api_id = ?,
+        telegram_api_hash = ?,
+        telegram_connected_at = ?
+       WHERE id = ?`,
+      [
+        sessionString,
+        me.phone || phone,
+        me.id ? me.id.toString() : '',
+        me.firstName || '',
+        me.username || '',
+        String(apiId),
+        apiHash,
+        connectedAt,
+        workspaceId
+      ]
+    );
+  }
+
+  activeSessions[sessionKey] = {
     client,
+    slot: numSlot,
     user: {
       id: me.id ? me.id.toString() : '',
       firstName: me.firstName || '',
@@ -263,15 +436,16 @@ async function signIn(workspaceId, { code, password }) {
     isSyncing: false
   };
 
-  delete pendingLogins[workspaceId];
+  delete pendingLogins[sessionKey];
 
   // Inicia a sincronização de contatos automaticamente em segundo plano!
-  syncContacts(workspaceId).catch(err => {
-    console.error(`[TelegramUser] Erro ao auto-sincronizar contatos após login:`, err);
+  syncContacts(workspaceId, numSlot).catch(err => {
+    console.error(`[TelegramUser] Erro ao auto-sincronizar contatos após login (Conta #${numSlot}):`, err);
   });
 
   return {
     success: true,
+    slot: numSlot,
     user: {
       id: me.id ? me.id.toString() : '',
       firstName: me.firstName || '',
@@ -284,22 +458,30 @@ async function signIn(workspaceId, { code, password }) {
 
 /**
  * 3. Sincronizar todos os contatos do Telegram para a tabela contacts do Unico CRM
- *    Sem necessidade de CSV ou catalogação manual!
  */
-async function syncContacts(workspaceId) {
-  const client = await getClient(workspaceId);
+async function syncContacts(workspaceId, slot = 1) {
+  let numSlot = normalizeSlot(slot);
+  let client = await getClient(workspaceId, numSlot);
   if (!client) {
-    throw new Error('Conta do Telegram não está conectada');
+    const available = await getAvailableSlots(workspaceId);
+    if (available.length > 0) {
+      numSlot = available[0];
+      client = await getClient(workspaceId, numSlot);
+    }
+  }
+  if (!client) {
+    throw new Error(`Conta #${numSlot} do Telegram não está conectada`);
   }
 
-  if (activeSessions[workspaceId]) {
-    if (activeSessions[workspaceId].isSyncing) {
+  const sessionKey = getSessionKey(workspaceId, numSlot);
+  if (activeSessions[sessionKey]) {
+    if (activeSessions[sessionKey].isSyncing) {
       return { success: true, message: 'Sincronização já está em andamento.' };
     }
-    activeSessions[workspaceId].isSyncing = true;
+    activeSessions[sessionKey].isSyncing = true;
   }
 
-  console.log(`🔄 [TelegramUser] Iniciando leitura de contatos da nuvem do Telegram (Workspace ${workspaceId})...`);
+  console.log(`🔄 [TelegramUser] Iniciando leitura de contatos da nuvem do Telegram (Conta #${numSlot}, Workspace ${workspaceId})...`);
 
   try {
     const result = await client.invoke(
@@ -309,7 +491,7 @@ async function syncContacts(workspaceId) {
     );
 
     const users = (result && result.users) ? result.users : [];
-    console.log(`📋 [TelegramUser] Encontrados ${users.length} contatos na conta do Telegram!`);
+    console.log(`📋 [TelegramUser] Encontrados ${users.length} contatos na Conta #${numSlot} do Telegram!`);
 
     const database = await db.getDB();
 
@@ -342,7 +524,6 @@ async function syncContacts(workspaceId) {
     let insertedCount = 0;
 
     for (const u of users) {
-      // Ignora contas deletadas ou bots
       if (u.deleted || u.bot) continue;
 
       const name = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || 'Contato Telegram';
@@ -369,7 +550,7 @@ async function syncContacts(workspaceId) {
 
     await database.run('COMMIT');
 
-    console.log(`✅ [TelegramUser] Sincronização da agenda concluída: ${insertedCount} novos contatos inseridos na lista "${listName}"!`);
+    console.log(`✅ [TelegramUser] Sincronização da agenda (Conta #${numSlot}) concluída: ${insertedCount} novos contatos inseridos na lista "${listName}"!`);
 
     // 4. Encontra ou cria a Segunda Lista "Telegram - Interações (Últimos 30 dias)"
     const recentListName = 'Telegram - Interações (Últimos 30 dias)';
@@ -388,19 +569,17 @@ async function syncContacts(workspaceId) {
 
     const recentListId = recentList.id;
 
-    // Busca contatos já cadastrados no Workspace na lista de interações recentes
     const existingRecentRows = await database.all(
       'SELECT phone FROM contacts WHERE workspace_id = ? AND list_id = ?',
       [workspaceId, recentListId]
     );
     const existingRecentPhones = new Set(existingRecentRows.map(r => r.phone));
 
-    // 5. Coleta conversas privadas com pessoas reais com quem houve interação nos últimos 30 dias
     const thirtyDaysAgoSec = Math.floor(Date.now() / 1000) - (30 * 24 * 60 * 60);
     let recentInsertedCount = 0;
     let recentTotalFound = 0;
 
-    console.log(`💬 [TelegramUser] Buscando conversas dos últimos 30 dias no Telegram...`);
+    console.log(`💬 [TelegramUser] Buscando conversas dos últimos 30 dias no Telegram (Conta #${numSlot})...`);
 
     try {
       await database.run('BEGIN TRANSACTION');
@@ -408,13 +587,10 @@ async function syncContacts(workspaceId) {
       for await (const dialog of client.iterDialogs({ limit: 500 })) {
         const lastMsgDate = (dialog.message && dialog.message.date) || dialog.date || 0;
 
-        // Se a conversa não está fixada no topo e a última mensagem tem mais de 30 dias,
-        // encerra a busca antecipadamente pois os diálogos vêm ordenados por data decrescente
         if (!dialog.pinned && lastMsgDate > 0 && lastMsgDate < thirtyDaysAgoSec) {
           break;
         }
 
-        // Filtra apenas conversas individuais com pessoas (ignora bots, canais, grupos e a própria conta)
         if (lastMsgDate >= thirtyDaysAgoSec && dialog.isUser) {
           const u = dialog.entity;
           if (u && !u.bot && !u.deleted && !u.self) {
@@ -452,6 +628,7 @@ async function syncContacts(workspaceId) {
 
     return {
       success: true,
+      slot: numSlot,
       totalTelegram: users.length,
       inserted: insertedCount,
       listId,
@@ -462,32 +639,57 @@ async function syncContacts(workspaceId) {
       recentInserted: recentInsertedCount
     };
   } catch (err) {
-    console.error(`❌ [TelegramUser] Erro ao sincronizar contatos:`, err);
+    console.error(`❌ [TelegramUser] Erro ao sincronizar contatos (Conta #${numSlot}):`, err);
     try {
       const database = await db.getDB();
       await database.run('ROLLBACK');
     } catch (rbErr) {}
     throw err;
   } finally {
-    if (activeSessions[workspaceId]) {
-      activeSessions[workspaceId].isSyncing = false;
+    if (activeSessions[sessionKey]) {
+      activeSessions[sessionKey].isSyncing = false;
     }
   }
 }
 
 /**
- * 4. Status da conexão Telegram MTProto (User)
+ * 4. Status da conexão Telegram MTProto (Suporta até 5 Contas por Workspace)
  */
-async function getStatus(workspaceId) {
+async function getStatus(workspaceId, requestedSlot) {
   const database = await db.getDB();
-  const ws = await database.get(
-    'SELECT telegram_session, telegram_phone, telegram_user_id, telegram_first_name, telegram_username, telegram_connected_at FROM workspaces WHERE id = ?',
+  await ensureSessionsTable(database, workspaceId);
+
+  const rows = await database.all(
+    'SELECT * FROM telegram_user_sessions WHERE workspace_id = ? ORDER BY slot ASC',
     [workspaceId]
   );
+  const rowBySlot = {};
+  for (const r of rows) {
+    rowBySlot[normalizeSlot(r.slot)] = r;
+  }
 
-  const hasSession = !!(ws && ws.telegram_session);
-  const isPending = !!(pendingLogins[workspaceId]);
-  const isSyncing = !!(activeSessions[workspaceId] && activeSessions[workspaceId].isSyncing);
+  const slots = [];
+  for (let s = 1; s <= MAX_SLOTS; s++) {
+    const sKey = getSessionKey(workspaceId, s);
+    const r = rowBySlot[s];
+    const active = activeSessions[sKey];
+    const hasSession = !!(r && r.telegram_session) || !!(active && active.client && active.client.connected);
+    slots.push({
+      slot: s,
+      label: s === 1 ? 'Conta 1 (Principal)' : `Conta ${s}`,
+      connected: hasSession,
+      isPending: !!(pendingLogins[sKey]),
+      isSyncing: !!(active && active.isSyncing),
+      phone: (r && r.telegram_phone) || (active && active.user && active.user.phone) || '',
+      firstName: (r && r.telegram_first_name) || (active && active.user && active.user.firstName) || '',
+      username: (r && r.telegram_username) || (active && active.user && active.user.username) || '',
+      userId: (r && r.telegram_user_id) || (active && active.user && active.user.id) || '',
+      connectedAt: (r && r.telegram_connected_at) || null
+    });
+  }
+
+  const connectedSlots = slots.filter(s => s.connected);
+  const connectedCount = connectedSlots.length;
 
   // Conta total de contatos importados do Telegram (agenda e interações recentes)
   let totalContacts = 0;
@@ -510,61 +712,136 @@ async function getStatus(workspaceId) {
     totalRecentContacts = recentCountRow ? recentCountRow.count : 0;
   } catch (e) {}
 
+  let targetSlotObj;
+  if (requestedSlot !== undefined && requestedSlot !== null && requestedSlot !== '') {
+    const numSlot = normalizeSlot(requestedSlot);
+    targetSlotObj = slots.find(s => s.slot === numSlot) || slots[0];
+  } else {
+    targetSlotObj = connectedSlots[0] || slots[0];
+  }
+
   return {
-    connected: hasSession,
-    isPending,
-    isSyncing,
-    phone: ws ? ws.telegram_phone : '',
-    firstName: ws ? ws.telegram_first_name : '',
-    username: ws ? ws.telegram_username : '',
-    userId: ws ? ws.telegram_user_id : '',
-    connectedAt: ws ? ws.telegram_connected_at : null,
+    slot: targetSlotObj.slot,
+    connected: requestedSlot ? targetSlotObj.connected : (connectedCount > 0),
+    slotConnected: targetSlotObj.connected,
+    anyConnected: connectedCount > 0,
+    connectedCount,
+    slots,
+    isPending: targetSlotObj.isPending,
+    isSyncing: targetSlotObj.isSyncing,
+    phone: targetSlotObj.phone,
+    firstName: targetSlotObj.firstName,
+    username: targetSlotObj.username,
+    userId: targetSlotObj.userId,
+    connectedAt: targetSlotObj.connectedAt,
     totalContacts,
     totalRecentContacts
   };
 }
 
 /**
- * 5. Desconectar conta do Telegram
+ * 5. Desconectar conta específica do Telegram
  */
-async function disconnectTelegramUser(workspaceId) {
-  if (activeSessions[workspaceId] && activeSessions[workspaceId].client) {
+async function disconnectTelegramUser(workspaceId, slot = 1) {
+  const numSlot = normalizeSlot(slot);
+  const sessionKey = getSessionKey(workspaceId, numSlot);
+
+  if (activeSessions[sessionKey] && activeSessions[sessionKey].client) {
     try {
-      await activeSessions[workspaceId].client.disconnect();
+      await activeSessions[sessionKey].client.disconnect();
     } catch (e) {}
-    delete activeSessions[workspaceId];
+    delete activeSessions[sessionKey];
   }
-  if (pendingLogins[workspaceId]) {
+  if (pendingLogins[sessionKey]) {
     try {
-      await pendingLogins[workspaceId].client.disconnect();
+      await pendingLogins[sessionKey].client.disconnect();
     } catch (e) {}
-    delete pendingLogins[workspaceId];
+    delete pendingLogins[sessionKey];
   }
 
   const database = await db.getDB();
+  await ensureSessionsTable(database, workspaceId);
+
   await database.run(
-    `UPDATE workspaces SET 
-      telegram_session = NULL, 
-      telegram_phone = NULL, 
-      telegram_user_id = NULL, 
-      telegram_first_name = NULL, 
-      telegram_username = NULL,
-      telegram_connected_at = NULL
-     WHERE id = ?`,
-    [workspaceId]
+    'DELETE FROM telegram_user_sessions WHERE workspace_id = ? AND slot = ?',
+    [workspaceId, numSlot]
   );
 
-  return { success: true };
+  // Atualiza a tabela workspaces se o slot 1 foi desconectado
+  if (numSlot === 1) {
+    const fallbackRow = await database.get(
+      'SELECT * FROM telegram_user_sessions WHERE workspace_id = ? AND telegram_session IS NOT NULL ORDER BY slot ASC LIMIT 1',
+      [workspaceId]
+    );
+    if (fallbackRow) {
+      await database.run(
+        `UPDATE workspaces SET 
+          telegram_session = ?, 
+          telegram_phone = ?, 
+          telegram_user_id = ?, 
+          telegram_first_name = ?, 
+          telegram_username = ?,
+          telegram_connected_at = ?
+         WHERE id = ?`,
+        [
+          fallbackRow.telegram_session,
+          fallbackRow.telegram_phone,
+          fallbackRow.telegram_user_id,
+          fallbackRow.telegram_first_name,
+          fallbackRow.telegram_username,
+          fallbackRow.telegram_connected_at,
+          workspaceId
+        ]
+      );
+    } else {
+      await database.run(
+        `UPDATE workspaces SET 
+          telegram_session = NULL, 
+          telegram_phone = NULL, 
+          telegram_user_id = NULL, 
+          telegram_first_name = NULL, 
+          telegram_username = NULL,
+          telegram_connected_at = NULL
+         WHERE id = ?`,
+        [workspaceId]
+      );
+    }
+  }
+
+  return { success: true, slot: numSlot };
 }
 
 /**
- * 6. Enviar mensagem direta via Telegram MTProto
+ * 6. Enviar mensagem direta via Telegram MTProto (suporta rodízio entre até 5 contas)
  */
-async function sendMessageRaw(workspaceId, to, text, file, contactName = '') {
-  const client = await getClient(workspaceId);
-  if (!client) {
-    throw new Error('Sessão do Telegram (Conta de Usuário) não conectada');
+async function sendMessageRaw(workspaceId, to, text, file, contactName = '', preferredSlot = null) {
+  let chosenSlot = preferredSlot ? normalizeSlot(preferredSlot) : await pickNextConnectedSlot(workspaceId);
+  if (!chosenSlot) {
+    chosenSlot = 1;
   }
+
+  let client = await getClient(workspaceId, chosenSlot);
+  if (!client) {
+    // Tenta buscar qualquer outro slot disponível caso o escolhido tenha desconectado
+    const available = await getAvailableSlots(workspaceId);
+    for (const altSlot of available) {
+      if (altSlot === chosenSlot) continue;
+      const altClient = await getClient(workspaceId, altSlot);
+      if (altClient) {
+        chosenSlot = altSlot;
+        client = altClient;
+        break;
+      }
+    }
+  }
+
+  if (!client) {
+    throw new Error('Nenhuma Conta de Usuário do Telegram conectada.');
+  }
+
+  const sessionKey = getSessionKey(workspaceId, chosenSlot);
+  const activeUser = activeSessions[sessionKey]?.user || {};
+  const usedLabel = activeUser.username ? `@${activeUser.username}` : (activeUser.phone || `Conta #${chosenSlot}`);
 
   let cleanTarget = (to || '').trim();
   if (cleanTarget.endsWith('@telegram')) {
@@ -576,12 +853,10 @@ async function sendMessageRaw(workspaceId, to, text, file, contactName = '') {
   let resolvedEntity = null;
   if (/^\+?\d+$/.test(cleanTarget)) {
     let digits = cleanTarget.replace(/\D/g, '');
-    // Se for número brasileiro sem DDI (10 ou 11 dígitos), adiciona 55
     if (digits.length === 10 || digits.length === 11) {
       digits = `55${digits}`;
     }
     const candidates = [`+${digits}`];
-    // Para números do Brasil (+55 + DDD + 8 ou 9 dígitos), testa com e sem o 9º dígito
     if (digits.startsWith('55') && digits.length === 12) {
       const ddd = digits.slice(2, 4);
       const rest = digits.slice(4);
@@ -625,7 +900,7 @@ async function sendMessageRaw(workspaceId, to, text, file, contactName = '') {
   }
 
   const targetEntity = resolvedEntity || peer;
-  console.log(`✈️ [TelegramUser] Enviando mensagem para ${peer}...`);
+  console.log(`✈️ [TelegramUser Conta #${chosenSlot} (${usedLabel})] Enviando mensagem para ${peer}...`);
 
   // Simulação de presença humana (Anti-Ban): "digitando..." proporcional ao texto
   try {
@@ -636,9 +911,7 @@ async function sendMessageRaw(workspaceId, to, text, file, contactName = '') {
     }));
     const typingMs = Math.min(Math.max((text || '').length * 30, 1000), 4000) + Math.floor(Math.random() * 600);
     await new Promise(resolve => setTimeout(resolve, typingMs));
-  } catch (typingErr) {
-    // Não-bloqueante: se não conseguir resolver o peer aqui, o envio segue normalmente
-  }
+  } catch (typingErr) {}
 
   let sent;
   try {
@@ -653,10 +926,9 @@ async function sendMessageRaw(workspaceId, to, text, file, contactName = '') {
       });
     }
   } catch (err) {
-    // Trata erros comuns do Telegram
     if (err.message && err.message.includes('FLOOD_WAIT')) {
       const seconds = err.seconds || 30;
-      throw new Error(`Limite temporário do Telegram (FloodWait): aguarde ${seconds} segundos antes de enviar para este número.`);
+      throw new Error(`Limite temporário do Telegram na Conta #${chosenSlot} (FloodWait): aguarde ${seconds} segundos.`);
     }
     if (err.message && err.message.includes('USER_PRIVACY_RESTRICTED')) {
       throw new Error('Este usuário configurou a privacidade para não receber mensagens diretas.');
@@ -703,13 +975,17 @@ async function sendMessageRaw(workspaceId, to, text, file, contactName = '') {
     console.warn('[TelegramUser] Falha ao registrar mensagem no histórico:', dbErr.message);
   }
 
-  return { success: true, id: sent.id ? sent.id.toString() : 'ok' };
+  return {
+    success: true,
+    id: sent && sent.id ? sent.id.toString() : 'ok',
+    usedSlot: chosenSlot,
+    usedPhone: usedLabel
+  };
 }
 
 /**
  * 7. Disparo em Massa Inteligente com Fila e Proteção Anti-Flood
  */
-// Armazena estado dos disparos ativos: { [workspaceId]: { isRunning, total, sent, failed, currentContact, logs, stopped } }
 const massDispatches = {};
 
 function getMassDispatchStatus(workspaceId) {
@@ -726,9 +1002,9 @@ function stopMassDispatch(workspaceId) {
 }
 
 async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, delayMax = 12 }) {
-  const client = await getClient(workspaceId);
-  if (!client) {
-    throw new Error('Conta do Telegram não está conectada');
+  const available = await getAvailableSlots(workspaceId);
+  if (available.length === 0) {
+    throw new Error('Nenhuma conta do Telegram está conectada');
   }
 
   if (massDispatches[workspaceId] && massDispatches[workspaceId].isRunning) {
@@ -737,7 +1013,6 @@ async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, d
 
   const database = await db.getDB();
 
-  // Busca contatos da lista especificada (ou de "Contatos Telegram (Minha Conta)" por padrão)
   let contacts = [];
   if (listId) {
     contacts = await database.all(
@@ -769,9 +1044,8 @@ async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, d
 
   massDispatches[workspaceId] = state;
 
-  // Executa em segundo plano de forma assíncrona
   (async () => {
-    state.logs.push(`🚀 Iniciando disparo em massa para ${contacts.length} contatos do Telegram...`);
+    state.logs.push(`🚀 Iniciando disparo em massa para ${contacts.length} contatos do Telegram (${available.length} conta(s) em rodízio)...`);
     
     for (let i = 0; i < contacts.length; i++) {
       if (state.stopped) {
@@ -782,7 +1056,6 @@ async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, d
       const contact = contacts[i];
       state.currentContact = `${contact.name} (${contact.phone})`;
 
-      // Substitui variáveis personalizadas no texto
       const firstName = (contact.name || '').split(' ')[0] || 'amigo(a)';
       const personalizedMsg = message
         .replace(/\{nome\}/gi, contact.name || '')
@@ -790,14 +1063,14 @@ async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, d
         .replace(/\{telefone\}/gi, contact.phone || '');
 
       try {
-        await sendMessage(workspaceId, contact.phone, personalizedMsg);
+        const res = await sendMessage(workspaceId, contact.phone, personalizedMsg);
         state.sent++;
-        state.logs.push(`[${state.sent + state.failed}/${state.total}] ✅ Enviado para ${contact.name} (${contact.phone})`);
+        const tag = res && res.usedSlot ? `Conta #${res.usedSlot}` : 'Telegram';
+        state.logs.push(`[${state.sent + state.failed}/${state.total}] ✅ [${tag}] Enviado para ${contact.name} (${contact.phone})`);
       } catch (sendErr) {
         state.failed++;
         state.logs.push(`[${state.sent + state.failed}/${state.total}] ❌ Falha para ${contact.name}: ${sendErr.message}`);
 
-        // Se for FloodWait, pausa e aguarda conforme exigido pelo Telegram!
         if (sendErr.seconds || (sendErr.message && sendErr.message.includes('FloodWait'))) {
           const waitTime = (sendErr.seconds || 45) + 3;
           state.logs.push(`⏳ [Anti-Flood] Telegram solicitou pausa de ${waitTime} segundos. Aguardando com segurança...`);
@@ -805,7 +1078,6 @@ async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, d
         }
       }
 
-      // Intervalo randômico (jitter) entre mensagens para parecer comportamento humano
       if (i < contacts.length - 1 && !state.stopped) {
         const randomSeconds = Math.floor(Math.random() * (delayMax - delayMin + 1)) + delayMin;
         await new Promise(r => setTimeout(r, randomSeconds * 1000));
@@ -826,14 +1098,17 @@ async function startMassDispatch(workspaceId, { listId, message, delayMin = 5, d
   };
 }
 
-// Envio protegido pela política anti-ban (fila, intervalo aleatório e limites de volume)
-function sendMessage(workspaceId, to, text, file, contactName = '') {
-  return require('./antiban').run('telegram_user', workspaceId, () =>
-    sendMessageRaw(workspaceId, to, text, file, contactName)
+// Envio protegido pela política anti-ban com fila independente por Conta (Slot) e rodízio automático
+async function sendMessage(workspaceId, to, text, file, contactName = '', preferredSlot = null) {
+  const chosenSlot = preferredSlot ? normalizeSlot(preferredSlot) : ((await pickNextConnectedSlot(workspaceId)) || 1);
+  const queueKey = `${workspaceId}_slot${chosenSlot}`;
+  return require('./antiban').run('telegram_user', queueKey, () =>
+    sendMessageRaw(workspaceId, to, text, file, contactName, chosenSlot)
   );
 }
 
 module.exports = {
+  MAX_SLOTS,
   sendCode,
   signIn,
   syncContacts,
@@ -843,5 +1118,9 @@ module.exports = {
   startMassDispatch,
   getMassDispatchStatus,
   stopMassDispatch,
-  getClient
+  getClient,
+  connectAllSavedSlots,
+  getConnectedSlots,
+  getAvailableSlots,
+  pickNextConnectedSlot
 };

@@ -408,6 +408,23 @@ async function init() {
   await ensureColumn(db, 'workspaces', 'telegram_api_id', 'TEXT');
   await ensureColumn(db, 'workspaces', 'telegram_api_hash', 'TEXT');
   await ensureColumn(db, 'workspaces', 'telegram_connected_at', 'INTEGER');
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS telegram_user_sessions (
+      workspace_id INTEGER NOT NULL,
+      slot INTEGER NOT NULL,
+      telegram_session TEXT,
+      telegram_phone TEXT,
+      telegram_user_id TEXT,
+      telegram_first_name TEXT,
+      telegram_last_name TEXT,
+      telegram_username TEXT,
+      telegram_api_id TEXT,
+      telegram_api_hash TEXT,
+      telegram_connected_at INTEGER,
+      PRIMARY KEY (workspace_id, slot)
+    );
+  `);
   await ensureColumn(db, 'workspaces', 'confirmation_agent_id', "TEXT DEFAULT '3'");
   await ensureColumn(db, 'workspaces', 'confirmation_enabled', 'INTEGER DEFAULT 1');
   await ensureColumn(db, 'workspaces', 'briefing_enabled', 'INTEGER DEFAULT 1');

@@ -48,6 +48,7 @@ export default function MassMessage() {
   const [waStatus, setWaStatus] = useState('disconnected');
   const [waConnectedCount, setWaConnectedCount] = useState(0);
   const [waSlots, setWaSlots] = useState([]);
+  const [tgConnectedCount, setTgConnectedCount] = useState(0);
   const [tgStatus, setTgStatus] = useState('disconnected');
   const [tgBotInfo, setTgBotInfo] = useState(null);
   const [isImportingChannel, setIsImportingChannel] = useState(false);
@@ -363,8 +364,9 @@ export default function MassMessage() {
         setWaSlots(waData.slots);
       }
 
-      if (tgUserData && tgUserData.connected) {
+      if (tgUserData && (tgUserData.anyConnected || tgUserData.connected)) {
         setTgStatus('connected');
+        setTgConnectedCount(typeof tgUserData.connectedCount === 'number' ? tgUserData.connectedCount : 1);
         setTgBotInfo({
           username: tgUserData.username || tgUserData.phone || '',
           first_name: tgUserData.firstName || 'Minha Conta Telegram',
@@ -372,11 +374,13 @@ export default function MassMessage() {
         });
       } else if (tgData && tgData.status === 'connected') {
         setTgStatus('connected');
+        setTgConnectedCount(1);
         if (tgData.botInfo) {
           setTgBotInfo(tgData.botInfo);
         }
       } else {
         setTgStatus('disconnected');
+        setTgConnectedCount(0);
       }
     } catch (e) {
       console.error('Erro ao verificar status das conexões:', e);
@@ -1211,7 +1215,7 @@ export default function MassMessage() {
               onClick={() => setChannel('telegram')}
             >
               <Telegram size={14} />
-              Telegram: {tgStatus === 'connected' ? (tgBotInfo?.username ? `@${tgBotInfo.username}` : 'Conectado') : 'Off'}
+              Telegram: {tgStatus === 'connected' ? `${tgConnectedCount || 1}/5 Conectado(s)` : 'Off'}
             </span>
             <span 
               className="badge" 
@@ -1281,10 +1285,12 @@ export default function MassMessage() {
                       <Telegram size={24} />
                     </div>
                     <div className="channel-meta">
-                      <h4>Telegram Bot</h4>
-                      <p>Disparo via Bot do Telegram para Chat IDs ou @usuários</p>
+                      <h4>Telegram (Até 5 Contas em Rodízio)</h4>
+                      <p>Disparo direto alternando entre suas contas ou Bot do Telegram</p>
                       <span className={`channel-status-pill ${tgStatus === 'connected' ? 'connected-tg' : 'disconnected'}`}>
-                        {tgStatus === 'connected' ? `● ${tgBotInfo?.username ? '@' + tgBotInfo.username : 'Bot Conectado'}` : '○ Desconectado (Conectar na aba Conexões)'}
+                        {tgStatus === 'connected'
+                          ? `● ${tgConnectedCount || 1}/5 Conta(s) Conectada(s)${tgConnectedCount > 1 ? ' (Rodízio Ativo)' : (tgBotInfo?.username ? ` (@${tgBotInfo.username})` : '')}`
+                          : '○ Desconectado (Conectar até 5 contas na aba Conexões)'}
                       </span>
                     </div>
                   </div>

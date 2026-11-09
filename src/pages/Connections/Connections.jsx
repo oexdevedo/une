@@ -41,8 +41,17 @@ export default function Connections({ isSubpage = false }) {
   const [isLoadingTG, setIsLoadingTG] = useState(false);
   const [isReconnectingAll, setIsReconnectingAll] = useState(false);
 
-  // Estados da Conta Pessoal do Telegram (Userbot / MTProto)
+  // Estados da Conta Pessoal do Telegram (Userbot / MTProto — Até 5 Contas em Rodízio)
   const [tgTab, setTgTab] = useState('user'); // 'user' | 'bot'
+  const [activeTgSlot, setActiveTgSlot] = useState(1);
+  const [tgSlots, setTgSlots] = useState([
+    { slot: 1, label: 'Conta 1 (Principal)', connected: false, phone: '', firstName: '', username: '' },
+    { slot: 2, label: 'Conta 2', connected: false, phone: '', firstName: '', username: '' },
+    { slot: 3, label: 'Conta 3', connected: false, phone: '', firstName: '', username: '' },
+    { slot: 4, label: 'Conta 4', connected: false, phone: '', firstName: '', username: '' },
+    { slot: 5, label: 'Conta 5', connected: false, phone: '', firstName: '', username: '' }
+  ]);
+  const [tgConnectedCount, setTgConnectedCount] = useState(0);
   const [tgUserStatus, setTgUserStatus] = useState({ connected: false, totalContacts: 0 });
   const [tgUserPhone, setTgUserPhone] = useState('');
   const [tgUserCode, setTgUserCode] = useState('');
@@ -99,21 +108,26 @@ export default function Connections({ isSubpage = false }) {
     }
   };
 
-  const fetchTGStatus = async () => {
+  const fetchTGStatus = async (slotToFetch = activeTgSlot) => {
     try {
       const [botRes, userRes] = await Promise.all([
         fetch(`/api/connections/telegram?workspace_id=${workspaceId}`),
-        fetch(`/api/connections/telegram-user?workspace_id=${workspaceId}`)
+        fetch(`/api/connections/telegram-user?workspace_id=${workspaceId}&slot=${slotToFetch}`)
       ]);
       const botData = await botRes.json();
       const userData = await userRes.json();
 
       setTgUserStatus(userData || { connected: false, totalContacts: 0 });
+      if (Array.isArray(userData?.slots)) {
+        setTgSlots(userData.slots);
+      }
+      if (typeof userData?.connectedCount === 'number') {
+        setTgConnectedCount(userData.connectedCount);
+      }
 
-      // Se a conta de usuário estiver conectada ou o bot estiver conectado
-      if (userData && userData.connected) {
+      // Se alguma conta de usuário estiver conectada ou o bot estiver conectado
+      if (userData && (userData.anyConnected || userData.connected)) {
         setTgStatus('connected');
-        setTgTab('user');
       } else if (botData && botData.status === 'connected') {
         setTgStatus('connected');
       } else {
@@ -304,7 +318,7 @@ export default function Connections({ isSubpage = false }) {
     setIsLoadingTG(false);
   };
 
-  // --- Handlers da Conta de Usuário (Userbot MTProto) ---
+  // --- Handlers da Conta de Usuário (Userbot MTProto — Até 5 Contas) ---
   const handleSendTgCode = async () => {
     if (!tgUserPhone || !tgUserPhone.trim()) {
       alert('Por favor, informe seu número de telefone com DDI (ex: +55 61 98168-4300).');
@@ -317,6 +331,7 @@ export default function Connections({ isSubpage = false }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: workspaceId,
+          slot: activeTgSlot,
           phone: tgUserPhone,
           api_id: tgCustomApiId || undefined,
           api_hash: tgCustomApiHash || undefined
@@ -325,7 +340,7 @@ export default function Connections({ isSubpage = false }) {
       const data = await res.json();
       if (data.success) {
         setTgCodeSent(true);
-        alert(data.message || 'Código enviado! Verifique as notificações dentro do seu aplicativo oficial do Telegram.');
+        alert(data.message || `Código enviado para a Conta #${activeTgSlot}! Verifique as notificações dentro do seu aplicativo oficial do Telegram.`);
       } else {
         alert('Erro ao solicitar código: ' + (data.error || 'Verifique o número e tente novamente.'));
       }
@@ -353,18 +368,19 @@ export default function Connections({ isSubpage = false }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: workspaceId,
+          slot: activeTgSlot,
           code: cleanCode,
           password: tgUserPassword || undefined
         })
       });
       const data = await res.json();
       if (data.success) {
-        alert('🎉 Conta do Telegram conectada com sucesso!\n\nSeus contatos já estão sendo lidos e sincronizados automaticamente na lista do CRM.');
+        alert(`🎉 Conta #${activeTgSlot} do Telegram conectada com sucesso!\n\nSeus contatos já estão sendo lidos e sincronizados automaticamente na lista do CRM.`);
         setTgCodeSent(false);
         setTgUserCode('');
         setTgUserPassword('');
         setTgNeedPassword(false);
-        await fetchTGStatus();
+        await fetchTGStatus(activeTgSlot);
       } else if (data.needPassword) {
         setTgNeedPassword(true);
         alert(data.error || 'Esta conta possui senha de Verificação em Duas Etapas (2FA). Por favor, informe sua senha.');
@@ -384,18 +400,18 @@ export default function Connections({ isSubpage = false }) {
       const res = await fetch('/api/connections/telegram-user/sync-contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId })
+        body: JSON.stringify({ workspace_id: workspaceId, slot: activeTgSlot })
       });
       const data = await res.json();
       if (data.success) {
         alert(
-          `✅ Sincronização do Telegram concluída com sucesso!\n\n` +
+          `✅ Sincronização da Conta #${activeTgSlot} do Telegram concluída com sucesso!\n\n` +
           `📋 1. Lista de Agenda: "${data.listName}"\n` +
           `• ${data.totalTelegram} contatos lidos (${data.inserted} novos adicionados)\n\n` +
           `💬 2. Lista de Interações Recentes: "${data.recentListName}"\n` +
           `• ${data.recentTotal || 0} pessoas interagidas nos últimos 30 dias (${data.recentInserted || 0} novos adicionados)`
         );
-        await fetchTGStatus();
+        await fetchTGStatus(activeTgSlot);
       } else {
         alert('Erro ao sincronizar contatos: ' + (data.error || 'Tente novamente'));
       }
@@ -407,15 +423,15 @@ export default function Connections({ isSubpage = false }) {
   };
 
   const handleDisconnectTgUser = async () => {
-    if (!confirm('Deseja realmente desconectar sua conta pessoal do Telegram deste Workspace?')) return;
+    if (!confirm(`Deseja realmente desconectar a Conta #${activeTgSlot} do Telegram deste Workspace?`)) return;
     try {
       await fetch('/api/connections/telegram-user/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId })
+        body: JSON.stringify({ workspace_id: workspaceId, slot: activeTgSlot })
       });
       setTgCodeSent(false);
-      await fetchTGStatus();
+      await fetchTGStatus(activeTgSlot);
     } catch (e) {
       console.error(e);
     }
@@ -741,16 +757,30 @@ export default function Connections({ isSubpage = false }) {
           </div>
         </div>
 
-        {/* Telegram Card */}
+        {/* Telegram Card (Suporte a até 5 Contas em Rodízio) */}
         <div className="connection-card">
           <div className="connection-card-header">
             <div className="connection-icon" style={{ backgroundColor: '#E0F2FE', color: '#0284C7' }}>
               <Send size={24} />
             </div>
-            <div className="connection-title">
-              <h2>Telegram</h2>
+            <div className="connection-title" style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h2>Telegram (Até 5 Contas)</h2>
+                <span style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '3px 10px',
+                  borderRadius: '999px',
+                  backgroundColor: tgConnectedCount > 0 ? '#E0F2FE' : '#F4F4F5',
+                  color: tgConnectedCount > 0 ? '#0369A1' : '#71717A'
+                }}>
+                  {tgConnectedCount}/5 conectados
+                </span>
+              </div>
               <span className={`status-badge status-${tgStatus}`}>
-                {tgStatus === 'connected' ? 'Conectado' : 'Desconectado'}
+                {tgTab === 'user'
+                  ? `Conta #${activeTgSlot}: ${tgUserStatus.connected ? 'Conectada' : 'Desconectada'}`
+                  : (tgStatus === 'connected' ? 'Bot Conectado' : 'Desconectado')}
               </span>
             </div>
           </div>
@@ -763,7 +793,7 @@ export default function Connections({ isSubpage = false }) {
                 className={`tg-tab-btn ${tgTab === 'user' ? 'active' : ''}`}
                 onClick={() => setTgTab('user')}
               >
-                <Users size={14} /> Minha Conta ({tgUserStatus.connected ? 'Conectada' : 'Pessoal'})
+                <Users size={14} /> Minhas Contas ({tgConnectedCount}/5)
               </button>
               <button 
                 type="button" 
@@ -774,9 +804,67 @@ export default function Connections({ isSubpage = false }) {
               </button>
             </div>
 
-            {/* ABA 1: CONTA DE USUÁRIO (USERBOT MTPROTO) */}
+            {/* ABA 1: CONTAS DE USUÁRIO (USERBOT MTPROTO — ATÉ 5 CONTAS EM RODÍZIO) */}
             {tgTab === 'user' && (
               <div>
+                {/* Seletor das 5 Contas de Telegram */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(95px, 1fr))',
+                  gap: '6px',
+                  marginBottom: '16px',
+                  background: '#F8FAFC',
+                  padding: '6px',
+                  borderRadius: '12px',
+                  border: '1px solid #E2E8F0'
+                }}>
+                  {[1, 2, 3, 4, 5].map((slotNum) => {
+                    const slotObj = tgSlots.find(s => s.slot === slotNum) || { slot: slotNum, connected: false, phone: '', username: '' };
+                    const isSelected = activeTgSlot === slotNum;
+                    const isSlotConnected = Boolean(slotObj.connected);
+                    return (
+                      <button
+                        key={slotNum}
+                        type="button"
+                        onClick={() => {
+                          setActiveTgSlot(slotNum);
+                          setTgCodeSent(false);
+                          setTgNeedPassword(false);
+                          setTgUserCode('');
+                          setTgUserPassword('');
+                          fetchTGStatus(slotNum);
+                        }}
+                        style={{
+                          padding: '8px 6px',
+                          borderRadius: '8px',
+                          border: isSelected ? '2px solid #0284C7' : '1px solid transparent',
+                          backgroundColor: isSelected ? '#FFFFFF' : 'transparent',
+                          boxShadow: isSelected ? '0 2px 6px rgba(0,0,0,0.05)' : 'none',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '2px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '0.78rem', color: '#18181B' }}>
+                          <span style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            backgroundColor: isSlotConnected ? '#0284C7' : '#CBD5E1'
+                          }} />
+                          Conta #{slotNum}
+                        </div>
+                        <span style={{ fontSize: '0.68rem', color: isSlotConnected ? '#0369A1' : '#64748B', fontWeight: 600, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {isSlotConnected ? (slotObj.username ? `@${slotObj.username}` : (slotObj.phone || 'Conectada')) : 'Livre'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {tgUserStatus.connected ? (
                   <div className="success-state" style={{ padding: '8px 0' }}>
                     <div className="tg-user-profile-box">
@@ -786,7 +874,7 @@ export default function Connections({ isSubpage = false }) {
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a' }}>
-                            {tgUserStatus.firstName}
+                            Conta #{activeTgSlot}: {tgUserStatus.firstName}
                           </div>
                           <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                             {tgUserStatus.username ? `@${tgUserStatus.username}` : ''} {tgUserStatus.phone ? `(${tgUserStatus.phone})` : ''}
@@ -804,6 +892,11 @@ export default function Connections({ isSubpage = false }) {
                           </span>
                         )}
                       </div>
+                      <p style={{ fontSize: '0.76rem', color: '#0369a1', marginTop: '8px', marginBottom: 0 }}>
+                        {tgConnectedCount > 1
+                          ? `🔄 Rodízio automático ativo entre ${tgConnectedCount} contas de Telegram nos disparos em massa.`
+                          : 'Você pode conectar até 5 contas nas abas Conta #1 a Conta #5 acima para rodízio.'}
+                      </p>
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', width: '100%', flexWrap: 'wrap' }}>
@@ -813,13 +906,13 @@ export default function Connections({ isSubpage = false }) {
                         onClick={handleSyncTgContacts}
                         disabled={tgIsSyncing}
                       >
-                        <Refresh size={16} /> {tgIsSyncing ? 'Sincronizando contatos...' : 'Sincronizar Meus Contatos'}
+                        <Refresh size={16} /> {tgIsSyncing ? 'Sincronizando contatos...' : `Sincronizar Contatos (Conta #${activeTgSlot})`}
                       </button>
                       <button 
                         className="btn-secondary"
                         style={{ color: '#ef4444', borderColor: '#fca5a5' }}
                         onClick={handleDisconnectTgUser}
-                        title="Desconectar sessão da conta"
+                        title="Desconectar sessão desta conta"
                       >
                         <Close size={16} /> Sair
                       </button>
@@ -828,7 +921,7 @@ export default function Connections({ isSubpage = false }) {
                 ) : (
                   <div className="form-state">
                     <p style={{ color: '#64748b', fontSize: '0.86rem', marginBottom: '14px', lineHeight: 1.4 }}>
-                      Conecte sua conta do Telegram para <strong>puxar automaticamente seus contatos</strong> e disparar mensagens com links sem precisar de planilhas.
+                      Conecte a <strong>Conta #{activeTgSlot}</strong> do Telegram para <strong>puxar automaticamente seus contatos</strong> e disparar mensagens em rodízio.
                     </p>
 
                     {!tgCodeSent ? (
