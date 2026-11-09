@@ -32,9 +32,16 @@ if (path.resolve(DB_PATH) !== legacyDbPath && !fs.existsSync(DB_PATH) && fs.exis
   }
 }
 
-// 2. Diretório de Sessão do WhatsApp (Baileys)
-function getWhatsAppAuthDir(workspaceId = 1) {
-  const dirName = `auth_info_baileys_${workspaceId}`;
+// 2. Diretório de Sessão do WhatsApp (Baileys) — suporta até 3 linhas por Workspace (slot 1, 2, 3)
+function getWhatsAppDirName(workspaceId = 1, slot = 1) {
+  const numSlot = Math.min(Math.max(Number(slot) || 1, 1), 3);
+  return numSlot === 1
+    ? `auth_info_baileys_${workspaceId}`
+    : `auth_info_baileys_${workspaceId}_slot${numSlot}`;
+}
+
+function getWhatsAppAuthDir(workspaceId = 1, slot = 1) {
+  const dirName = getWhatsAppDirName(workspaceId, slot);
   const targetDir = path.join(DATA_DIR, dirName);
   const legacyDir = path.join(__dirname, dirName);
 
@@ -56,14 +63,14 @@ function getWhatsAppAuthDir(workspaceId = 1) {
   return targetDir;
 }
 
-function clearWhatsAppAuthDir(workspaceId = 1) {
-  const dirName = `auth_info_baileys_${workspaceId}`;
+function clearWhatsAppAuthDir(workspaceId = 1, slot = 1) {
+  const dirName = getWhatsAppDirName(workspaceId, slot);
   const targetDir = path.join(DATA_DIR, dirName);
   const legacyDir = path.join(__dirname, dirName);
   try {
     if (fs.existsSync(targetDir)) fs.rmSync(targetDir, { recursive: true, force: true });
     if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
-    console.log(`🧹 [Storage] Pastas de autenticação do WhatsApp limpas para Workspace ${workspaceId}`);
+    console.log(`🧹 [Storage] Pastas de autenticação do WhatsApp (Slot ${slot}) limpas para Workspace ${workspaceId}`);
   } catch (err) {
     console.error(`❌ [Storage] Erro ao limpar pastas de autenticação do WhatsApp:`, err.message);
   }

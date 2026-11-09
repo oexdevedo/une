@@ -24,6 +24,13 @@ export default function Connections({ isSubpage = false }) {
 
   const [waStatus, setWaStatus] = useState('disconnected');
   const [waQR, setWaQR] = useState('');
+  const [activeWaSlot, setActiveWaSlot] = useState(1);
+  const [waSlots, setWaSlots] = useState([
+    { slot: 1, label: 'Linha 1 (Principal)', status: 'disconnected', qr: '', phone: '', name: '' },
+    { slot: 2, label: 'Linha 2', status: 'disconnected', qr: '', phone: '', name: '' },
+    { slot: 3, label: 'Linha 3', status: 'disconnected', qr: '', phone: '', name: '' }
+  ]);
+  const [waConnectedCount, setWaConnectedCount] = useState(0);
   const [isLoadingWA, setIsLoadingWA] = useState(false);
 
   const [tgToken, setTgToken] = useState(() => localStorage.getItem(`unne_tg_token_ws_${workspaceId}`) || '');
@@ -66,21 +73,24 @@ export default function Connections({ isSubpage = false }) {
   const [isTestingAi, setIsTestingAi] = useState(false);
   const [aiTestResult, setAiTestResult] = useState(null);
 
-  // Poll WhatsApp status every 3 seconds if connecting
+  // Poll WhatsApp status every 3 seconds
   useEffect(() => {
-    let interval;
-    if (waStatus === 'connecting' || waStatus === 'disconnected') {
-      interval = setInterval(fetchWAStatus, 3000);
-    }
+    const interval = setInterval(() => fetchWAStatus(activeWaSlot), 3000);
     return () => clearInterval(interval);
-  }, [waStatus]);
+  }, [activeWaSlot, workspaceId]);
 
-  const fetchWAStatus = async () => {
+  const fetchWAStatus = async (slotToFetch = activeWaSlot) => {
     try {
-      const res = await fetch(`/api/connections/whatsapp?workspace_id=${workspaceId}`);
+      const res = await fetch(`/api/connections/whatsapp?workspace_id=${workspaceId}&slot=${slotToFetch}`);
       const data = await res.json();
-      setWaStatus(data.status);
+      setWaStatus(data.status || 'disconnected');
       setWaQR(data.qr || '');
+      if (Array.isArray(data.slots)) {
+        setWaSlots(data.slots);
+      }
+      if (typeof data.connectedCount === 'number') {
+        setWaConnectedCount(data.connectedCount);
+      }
       window.dispatchEvent(new Event('channels-updated'));
     } catch (e) {
       console.error(e);
@@ -168,19 +178,19 @@ export default function Connections({ isSubpage = false }) {
     fetchSettings();
   }, [workspaceId]);
 
-  const startWhatsApp = async (forceNew = false) => {
+  const startWhatsApp = async (forceNew = false, slot = activeWaSlot) => {
     setIsLoadingWA(true);
     try {
       const res = await fetch('/api/connections/whatsapp/start', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId, force_new: forceNew })
+        body: JSON.stringify({ workspace_id: workspaceId, force_new: forceNew, slot })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         alert(data.error || 'Erro ao inicializar o WhatsApp no servidor.');
       }
-      await fetchWAStatus();
+      await fetchWAStatus(slot);
     } catch (e) {
       console.error(e);
       alert('Não foi possível se comunicar com o backend (porta 3001). Verifique se o servidor backend está iniciado.');
@@ -188,20 +198,20 @@ export default function Connections({ isSubpage = false }) {
     setIsLoadingWA(false);
   };
 
-  const disconnectWhatsApp = async () => {
-    if (!window.confirm('Deseja realmente desconectar a sessão do WhatsApp?')) return;
+  const disconnectWhatsApp = async (slot = activeWaSlot) => {
+    if (!window.confirm(`Deseja realmente desconectar a Linha #${slot} do WhatsApp?`)) return;
     setIsLoadingWA(true);
     try {
       const res = await fetch('/api/connections/whatsapp/disconnect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId })
+        body: JSON.stringify({ workspace_id: workspaceId, slot })
       });
       const data = await res.json();
       if (data.success) {
         setWaStatus('disconnected');
         setWaQR('');
-        await fetchWAStatus();
+        await fetchWAStatus(slot);
       } else {
         alert('Erro ao desconectar WhatsApp: ' + (data.error || 'Erro desconhecido'));
       }
@@ -589,33 +599,113 @@ export default function Connections({ isSubpage = false }) {
       </div>
 
       <div className="connections-grid">
-        {/* WhatsApp Card */}
+        {/* WhatsApp Card (Suporte a até 3 Números em Rodízio) */}
         <div className="connection-card">
           <div className="connection-card-header">
             <div className="connection-icon" style={{ backgroundColor: '#DCFCE7', color: '#16A34A' }}>
               <Smartphone size={24} />
             </div>
-            <div className="connection-title">
-              <h2>WhatsApp</h2>
+            <div className="connection-title" style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h2>WhatsApp (Até 3 Linhas)</h2>
+                <span style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '3px 10px',
+                  borderRadius: '999px',
+                  backgroundColor: waConnectedCount > 0 ? '#DCFCE7' : '#F4F4F5',
+                  color: waConnectedCount > 0 ? '#15803D' : '#71717A'
+                }}>
+                  {waConnectedCount}/3 conectados
+                </span>
+              </div>
               <span className={`status-badge status-${waStatus}`}>
-                {waStatus === 'connected' ? 'Conectado' : waStatus === 'connecting' ? 'Aguardando QR Code' : 'Desconectado'}
+                Linha #{activeWaSlot}: {waStatus === 'connected' ? 'Conectado' : waStatus === 'connecting' ? 'Aguardando QR Code' : 'Desconectado'}
               </span>
             </div>
+          </div>
+
+          {/* Seletor das 3 Linhas de WhatsApp */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '8px',
+            marginBottom: '16px',
+            background: '#F8FAFC',
+            padding: '6px',
+            borderRadius: '12px',
+            border: '1px solid #E2E8F0'
+          }}>
+            {[1, 2, 3].map((slotNum) => {
+              const slotObj = waSlots.find(s => s.slot === slotNum) || { slot: slotNum, status: 'disconnected', phone: '' };
+              const isSelected = activeWaSlot === slotNum;
+              const isSlotConnected = slotObj.status === 'connected';
+              const isSlotConnecting = slotObj.status === 'connecting';
+              return (
+                <button
+                  key={slotNum}
+                  type="button"
+                  onClick={() => {
+                    setActiveWaSlot(slotNum);
+                    setWaStatus(slotObj.status || 'disconnected');
+                    setWaQR(slotObj.qr || '');
+                    fetchWAStatus(slotNum);
+                  }}
+                  style={{
+                    padding: '8px 6px',
+                    borderRadius: '8px',
+                    border: isSelected ? '2px solid #16A34A' : '1px solid transparent',
+                    backgroundColor: isSelected ? '#FFFFFF' : 'transparent',
+                    boxShadow: isSelected ? '0 2px 6px rgba(0,0,0,0.05)' : 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '2px',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '0.82rem', color: '#18181B' }}>
+                    <span style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: isSlotConnected ? '#16A34A' : isSlotConnecting ? '#F59E0B' : '#CBD5E1'
+                    }} />
+                    Linha #{slotNum}
+                  </div>
+                  <span style={{ fontSize: '0.7rem', color: isSlotConnected ? '#15803D' : '#64748B', fontWeight: 600 }}>
+                    {isSlotConnected ? (slotObj.phone ? `+${slotObj.phone}` : 'Conectado') : isSlotConnecting ? 'QR Code' : 'Livre'}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="connection-body">
             {waStatus === 'connected' ? (
               <div className="success-state">
                 <CheckDouble size={48} color="#16A34A" />
-                <p>Seu WhatsApp está conectado e pronto para uso!</p>
+                <p>
+                  <strong>Linha #{activeWaSlot}</strong> conectada
+                  {(() => {
+                    const cur = waSlots.find(s => s.slot === activeWaSlot);
+                    return cur?.phone ? ` (+${cur.phone})` : '';
+                  })()} e pronta para envio!
+                </p>
+                <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '4px' }}>
+                  {waConnectedCount > 1
+                    ? `🔄 Rodízio automático ativo entre ${waConnectedCount} números nos disparos em massa.`
+                    : 'Você pode conectar até mais 2 números nas abas Linha #2 e Linha #3 acima para rodízio.'}
+                </p>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'center' }}>
-                  <button className="btn-secondary" onClick={() => startWhatsApp(false)}>
-                    <Refresh size={16} /> Reconectar
+                  <button className="btn-secondary" onClick={() => startWhatsApp(false, activeWaSlot)}>
+                    <Refresh size={16} /> Reconectar Linha #{activeWaSlot}
                   </button>
                   <button 
                     className="btn-secondary" 
                     style={{ borderColor: '#EF4444', color: '#EF4444' }} 
-                    onClick={disconnectWhatsApp}
+                    onClick={() => disconnectWhatsApp(activeWaSlot)}
                     disabled={isLoadingWA}
                   >
                     <Close size={16} /> Desconectar
@@ -624,15 +714,15 @@ export default function Connections({ isSubpage = false }) {
               </div>
             ) : waStatus === 'connecting' && waQR ? (
               <div className="qr-state">
-                <p>Abra o WhatsApp no celular e escaneie o código abaixo:</p>
+                <p>Escaneie o QR Code abaixo para conectar a <strong>Linha #{activeWaSlot}</strong>:</p>
                 <div className="qr-box">
                   <QRCodeSVG value={waQR} size={200} />
                 </div>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '14px', justifyContent: 'center' }}>
-                  <button className="btn-secondary" onClick={() => startWhatsApp(true)} disabled={isLoadingWA}>
+                  <button className="btn-secondary" onClick={() => startWhatsApp(true, activeWaSlot)} disabled={isLoadingWA}>
                     <Refresh size={14} /> Novo QR Code
                   </button>
-                  <button className="btn-secondary" style={{ borderColor: '#EF4444', color: '#EF4444' }} onClick={disconnectWhatsApp}>
+                  <button className="btn-secondary" style={{ borderColor: '#EF4444', color: '#EF4444' }} onClick={() => disconnectWhatsApp(activeWaSlot)}>
                     <Close size={14} /> Cancelar
                   </button>
                 </div>
@@ -640,9 +730,9 @@ export default function Connections({ isSubpage = false }) {
             ) : (
               <div className="empty-state">
                 <QrCode size={48} color="#A1A1AA" />
-                <p>Nenhuma sessão do WhatsApp ativa no momento.</p>
-                <button className="btn-primary" onClick={() => startWhatsApp(true)} disabled={isLoadingWA}>
-                  {isLoadingWA ? 'Iniciando...' : 'Gerar QR Code'}
+                <p>A <strong>Linha #{activeWaSlot}</strong> do WhatsApp está livre.</p>
+                <button className="btn-primary" onClick={() => startWhatsApp(true, activeWaSlot)} disabled={isLoadingWA}>
+                  {isLoadingWA ? 'Iniciando...' : `Gerar QR Code (Linha #${activeWaSlot})`}
                 </button>
               </div>
             )}

@@ -263,20 +263,25 @@ async function runCampaignLoop(workspaceId, listId) {
       continue;
     }
 
-    // Trava Diária Anti-Ban por etapa
-    if (channel === 'whatsapp' && enableDailyLimit && sessionSentCount >= dailySafeLimit) {
+    // Trava Diária Anti-Ban por etapa (multiplica pela quantidade de linhas de WhatsApp conectadas em rodízio)
+    const activeWaSlots = channel === 'whatsapp' ? require('./whatsapp').getConnectedSlots(workspaceId) : [];
+    const activeLinesCount = Math.max(1, activeWaSlots.length);
+    const effectiveDailyLimit = dailySafeLimit * activeLinesCount;
+    const effectiveBatchSize = batchSize * activeLinesCount;
+
+    if (channel === 'whatsapp' && enableDailyLimit && sessionSentCount >= effectiveDailyLimit) {
       pausedAtIndex = i;
       addCampaignLog(
         state,
         'warning',
-        `🛡️ [ANTI-BAN] Trava de segurança atingida (${dailySafeLimit} envios nesta etapa). Disparo pausado no contato #${i + 1} para proteger seu número — você pode retomar de onde parou depois.`
+        `🛡️ [ANTI-BAN] Trava de segurança atingida (${effectiveDailyLimit} envios nesta etapa em ${activeLinesCount} linha(s)). Disparo pausado no contato #${i + 1} — você pode retomar de onde parou depois.`
       );
       break;
     }
 
     // Pausa em lote Anti-Ban
-    if (sessionSentCount > 0 && sessionSentCount % batchSize === 0) {
-      addCampaignLog(state, 'warning', `⏸️ Pausa anti-ban automática: aguardando ${batchPause} segundos após ${batchSize} envios...`);
+    if (sessionSentCount > 0 && sessionSentCount % effectiveBatchSize === 0) {
+      addCampaignLog(state, 'warning', `⏸️ Pausa anti-ban automática: aguardando ${batchPause} segundos após ${effectiveBatchSize} envios...`);
       savePersistedState();
       for (let p = 0; p < batchPause; p++) {
         if (runtime.stopRequested || runtime.pauseRequested) break;
@@ -319,11 +324,14 @@ async function runCampaignLoop(workspaceId, listId) {
 
     let channelDisconnected = false;
     try {
-      await sendSingleMessage(workspaceId, targetDest, contactMsg, state.file, contact.name || '', simulateTyping);
+      const sentRes = await sendSingleMessage(workspaceId, targetDest, contactMsg, state.file, contact.name || '', simulateTyping);
       sentCount++;
       sessionSentCount++;
       sentSet.add(contactKey);
-      addCampaignLog(state, 'success', `✓ [${channelName.toUpperCase()}] Enviado com sucesso para ${contact.name} (${displayDest})`);
+      const slotTag = sentRes && sentRes.usedSlot
+        ? `${channelName.toUpperCase()} Linha #${sentRes.usedSlot}${sentRes.usedPhone ? ' • ' + sentRes.usedPhone : ''}`
+        : channelName.toUpperCase();
+      addCampaignLog(state, 'success', `✓ [${slotTag}] Enviado com sucesso para ${contact.name} (${displayDest})`);
     } catch (err) {
       const errDetail = err?.message || 'Erro no envio';
       if (errDetail.toLowerCase().includes('desconectado') || errDetail.toLowerCase().includes('não está conectado')) {
@@ -584,3 +592,4 @@ module.exports = {
   resetCampaign,
   getCampaignStatus
 };
+

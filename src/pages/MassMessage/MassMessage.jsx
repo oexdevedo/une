@@ -46,6 +46,8 @@ export default function MassMessage() {
   const [activeTab, setActiveTab] = useState(initialDraft.activeTab || 'mensagem');
   const [channel, setChannel] = useState(initialDraft.channel || 'whatsapp'); // 'whatsapp' | 'telegram'
   const [waStatus, setWaStatus] = useState('disconnected');
+  const [waConnectedCount, setWaConnectedCount] = useState(0);
+  const [waSlots, setWaSlots] = useState([]);
   const [tgStatus, setTgStatus] = useState('disconnected');
   const [tgBotInfo, setTgBotInfo] = useState(null);
   const [isImportingChannel, setIsImportingChannel] = useState(false);
@@ -356,6 +358,10 @@ export default function MassMessage() {
       const tgUserData = tgUserRes && tgUserRes.ok ? await tgUserRes.json().catch(() => null) : null;
 
       setWaStatus(waData.status || 'disconnected');
+      setWaConnectedCount(typeof waData.connectedCount === 'number' ? waData.connectedCount : (waData.status === 'connected' ? 1 : 0));
+      if (Array.isArray(waData.slots)) {
+        setWaSlots(waData.slots);
+      }
 
       if (tgUserData && tgUserData.connected) {
         setTgStatus('connected');
@@ -1191,7 +1197,7 @@ export default function MassMessage() {
               onClick={() => setChannel('whatsapp')}
             >
               <Smartphone size={14} />
-              WhatsApp: {waStatus === 'connected' ? 'Conectado' : 'Off'}
+              WhatsApp: {waStatus === 'connected' ? `${waConnectedCount || 1}/3 Conectado(s)` : 'Off'}
             </span>
             <span 
               className={`badge ${tgStatus === 'connected' ? 'info' : 'light'}`}
@@ -1249,10 +1255,12 @@ export default function MassMessage() {
                       <Smartphone size={24} />
                     </div>
                     <div className="channel-meta">
-                      <h4>WhatsApp</h4>
-                      <p>Disparo direto para números de telefone com DDI e DDD</p>
+                      <h4>WhatsApp (Até 3 Linhas em Rodízio)</h4>
+                      <p>Disparo direto alternando entre todos os números conectados</p>
                       <span className={`channel-status-pill ${waStatus === 'connected' ? 'connected' : 'disconnected'}`}>
-                        {waStatus === 'connected' ? '● WhatsApp Conectado' : '○ Desconectado (Conectar na aba Conexões)'}
+                        {waStatus === 'connected'
+                          ? `● ${waConnectedCount || 1}/3 Linha(s) Conectada(s)${waConnectedCount > 1 ? ' (Rodízio Ativo)' : ''}`
+                          : '○ Desconectado (Conectar até 3 linhas na aba Conexões)'}
                       </span>
                     </div>
                   </div>

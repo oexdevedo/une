@@ -2258,20 +2258,22 @@ app.delete('/api/agents/:id', async (req, res) => {
   }
 });
 
-// APIs de Conexão WhatsApp
+// APIs de Conexão WhatsApp (suporta até 3 linhas por Workspace via slot = 1 | 2 | 3)
 app.get('/api/connections/whatsapp', (req, res) => {
   const workspaceId = getEffectiveWorkspaceId(req);
+  const slot = req.query.slot ? Number(req.query.slot) : undefined;
   const whatsappApi = require('./whatsapp');
-  res.json(whatsappApi.getStatus(workspaceId));
+  res.json(whatsappApi.getStatus(workspaceId, slot));
 });
 
 app.post('/api/connections/whatsapp/start', async (req, res) => {
   try {
     const workspaceId = getEffectiveWorkspaceId(req);
     const forceNew = Boolean(req.body.force_new);
+    const slot = Number(req.body.slot) || 1;
     const whatsappApi = require('./whatsapp');
-    await whatsappApi.connectToWhatsApp(workspaceId, forceNew);
-    res.json({ success: true });
+    await whatsappApi.connectToWhatsApp(workspaceId, forceNew, slot);
+    res.json({ success: true, slot });
   } catch (err) {
     console.error('Erro ao iniciar WhatsApp:', err);
     res.status(500).json({ success: false, error: err.message });
@@ -2281,8 +2283,9 @@ app.post('/api/connections/whatsapp/start', async (req, res) => {
 app.post('/api/connections/whatsapp/disconnect', async (req, res) => {
   try {
     const workspaceId = getEffectiveWorkspaceId(req);
+    const slot = Number(req.body.slot) || 1;
     const whatsappApi = require('./whatsapp');
-    const result = await whatsappApi.disconnectWhatsApp(workspaceId);
+    const result = await whatsappApi.disconnectWhatsApp(workspaceId, slot);
     res.json(result);
   } catch (err) {
     console.error('Erro ao desconectar WhatsApp:', err);
@@ -3163,17 +3166,22 @@ async function reconnectAllConnections(workspaceId = 1) {
     const database = await db.getDB();
     const ws = await database.get('SELECT telegram_token, cal_api_key, cal_link FROM workspaces WHERE id = ?', [workspaceId]);
 
-    // 1. WhatsApp (Baileys)
+    // 1. WhatsApp (Baileys — até 3 linhas por Workspace)
     try {
       const whatsappApi = require('./whatsapp');
-      const waStatus = whatsappApi.getStatus(workspaceId);
-      if (waStatus && waStatus.status === 'connected') {
-        results.whatsapp = 'connected';
-        console.log(`📱 [AutoConnect] WhatsApp já está conectado para Workspace ${workspaceId}.`);
-      } else if (whatsappApi.hasSavedCredentials(workspaceId)) {
-        console.log(`📱 [AutoConnect] Sessão salva detectada. Conectando WhatsApp para Workspace ${workspaceId}...`);
-        await whatsappApi.connectToWhatsApp(workspaceId);
-        results.whatsapp = 'connecting';
+      const savedSlots = whatsappApi.getSavedSlots(workspaceId);
+      if (savedSlots.length > 0) {
+        for (const s of savedSlots) {
+          const slotStatus = whatsappApi.getStatus(workspaceId, s);
+          if (slotStatus && slotStatus.status === 'connected') {
+            results.whatsapp = 'connected';
+            console.log(`📱 [AutoConnect] WhatsApp Linha #${s} já está conectado para Workspace ${workspaceId}.`);
+          } else {
+            console.log(`📱 [AutoConnect] Sessão salva detectada. Conectando WhatsApp Linha #${s} para Workspace ${workspaceId}...`);
+            await whatsappApi.connectToWhatsApp(workspaceId, false, s);
+            if (results.whatsapp !== 'connected') results.whatsapp = 'connecting';
+          }
+        }
       } else {
         console.log(`ℹ️ [AutoConnect] Nenhuma credencial salva de WhatsApp para Workspace ${workspaceId}.`);
         results.whatsapp = 'disconnected';

@@ -8,25 +8,40 @@ const aiHandler = require('./ai_handler');
 const { getWhatsAppAuthDir, clearWhatsAppAuthDir, UPLOADS_DIR } = require('./storage');
 const { normalizePhone, getWhatsAppCandidates } = require('./phone_utils');
 
+const MAX_SLOTS = 3;
 const sessions = {}; 
 let reconnectTimeouts = {};
+const roundRobinCounters = {};
 
-async function connectToWhatsApp(workspaceId, forceNew = false) {
-  if (!sessions[workspaceId]) {
-    sessions[workspaceId] = { sock: null, status: 'disconnected', currentQR: '', messages: [] };
+function normalizeSlot(slot = 1) {
+  const n = Number(slot) || 1;
+  return Math.min(Math.max(n, 1), MAX_SLOTS);
+}
+
+function getSessionKey(workspaceId, slot = 1) {
+  const s = normalizeSlot(slot);
+  return s === 1 ? String(workspaceId) : `${workspaceId}_slot${s}`;
+}
+
+async function connectToWhatsApp(workspaceId, forceNew = false, slot = 1) {
+  const numSlot = normalizeSlot(slot);
+  const sessionKey = getSessionKey(workspaceId, numSlot);
+
+  if (!sessions[sessionKey]) {
+    sessions[sessionKey] = { sock: null, status: 'disconnected', currentQR: '', messages: [], slot: numSlot };
   }
 
-  const session = sessions[workspaceId];
+  const session = sessions[sessionKey];
   if (forceNew) {
-    if (reconnectTimeouts[workspaceId]) {
-      clearTimeout(reconnectTimeouts[workspaceId]);
-      reconnectTimeouts[workspaceId] = null;
+    if (reconnectTimeouts[sessionKey]) {
+      clearTimeout(reconnectTimeouts[sessionKey]);
+      reconnectTimeouts[sessionKey] = null;
     }
     if (session.sock) {
       try { session.sock.end(); } catch (e) {}
       session.sock = null;
     }
-    clearWhatsAppAuthDir(workspaceId);
+    clearWhatsAppAuthDir(workspaceId, numSlot);
     session.status = 'disconnected';
     session.currentQR = '';
   } else if (session.status === 'connected' || session.status === 'connecting') {
@@ -36,17 +51,20 @@ async function connectToWhatsApp(workspaceId, forceNew = false) {
   session.status = 'connecting';
   session.currentQR = '';
 
-  const authDir = getWhatsAppAuthDir(workspaceId);
+  const authDir = getWhatsAppAuthDir(workspaceId, numSlot);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
     logger: pino({ level: 'silent' }),
-    browser: ['Unico CRM', 'Chrome', '1.0.0']
+    browser: [`Unico CRM #${numSlot}`, 'Chrome', '1.0.0']
   });
   
   session.sock = sock;
+  session.slot = numSlot;
 
   sock.ev.on('creds.update', async () => {
     try {
@@ -61,7 +79,7 @@ async function connectToWhatsApp(workspaceId, forceNew = false) {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log(`📲 QR Code do WhatsApp gerado para Workspace ${workspaceId}`);
+      console.log(`📲 QR Code do WhatsApp (Linha #${numSlot}) gerado para Workspace ${workspaceId}`);
       session.currentQR = qr;
       session.status = 'connecting';
     }
@@ -69,28 +87,28 @@ async function connectToWhatsApp(workspaceId, forceNew = false) {
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      console.log(`🔌 WhatsApp desconectado (Workspace ${workspaceId}). Código: ${statusCode}. Reconectar? ${shouldReconnect}`);
+      console.log(`🔌 WhatsApp Linha #${numSlot} desconectado (Workspace ${workspaceId}). Código: ${statusCode}. Reconectar? ${shouldReconnect}`);
       session.status = 'disconnected';
       session.currentQR = '';
       if (shouldReconnect) {
-        if (!reconnectTimeouts[workspaceId]) {
-          reconnectTimeouts[workspaceId] = setTimeout(() => {
-            reconnectTimeouts[workspaceId] = null;
-            connectToWhatsApp(workspaceId);
+        if (!reconnectTimeouts[sessionKey]) {
+          reconnectTimeouts[sessionKey] = setTimeout(() => {
+            reconnectTimeouts[sessionKey] = null;
+            connectToWhatsApp(workspaceId, false, numSlot);
           }, 3000);
         }
       } else {
         // Se deslogou (401), apagar as pastas de sessão para permitir nova leitura de QR code
-        clearWhatsAppAuthDir(workspaceId);
+        clearWhatsAppAuthDir(workspaceId, numSlot);
         session.sock = null;
-        console.log(`🧹 Sessão expirada/deslogada limpa com sucesso para Workspace ${workspaceId}.`);
+        console.log(`🧹 Sessão expirada/deslogada limpa com sucesso para Workspace ${workspaceId} (Linha #${numSlot}).`);
       }
     } else if (connection === 'open') {
-      if (reconnectTimeouts[workspaceId]) {
-        clearTimeout(reconnectTimeouts[workspaceId]);
-        reconnectTimeouts[workspaceId] = null;
+      if (reconnectTimeouts[sessionKey]) {
+        clearTimeout(reconnectTimeouts[sessionKey]);
+        reconnectTimeouts[sessionKey] = null;
       }
-      console.log(`✅ WhatsApp CONECTADO com sucesso para Workspace ${workspaceId}! User:`, sock.user?.id);
+      console.log(`✅ WhatsApp Linha #${numSlot} CONECTADO com sucesso para Workspace ${workspaceId}! User:`, sock.user?.id);
       session.status = 'connected';
       session.currentQR = '';
       try {
@@ -312,18 +330,98 @@ async function connectToWhatsApp(workspaceId, forceNew = false) {
   });
 }
 
-function getStatus(workspaceId) {
-  const session = sessions[workspaceId];
-  if (!session) return { status: 'disconnected', qr: '', user: null };
-  return { 
-    status: session.status, 
-    qr: session.currentQR,
-    user: session.sock?.user ? { id: session.sock.user.id, name: session.sock.user.name } : null 
+function getSlotInfo(workspaceId, slot = 1) {
+  const numSlot = normalizeSlot(slot);
+  const sessionKey = getSessionKey(workspaceId, numSlot);
+  const session = sessions[sessionKey];
+  const rawUserId = session?.sock?.user?.id || '';
+  const phone = rawUserId ? rawUserId.split(':')[0].split('@')[0] : '';
+  const name = session?.sock?.user?.name || '';
+  return {
+    slot: numSlot,
+    label: numSlot === 1 ? 'Linha 1 (Principal)' : `Linha ${numSlot}`,
+    status: session?.status || 'disconnected',
+    qr: session?.currentQR || '',
+    phone,
+    name,
+    user: session?.sock?.user ? { id: session.sock.user.id, name: session.sock.user.name, phone } : null
   };
 }
 
-function getSocket(workspaceId) {
-  return sessions[workspaceId]?.sock;
+function getConnectedSlots(workspaceId) {
+  const connected = [];
+  for (let s = 1; s <= MAX_SLOTS; s++) {
+    const info = getSlotInfo(workspaceId, s);
+    if (info.status === 'connected') {
+      connected.push(info);
+    }
+  }
+  return connected;
+}
+
+function getStatus(workspaceId, requestedSlot) {
+  const slots = [];
+  for (let s = 1; s <= MAX_SLOTS; s++) {
+    slots.push(getSlotInfo(workspaceId, s));
+  }
+
+  const connectedSlots = slots.filter(s => s.status === 'connected');
+  const connectingSlots = slots.filter(s => s.status === 'connecting');
+
+  // Se um slot específico foi consultado, retorna o status e QR dele junto com a lista completa de slots
+  if (requestedSlot) {
+    const target = slots.find(s => s.slot === normalizeSlot(requestedSlot)) || slots[0];
+    return {
+      status: target.status,
+      qr: target.qr,
+      user: target.user,
+      slot: target.slot,
+      connectedCount: connectedSlots.length,
+      slots
+    };
+  }
+
+  const overallStatus = connectedSlots.length > 0
+    ? 'connected'
+    : (connectingSlots.length > 0 ? 'connecting' : 'disconnected');
+  const primary = connectedSlots[0] || connectingSlots[0] || slots[0];
+
+  return {
+    status: overallStatus,
+    qr: primary?.qr || '',
+    user: primary?.user || null,
+    connectedCount: connectedSlots.length,
+    slots
+  };
+}
+
+function getSocket(workspaceId, slot = 1) {
+  const targetKey = getSessionKey(workspaceId, slot);
+  if (sessions[targetKey]?.sock && sessions[targetKey]?.status === 'connected') {
+    return sessions[targetKey].sock;
+  }
+  for (let s = 1; s <= MAX_SLOTS; s++) {
+    const key = getSessionKey(workspaceId, s);
+    if (sessions[key]?.sock && sessions[key]?.status === 'connected') {
+      return sessions[key].sock;
+    }
+  }
+  return sessions[targetKey]?.sock || null;
+}
+
+function pickNextConnectedSlot(workspaceId, preferredSlot) {
+  const connected = getConnectedSlots(workspaceId);
+  if (connected.length === 0) return null;
+
+  if (preferredSlot) {
+    const found = connected.find(c => c.slot === normalizeSlot(preferredSlot));
+    if (found) return found.slot;
+  }
+
+  const cursor = roundRobinCounters[workspaceId] || 0;
+  const chosen = connected[cursor % connected.length];
+  roundRobinCounters[workspaceId] = cursor + 1;
+  return chosen.slot;
 }
 
 async function saveMessageToDB(workspaceId, msgObj) {
@@ -386,12 +484,14 @@ async function getMessages(workspaceId) {
   });
 }
 
-async function disconnectWhatsApp(workspaceId) {
-  if (reconnectTimeouts[workspaceId]) {
-    clearTimeout(reconnectTimeouts[workspaceId]);
-    reconnectTimeouts[workspaceId] = null;
+async function disconnectWhatsApp(workspaceId, slot = 1) {
+  const numSlot = normalizeSlot(slot);
+  const sessionKey = getSessionKey(workspaceId, numSlot);
+  if (reconnectTimeouts[sessionKey]) {
+    clearTimeout(reconnectTimeouts[sessionKey]);
+    reconnectTimeouts[sessionKey] = null;
   }
-  const session = sessions[workspaceId];
+  const session = sessions[sessionKey];
   if (session && session.sock) {
     try {
       await session.sock.logout();
@@ -400,17 +500,20 @@ async function disconnectWhatsApp(workspaceId) {
     }
     session.sock = null;
   }
-  clearWhatsAppAuthDir(workspaceId);
-  sessions[workspaceId] = { sock: null, status: 'disconnected', currentQR: '', messages: [] };
-  console.log(`🚪 WhatsApp desconectado e credenciais limpas para Workspace ${workspaceId}`);
-  return { success: true, message: 'WhatsApp desconectado com sucesso' };
+  clearWhatsAppAuthDir(workspaceId, numSlot);
+  sessions[sessionKey] = { sock: null, status: 'disconnected', currentQR: '', messages: [], slot: numSlot };
+  console.log(`🚪 WhatsApp (Linha #${numSlot}) desconectado e credenciais limpas para Workspace ${workspaceId}`);
+  return { success: true, slot: numSlot, message: `WhatsApp Linha #${numSlot} desconectado com sucesso` };
 }
 
 async function sendMessageRaw(workspaceId, jid, text, file, contactName = '', options = {}) {
-  const session = sessions[workspaceId];
+  const chosenSlot = options._chosenSlot || pickNextConnectedSlot(workspaceId, options.slot) || 1;
+  const sessionKey = getSessionKey(workspaceId, chosenSlot);
+  const session = sessions[sessionKey];
   if (!session || session.status !== 'connected' || !session.sock) {
     throw new Error('WhatsApp não está conectado. Conecte o WhatsApp no menu Conexões antes de enviar mensagens.');
   }
+  const senderPhone = (session.sock?.user?.id || '').split(':')[0].split('@')[0];
 
   let cleanJid = (jid || '').trim();
   if (!cleanJid || cleanJid === '@s.whatsapp.net' || cleanJid === '@lid') {
@@ -564,44 +667,63 @@ async function sendMessageRaw(workspaceId, jid, text, file, contactName = '', op
     console.error('Erro ao salvar mensagem no DB:', err.message);
   });
 
+  if (sentMsg && typeof sentMsg === 'object') {
+    sentMsg.usedSlot = chosenSlot;
+    sentMsg.usedPhone = senderPhone;
+  }
   return sentMsg;
 }
 
-// Envio protegido pela política anti-ban (fila, intervalo aleatório e limites de volume)
+// Envio protegido pela política anti-ban com rodízio automático entre até 3 números de WhatsApp conectados
 function sendMessage(workspaceId, jid, text, file, contactName = '', options = {}) {
-  return require('./antiban').run('whatsapp', workspaceId, () =>
-    sendMessageRaw(workspaceId, jid, text, file, contactName, options)
+  const chosenSlot = pickNextConnectedSlot(workspaceId, options.slot) || 1;
+  const antibanKey = `${workspaceId}_slot${chosenSlot}`;
+  return require('./antiban').run('whatsapp', antibanKey, () =>
+    sendMessageRaw(workspaceId, jid, text, file, contactName, { ...options, _chosenSlot: chosenSlot })
   );
 }
 
 async function getProfilePicUrl(workspaceId, jid) {
-  const session = sessions[workspaceId];
-  if (!session || session.status !== 'connected' || !session.sock) {
+  const sock = getSocket(workspaceId);
+  if (!sock) {
     return null;
   }
   try {
-    return await session.sock.profilePictureUrl(jid, 'image');
+    return await sock.profilePictureUrl(jid, 'image');
   } catch (err) {
     return null;
   }
 }
 
-function hasSavedCredentials(workspaceId) {
+function hasSavedCredentials(workspaceId, slot = 1) {
   try {
-    const authDir = getWhatsAppAuthDir(workspaceId);
+    const authDir = getWhatsAppAuthDir(workspaceId, slot);
     return fs.existsSync(path.join(authDir, 'creds.json'));
   } catch {
     return false;
   }
 }
 
+function getSavedSlots(workspaceId) {
+  const saved = [];
+  for (let s = 1; s <= MAX_SLOTS; s++) {
+    if (hasSavedCredentials(workspaceId, s)) {
+      saved.push(s);
+    }
+  }
+  return saved;
+}
+
 module.exports = { 
+  MAX_SLOTS,
   connectToWhatsApp, 
   disconnectWhatsApp,
   getSocket, 
   getStatus, 
+  getConnectedSlots,
   getMessages, 
   sendMessage, 
   getProfilePicUrl, 
-  hasSavedCredentials 
+  hasSavedCredentials,
+  getSavedSlots
 };
