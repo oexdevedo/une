@@ -5,7 +5,9 @@ import {
   Message,
   Sliders,
   Play,
+  Pause,
   Refresh,
+  Reload,
   Clock,
   Send,
   Attachment,
@@ -78,22 +80,102 @@ export default function MassMessage() {
   const [enableDailyLimit, setEnableDailyLimit] = useState(true);
   const [dailySafeLimit, setDailySafeLimit] = useState(35);
 
-  // Disparo e Logs
+  // Disparo, Pausa, Retomada e Logs
   const [isDispatching, setIsDispatching] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [resumeIndex, setResumeIndex] = useState(0);
+  const [processedKeys, setProcessedKeys] = useState([]);
   const isStopRequestedRef = useRef(false);
+  const isPauseRequestedRef = useRef(false);
+  const sleepResolveRef = useRef(null);
   const [dispatchLogs, setDispatchLogs] = useState([
     { id: 1, time: new Date().toLocaleTimeString('pt-BR'), type: 'info', text: 'Sistema pronto. Selecione uma lista de contatos e inicie o disparo.' }
   ]);
   const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0 });
 
-  const handleStopDispatch = () => {
-    isStopRequestedRef.current = true;
+  const getCheckpointKey = (listId = selectedListId) => `unne_mass_checkpoint_ws_${workspaceId}_list_${listId}`;
+
+  const getContactUniqueKey = (contact, idx) => {
+    if (!contact) return `idx_${idx}`;
+    return String(contact.id || contact.phone || contact.remote_jid || `idx_${idx}`);
+  };
+
+  const saveCheckpoint = (listId, data) => {
+    if (!listId) return;
+    try {
+      localStorage.setItem(getCheckpointKey(listId), JSON.stringify({
+        ...data,
+        updatedAt: Date.now()
+      }));
+    } catch (e) {
+      console.error('Erro ao salvar checkpoint de disparo:', e);
+    }
+  };
+
+  const clearCheckpoint = (listId = selectedListId) => {
+    if (!listId) return;
+    try {
+      localStorage.removeItem(getCheckpointKey(listId));
+    } catch (e) {}
+  };
+
+  const interruptibleSleep = (ms) => new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      sleepResolveRef.current = null;
+      resolve();
+    }, ms);
+    sleepResolveRef.current = () => {
+      clearTimeout(timer);
+      sleepResolveRef.current = null;
+      resolve();
+    };
+  });
+
+  const handlePauseDispatch = () => {
+    isPauseRequestedRef.current = true;
+    if (sleepResolveRef.current) sleepResolveRef.current();
     const time = new Date().toLocaleTimeString('pt-BR');
     setDispatchLogs(prev => [...prev, {
       id: Date.now() + Math.random(),
       time,
       type: 'warning',
-      text: '⏹️ Solicitação de interrupção recebida. Parando envio...'
+      text: '⏸️ Solicitação de pausa recebida. Salvando posição atual da fila...'
+    }]);
+  };
+
+  const handleStopDispatch = () => {
+    if (isDispatching && !confirm('Deseja encerrar o disparo e zerar o progresso desta lista? (Se quiser apenas pausar para continuar depois, clique em "Pausar Disparo").')) {
+      return;
+    }
+    isStopRequestedRef.current = true;
+    isPauseRequestedRef.current = false;
+    if (sleepResolveRef.current) sleepResolveRef.current();
+    clearCheckpoint(selectedListId);
+    setIsPaused(false);
+    setResumeIndex(0);
+    setProcessedKeys([]);
+    const time = new Date().toLocaleTimeString('pt-BR');
+    setDispatchLogs(prev => [...prev, {
+      id: Date.now() + Math.random(),
+      time,
+      type: 'warning',
+      text: '⏹️ Solicitação de encerramento recebida. Parando envio e zerando fila...'
+    }]);
+  };
+
+  const handleResetProgress = () => {
+    if (!confirm('Deseja descartar o progresso salvo e voltar a fila para o início (contato #1)?')) return;
+    clearCheckpoint(selectedListId);
+    setIsPaused(false);
+    setResumeIndex(0);
+    setProcessedKeys([]);
+    setStats({ total: contacts.length, sent: 0, failed: 0 });
+    const time = new Date().toLocaleTimeString('pt-BR');
+    setDispatchLogs(prev => [...prev, {
+      id: Date.now() + Math.random(),
+      time,
+      type: 'info',
+      text: '🔄 Progresso reiniciado. O próximo disparo começará do primeiro contato da lista.'
     }]);
   };
 
@@ -186,8 +268,42 @@ export default function MassMessage() {
       fetchContacts(selectedListId);
     } else {
       setContacts([]);
+      setIsPaused(false);
+      setResumeIndex(0);
+      setProcessedKeys([]);
     }
   }, [selectedListId]);
+
+  // Restaura progresso salvo (checkpoint) sempre que a lista de contatos carregada mudar
+  useEffect(() => {
+    if (!selectedListId || contacts.length === 0 || isDispatching) return;
+    try {
+      const raw = localStorage.getItem(getCheckpointKey(selectedListId));
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved && typeof saved.resumeIndex === 'number' && saved.resumeIndex > 0 && saved.resumeIndex < contacts.length) {
+          setIsPaused(true);
+          setResumeIndex(saved.resumeIndex);
+          setProcessedKeys(Array.isArray(saved.processedKeys) ? saved.processedKeys : []);
+          setStats({
+            total: contacts.length,
+            sent: saved.sent || 0,
+            failed: saved.failed || 0
+          });
+          if (saved.channel === 'whatsapp' || saved.channel === 'telegram') {
+            setChannel(saved.channel);
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao ler checkpoint salvo:', e);
+    }
+    setIsPaused(false);
+    setResumeIndex(0);
+    setProcessedKeys([]);
+    setStats({ total: contacts.length, sent: 0, failed: 0 });
+  }, [selectedListId, contacts.length]);
 
   // Importar contatos das conversas do WhatsApp ou Telegram para a lista selecionada
   const handleImportChannelContacts = async (targetChannel) => {
@@ -442,8 +558,10 @@ export default function MassMessage() {
     setPreviewText(formatMessageForContact(messageText, previewContact));
   };
 
-  // Motor de Disparo em Massa Multi-Canal (WhatsApp e Telegram)
-  const handleStartDispatch = async () => {
+  // Motor de Disparo em Massa Multi-Canal (WhatsApp e Telegram) com suporte a Pausar e Retomar
+  const handleStartDispatch = async (options = {}) => {
+    const isResuming = Boolean(options && options.resume === true && resumeIndex > 0 && resumeIndex < contacts.length);
+
     if (contacts.length === 0) {
       alert('A lista selecionada não possui contatos cadastrados para envio.');
       return;
@@ -465,54 +583,112 @@ export default function MassMessage() {
       return;
     }
 
-    if (!confirm(`Deseja iniciar o disparo em massa para ${contacts.length} contatos via ${channelName}?`)) return;
+    const startIdx = isResuming ? resumeIndex : 0;
+    const remainingCount = contacts.length - startIdx;
+
+    const confirmMsg = isResuming
+      ? `Deseja retomar o disparo de onde parou (a partir do contato #${startIdx + 1}, faltando ${remainingCount} de ${contacts.length} contatos) via ${channelName}?`
+      : `Deseja iniciar o disparo em massa para ${contacts.length} contatos via ${channelName}?`;
+
+    if (!confirm(confirmMsg)) return;
 
     isStopRequestedRef.current = false;
+    isPauseRequestedRef.current = false;
     setIsDispatching(true);
+    setIsPaused(false);
     setActiveTab('logs');
-    setStats({ total: contacts.length, sent: 0, failed: 0 });
+
+    let sentCount = isResuming ? (stats.sent || 0) : 0;
+    let failCount = isResuming ? (stats.failed || 0) : 0;
+    let sessionSentCount = 0; // Contagem desta sessão para permitir retomar mesmo após trava diária
+    const sentSet = new Set(isResuming ? processedKeys : []);
+
+    if (!isResuming) {
+      clearCheckpoint(selectedListId);
+      setResumeIndex(0);
+      setProcessedKeys([]);
+      setStats({ total: contacts.length, sent: 0, failed: 0 });
+    } else {
+      setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+    }
 
     const addLog = (type, text) => {
       const time = new Date().toLocaleTimeString('pt-BR');
       setDispatchLogs(prev => [...prev, { id: Date.now() + Math.random(), time, type, text }]);
     };
 
-    addLog('info', `🚀 Campanha iniciada via ${channelName} para ${contacts.length} contatos da lista.`);
+    if (isResuming) {
+      addLog('info', `▶️ Retomando campanha via ${channelName} a partir do contato #${startIdx + 1} (${remainingCount} restantes de ${contacts.length}).`);
+    } else {
+      addLog('info', `🚀 Campanha iniciada via ${channelName} para ${contacts.length} contatos da lista.`);
+    }
 
-    let sentCount = 0;
-    let failCount = 0;
+    let pausedAtIndex = null;
 
-    for (let i = 0; i < contacts.length; i++) {
+    for (let i = startIdx; i < contacts.length; i++) {
       if (isStopRequestedRef.current) {
-        addLog('warning', `⏹️ Disparo interrompido pelo usuário.`);
+        addLog('warning', `⏹️ Disparo encerrado pelo usuário.`);
+        break;
+      }
+
+      if (isPauseRequestedRef.current) {
+        pausedAtIndex = i;
+        addLog('warning', `⏸️ Disparo pausado no contato #${i + 1} de ${contacts.length}. Você pode retomar de onde parou quando desejar.`);
         break;
       }
 
       const contact = contacts[i];
+      const contactKey = getContactUniqueKey(contact, i);
+
+      // Evita reenviar caso o contato já tenha sido processado nesta campanha
+      if (sentSet.has(contactKey)) {
+        continue;
+      }
 
       // Verificação de Opt-out (Anti-Ban: não envia para contatos que pediram cancelamento)
       if (channel === 'whatsapp' && contact.status === 'Opt-out') {
         addLog('warning', `⏭️ [WHATSAPP] Ignorado: Contato ${contact.name} solicitou Opt-out previamente.`);
+        sentSet.add(contactKey);
+        saveCheckpoint(selectedListId, {
+          resumeIndex: i + 1,
+          sent: sentCount,
+          failed: failCount,
+          processedKeys: Array.from(sentSet),
+          channel
+        });
+        setResumeIndex(i + 1);
+        setProcessedKeys(Array.from(sentSet));
         continue;
       }
 
-      // Trava de Segurança Diária Anti-Ban (Impede ultrapassar limite seguro para evitar bloqueio)
-      if (channel === 'whatsapp' && enableDailyLimit && sentCount >= dailySafeLimit) {
-        addLog('warning', `🛡️ [ANTI-BAN] Trava de segurança atingida: ${dailySafeLimit} envios concluídos. Disparo pausado preventivamente para evitar bloqueio pelo WhatsApp.`);
-        alert(`🛡️ Trava de Segurança Anti-Ban Ativada!\n\nForam disparadas ${sentCount} mensagens com sucesso. Para evitar o bloqueio da sua linha (muito comum ao ultrapassar 35-50 mensagens em chips novos ou pouco maturados), o disparo foi interrompido com segurança.\n\nVocê pode alterar ou desmarcar a trava na aba 'Configuração'.`);
+      // Trava de Segurança Diária Anti-Ban (Pausa automaticamente salvando posição para continuar depois)
+      if (channel === 'whatsapp' && enableDailyLimit && sessionSentCount >= dailySafeLimit) {
+        pausedAtIndex = i;
+        addLog('warning', `🛡️ [ANTI-BAN] Trava de segurança atingida (${dailySafeLimit} envios nesta etapa). Disparo pausado no contato #${i + 1} para proteger seu número — você pode retomar de onde parou depois.`);
+        alert(`🛡️ Trava de Segurança Anti-Ban Ativada!\n\nForam disparadas ${sessionSentCount} mensagens nesta etapa (${sentCount} no total). O disparo foi PAUSADO com segurança no contato #${i + 1}.\n\nQuando quiser continuar para os ${contacts.length - i} contatos restantes, basta clicar em "Continuar de onde parou".`);
         break;
       }
 
-      // Pausa Anti-Ban a cada lote de envios bem sucedidos
-      if (sentCount > 0 && sentCount % batchSize === 0) {
-        addLog('warning', `⏸️ Pausa anti-ban acionada: aguardando ${batchPause} segundos após ${batchSize} envios...`);
+      // Pausa Anti-Ban a cada lote de envios bem sucedidos nesta etapa
+      if (sessionSentCount > 0 && sessionSentCount % batchSize === 0) {
+        addLog('warning', `⏸️ Pausa anti-ban automática: aguardando ${batchPause} segundos após ${batchSize} envios...`);
         for (let p = 0; p < batchPause; p++) {
-          if (isStopRequestedRef.current) break;
-          await new Promise(r => setTimeout(r, 1000));
+          if (isStopRequestedRef.current || isPauseRequestedRef.current) break;
+          await interruptibleSleep(1000);
         }
-        if (isStopRequestedRef.current) break;
+        if (isStopRequestedRef.current) {
+          addLog('warning', `⏹️ Disparo encerrado pelo usuário.`);
+          break;
+        }
+        if (isPauseRequestedRef.current) {
+          pausedAtIndex = i;
+          addLog('warning', `⏸️ Disparo pausado no contato #${i + 1} de ${contacts.length}. Você pode retomar de onde parou quando desejar.`);
+          break;
+        }
         addLog('info', `▶️ Retomando envios via ${channelName}...`);
       }
+
+      let channelDisconnected = false;
 
       try {
         const contactMsg = formatMessageForContact(messageText, contact);
@@ -523,7 +699,17 @@ export default function MassMessage() {
           if (!raw) {
             failCount++;
             addLog('error', `✗ [TELEGRAM] Ignorado: Contato ${contact.name} não possui número ou Chat ID cadastrado.`);
+            sentSet.add(contactKey);
             setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+            saveCheckpoint(selectedListId, {
+              resumeIndex: i + 1,
+              sent: sentCount,
+              failed: failCount,
+              processedKeys: Array.from(sentSet),
+              channel
+            });
+            setResumeIndex(i + 1);
+            setProcessedKeys(Array.from(sentSet));
             continue;
           }
           if (raw.endsWith('@telegram')) {
@@ -537,7 +723,17 @@ export default function MassMessage() {
           if (!rawPhone || rawPhone === '@s.whatsapp.net' || rawPhone === '@lid') {
             failCount++;
             addLog('error', `✗ [WHATSAPP] Ignorado: Contato ${contact.name} não possui número de telefone cadastrado.`);
+            sentSet.add(contactKey);
             setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+            saveCheckpoint(selectedListId, {
+              resumeIndex: i + 1,
+              sent: sentCount,
+              failed: failCount,
+              processedKeys: Array.from(sentSet),
+              channel
+            });
+            setResumeIndex(i + 1);
+            setProcessedKeys(Array.from(sentSet));
             continue;
           }
           if (rawPhone.endsWith('@s.whatsapp.net') || rawPhone.endsWith('@lid')) {
@@ -548,7 +744,17 @@ export default function MassMessage() {
             if (!digits) {
               failCount++;
               addLog('error', `✗ [WHATSAPP] Ignorado: Número de telefone inválido para ${contact.name}.`);
+              sentSet.add(contactKey);
               setStats({ total: contacts.length, sent: sentCount, failed: failCount });
+              saveCheckpoint(selectedListId, {
+                resumeIndex: i + 1,
+                sent: sentCount,
+                failed: failCount,
+                processedKeys: Array.from(sentSet),
+                channel
+              });
+              setResumeIndex(i + 1);
+              setProcessedKeys(Array.from(sentSet));
               continue;
             }
 
@@ -631,36 +837,96 @@ export default function MassMessage() {
 
         if (data.success) {
           sentCount++;
+          sessionSentCount++;
+          sentSet.add(contactKey);
           addLog('success', `✓ [${channelName.toUpperCase()}] Enviado com sucesso para ${contact.name} (${displayDest})`);
         } else {
-          failCount++;
           const errDetail = data.error || 'Erro na resposta do servidor';
-          addLog('error', `✗ [${channelName.toUpperCase()}] Falha ao enviar para ${contact.name}: ${errDetail}`);
-          // Se o canal desconectou no meio do disparo, aborta imediatamente
+          // Se o canal desconectou no meio do disparo, pausa no contato atual sem marcá-lo como concluído
           if (errDetail.toLowerCase().includes('desconectado') || errDetail.toLowerCase().includes('não está conectado')) {
-            addLog('error', `🛑 [${channelName.toUpperCase()}] Disparo interrompido: o canal foi desconectado.`);
-            alert(`O disparo foi interrompido porque o ${channelName} está desconectado.`);
-            break;
+            pausedAtIndex = i;
+            channelDisconnected = true;
+            addLog('error', `🛑 [${channelName.toUpperCase()}] Disparo pausado no contato #${i + 1}: o canal foi desconectado. Reconecte e clique em "Continuar de onde parou".`);
+            alert(`O disparo foi pausado no contato #${i + 1} porque o ${channelName} desconectou. Reconecte o canal e clique em "Continuar de onde parou".`);
+          } else {
+            failCount++;
+            sentSet.add(contactKey);
+            addLog('error', `✗ [${channelName.toUpperCase()}] Falha ao enviar para ${contact.name}: ${errDetail}`);
           }
         }
       } catch (e) {
         failCount++;
+        sentSet.add(contactKey);
         addLog('error', `✗ [${channelName.toUpperCase()}] Erro no envio para ${contact.name}: ${e.message}`);
       }
 
       setStats({ total: contacts.length, sent: sentCount, failed: failCount });
 
+      if (channelDisconnected) {
+        break;
+      }
+
+      // Salva checkpoint após cada contato processado
+      const nextIdx = i + 1;
+      if (nextIdx < contacts.length) {
+        saveCheckpoint(selectedListId, {
+          resumeIndex: nextIdx,
+          sent: sentCount,
+          failed: failCount,
+          processedKeys: Array.from(sentSet),
+          channel
+        });
+        setResumeIndex(nextIdx);
+        setProcessedKeys(Array.from(sentSet));
+      }
+
+      if (isPauseRequestedRef.current) {
+        pausedAtIndex = nextIdx;
+        if (pausedAtIndex < contacts.length) {
+          addLog('warning', `⏸️ Disparo pausado após o contato #${i + 1}. Próximo da fila: #${pausedAtIndex + 1} (${contacts[pausedAtIndex]?.name || 'Contato'}).`);
+        }
+        break;
+      }
+
       if (i < contacts.length - 1 && !isStopRequestedRef.current) {
         const delaySec = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
         addLog('info', `⏳ Intervalo de segurança: aguardando ${delaySec}s...`);
         for (let s = 0; s < delaySec; s++) {
-          if (isStopRequestedRef.current) break;
-          await new Promise(r => setTimeout(r, 1000));
+          if (isStopRequestedRef.current || isPauseRequestedRef.current) break;
+          await interruptibleSleep(1000);
+        }
+        if (isPauseRequestedRef.current) {
+          pausedAtIndex = i + 1;
+          addLog('warning', `⏸️ Disparo pausado no intervalo. Próximo contato ao retomar: #${pausedAtIndex + 1} (${contacts[pausedAtIndex]?.name || 'Contato'}).`);
+          break;
         }
       }
     }
 
-    addLog('success', `🎉 Disparo via ${channelName} finalizado! Total: ${contacts.length} | Enviados: ${sentCount} | Falhas: ${failCount}`);
+    if (isStopRequestedRef.current) {
+      clearCheckpoint(selectedListId);
+      setIsPaused(false);
+      setResumeIndex(0);
+      setProcessedKeys([]);
+    } else if (pausedAtIndex !== null && pausedAtIndex < contacts.length) {
+      saveCheckpoint(selectedListId, {
+        resumeIndex: pausedAtIndex,
+        sent: sentCount,
+        failed: failCount,
+        processedKeys: Array.from(sentSet),
+        channel
+      });
+      setIsPaused(true);
+      setResumeIndex(pausedAtIndex);
+      setProcessedKeys(Array.from(sentSet));
+    } else {
+      clearCheckpoint(selectedListId);
+      setIsPaused(false);
+      setResumeIndex(0);
+      setProcessedKeys([]);
+      addLog('success', `🎉 Disparo via ${channelName} finalizado! Total: ${contacts.length} | Enviados: ${sentCount} | Falhas: ${failCount}`);
+    }
+
     setIsDispatching(false);
   };
 
@@ -1204,38 +1470,121 @@ export default function MassMessage() {
                 </div>
                 
                 <div className="premium-card" style={{flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center'}}>
-                  <div style={{textAlign: 'center', marginBottom: '24px'}}>
+                  <div style={{textAlign: 'center', marginBottom: '20px'}}>
                     <div style={{fontSize: '3rem', fontWeight: 800, color: '#1e1e2d'}}>
-                      {contacts.length}
+                      {isPaused && resumeIndex > 0 && resumeIndex < contacts.length
+                        ? `${contacts.length - resumeIndex} / ${contacts.length}`
+                        : contacts.length}
                     </div>
                     <div style={{fontSize: '0.9rem', color: '#a1a5b7', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em'}}>
-                      Contatos Prontos Para Envio
+                      {isPaused && resumeIndex > 0 && resumeIndex < contacts.length
+                        ? 'Contatos Restantes Para Retomar'
+                        : 'Contatos Prontos Para Envio'}
                     </div>
                     <div style={{ marginTop: '12px', display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', borderRadius: '20px', backgroundColor: channel === 'telegram' ? '#e0f2fe' : '#dcfce7', color: channel === 'telegram' ? '#0369a1' : '#15803d', fontWeight: 700, fontSize: '0.85rem' }}>
                       {channel === 'telegram' ? <Telegram size={16}/> : <Smartphone size={16}/>}
                       Disparo configurado via {channel === 'telegram' ? 'Telegram' : 'WhatsApp'}
                     </div>
                   </div>
-                  
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button 
-                      className={`btn-huge ${channel === 'telegram' ? 'btn-telegram' : 'btn-whatsapp'}`}
-                      onClick={handleStartDispatch}
-                      disabled={isDispatching || contacts.length === 0}
-                      style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1, flex: 1, minWidth: '220px' }}
-                    >
-                      <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : `INICIAR DISPARO VIA ${channel.toUpperCase()}`}
-                    </button>
 
-                    {isDispatching && (
-                      <button 
-                        className="btn-huge"
-                        onClick={handleStopDispatch}
-                        style={{ background: '#DC2626', color: '#FFFFFF', border: 'none', cursor: 'pointer', flex: 1, minWidth: '180px' }}
-                        title="Interromper envio em massa imediatamente"
-                      >
-                        <Close size={24} /> PARAR DISPARO
-                      </button>
+                  {/* Card de Progresso Pausado */}
+                  {(isPaused || isDispatching) && resumeIndex > 0 && resumeIndex < contacts.length && (
+                    <div style={{
+                      marginBottom: '20px',
+                      padding: '14px 16px',
+                      borderRadius: '14px',
+                      backgroundColor: isDispatching ? '#eff6ff' : '#fffbeb',
+                      border: `1px solid ${isDispatching ? '#bfdbfe' : '#fde68a'}`,
+                      color: isDispatching ? '#1e40af' : '#92400e',
+                      fontSize: '0.85rem'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontWeight: 700 }}>
+                        <span>
+                          {isDispatching ? '🚀 Disparo em andamento' : '⏸️ Disparo pausado — ponto de retomada salvo'}
+                        </span>
+                        <span>{Math.round((resumeIndex / contacts.length) * 100)}% ({resumeIndex}/{contacts.length})</span>
+                      </div>
+                      <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: '999px', overflow: 'hidden', marginBottom: '8px' }}>
+                        <div style={{
+                          width: `${Math.min(100, Math.round((resumeIndex / contacts.length) * 100))}%`,
+                          height: '100%',
+                          backgroundColor: isDispatching ? '#2563eb' : '#f59e0b',
+                          transition: 'width 0.3s ease'
+                        }} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', fontSize: '0.8rem' }}>
+                        <span>
+                          Próximo da fila: <strong>#{resumeIndex + 1} - {contacts[resumeIndex]?.name || 'Contato'}</strong> ({contacts[resumeIndex]?.phone || ''})
+                        </span>
+                        <span>
+                          Enviados: <strong>{stats.sent}</strong> | Falhas: <strong>{stats.failed}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {!isDispatching && isPaused && resumeIndex > 0 && resumeIndex < contacts.length ? (
+                      <>
+                        <button 
+                          className={`btn-huge ${channel === 'telegram' ? 'btn-telegram' : 'btn-whatsapp'}`}
+                          onClick={() => handleStartDispatch({ resume: true })}
+                          disabled={contacts.length === 0}
+                          style={{ width: '100%' }}
+                        >
+                          <Play size={24} /> CONTINUAR DE ONDE PAROU ({contacts.length - resumeIndex} RESTANTES)
+                        </button>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                          <button 
+                            className="btn-huge"
+                            onClick={() => handleStartDispatch({ resume: false })}
+                            style={{ background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', cursor: 'pointer', flex: 1, fontSize: '0.9rem', padding: '12px 16px' }}
+                            title="Ignorar pausa e enviar novamente desde o primeiro contato"
+                          >
+                            <Send size={18} /> Disparar Tudo do Início
+                          </button>
+                          <button 
+                            className="btn-huge"
+                            onClick={handleResetProgress}
+                            style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', cursor: 'pointer', flex: 1, fontSize: '0.9rem', padding: '12px 16px' }}
+                            title="Zerar o progresso salvo desta lista"
+                          >
+                            <Reload size={18} /> Zerar Fila Salva
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button 
+                          className={`btn-huge ${channel === 'telegram' ? 'btn-telegram' : 'btn-whatsapp'}`}
+                          onClick={() => handleStartDispatch({ resume: false })}
+                          disabled={isDispatching || contacts.length === 0}
+                          style={{ opacity: (isDispatching || contacts.length === 0) ? 0.6 : 1, flex: 1, minWidth: '220px' }}
+                        >
+                          <Send size={24} /> {isDispatching ? 'DISPARANDO MENSAGENS...' : `INICIAR DISPARO VIA ${channel.toUpperCase()}`}
+                        </button>
+
+                        {isDispatching && (
+                          <>
+                            <button 
+                              className="btn-huge"
+                              onClick={handlePauseDispatch}
+                              style={{ background: '#F59E0B', color: '#FFFFFF', border: 'none', cursor: 'pointer', flex: 1, minWidth: '180px' }}
+                              title="Pausar disparo mantendo a posição exata para retomar depois"
+                            >
+                              <Pause size={24} /> PAUSAR DISPARO
+                            </button>
+                            <button 
+                              className="btn-huge"
+                              onClick={handleStopDispatch}
+                              style={{ background: '#DC2626', color: '#FFFFFF', border: 'none', cursor: 'pointer', flex: 1, minWidth: '180px' }}
+                              title="Encerrar e zerar o progresso da fila"
+                            >
+                              <Close size={24} /> ENCERRAR E ZERAR
+                            </button>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1270,20 +1619,80 @@ export default function MassMessage() {
                   <div className="stat-label">Falhas <Close size={14}/></div>
                 </div>
               </div>
+
+              {/* Barra de Progresso e Retomada na aba de Relatórios */}
+              {(isDispatching || (isPaused && resumeIndex > 0 && resumeIndex < contacts.length)) && (
+                <div style={{
+                  marginTop: '20px',
+                  padding: '14px 18px',
+                  borderRadius: '14px',
+                  backgroundColor: isDispatching ? '#eff6ff' : '#fffbeb',
+                  border: `1px solid ${isDispatching ? '#bfdbfe' : '#fde68a'}`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ fontWeight: 700, color: isDispatching ? '#1e40af' : '#92400e', fontSize: '0.9rem' }}>
+                      {isDispatching
+                        ? `🚀 Processando fila: ${resumeIndex} de ${contacts.length} concluídos (${contacts.length - resumeIndex} restantes)`
+                        : `⏸️ Disparo pausado no contato #${resumeIndex + 1} (${contacts[resumeIndex]?.name || 'Contato'}) — faltam ${contacts.length - resumeIndex} envios`}
+                    </div>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: isDispatching ? '#1d4ed8' : '#b45309' }}>
+                      {Math.round((resumeIndex / Math.max(1, contacts.length)) * 100)}%
+                    </span>
+                  </div>
+                  <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: '999px', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${Math.min(100, Math.round((resumeIndex / Math.max(1, contacts.length)) * 100))}%`,
+                      height: '100%',
+                      backgroundColor: isDispatching ? '#2563eb' : '#f59e0b',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="premium-card">
               <div className="card-header">
                 <div className="card-title">Console de Logs em Tempo Real</div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                   {isDispatching && (
-                    <button 
-                      className="btn-pill"
-                      style={{ background: '#FEE2E2', color: '#DC2626', borderColor: '#FCA5A5', fontWeight: 600 }}
-                      onClick={handleStopDispatch}
-                    >
-                      <Close size={14} /> Parar Disparo
-                    </button>
+                    <>
+                      <button 
+                        className="btn-pill"
+                        style={{ background: '#FEF3C7', color: '#B45309', border: '1px solid #FCD34D', fontWeight: 700 }}
+                        onClick={handlePauseDispatch}
+                      >
+                        <Pause size={14} /> Pausar Disparo
+                      </button>
+                      <button 
+                        className="btn-pill"
+                        style={{ background: '#FEE2E2', color: '#DC2626', border: '1px solid #FCA5A5', fontWeight: 600 }}
+                        onClick={handleStopDispatch}
+                      >
+                        <Close size={14} /> Encerrar e Zerar
+                      </button>
+                    </>
+                  )}
+                  {!isDispatching && isPaused && resumeIndex > 0 && resumeIndex < contacts.length && (
+                    <>
+                      <button 
+                        className="btn-pill"
+                        style={{ background: '#DCFCE7', color: '#15803D', border: '1px solid #86EFAC', fontWeight: 700 }}
+                        onClick={() => handleStartDispatch({ resume: true })}
+                      >
+                        <Play size={14} /> Continuar de onde parou ({contacts.length - resumeIndex} restantes)
+                      </button>
+                      <button 
+                        className="btn-pill btn-light"
+                        style={{ color: '#B91C1C' }}
+                        onClick={handleResetProgress}
+                      >
+                        <Reload size={14} /> Zerar Fila
+                      </button>
+                    </>
                   )}
                   <button 
                     className="btn-pill btn-light"
