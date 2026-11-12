@@ -106,6 +106,20 @@ function addCampaignLog(state, type, text) {
   state.updatedAt = Date.now();
 }
 
+async function recordFailedMessage(workspaceId, channel, recipient, recipientName, reason) {
+  try {
+    const database = await db.getDB();
+    await database.run(
+      'INSERT INTO failed_message_logs (workspace_id, channel, recipient, recipient_name, error_reason) VALUES (?, ?, ?, ?, ?)',
+      [workspaceId, channel || 'whatsapp', recipient || null, recipientName || null, String(reason || 'Erro no envio').slice(0, 500)]
+    );
+    await database.run(
+      'UPDATE workspaces SET failed_messages_count = COALESCE(failed_messages_count, 0) + 1 WHERE id = ?',
+      [workspaceId]
+    );
+  } catch (e) {}
+}
+
 function resolveSpintax(text) {
   if (!text) return '';
   const spintaxRegex = /\{([^{}]+)\}/g;
@@ -388,6 +402,7 @@ async function runCampaignLoop(workspaceId, listId) {
       state.resumeIndex = i + 1;
       state.processedKeys = Array.from(sentSet);
       addCampaignLog(state, 'error', `✗ [${channelName.toUpperCase()}] Ignorado: ${destResult.error}`);
+      recordFailedMessage(workspaceId, channel, null, contact.name, destResult.error);
       savePersistedState();
       continue;
     }
@@ -448,6 +463,7 @@ async function runCampaignLoop(workspaceId, listId) {
         failCount++;
         sentSet.add(contactKey);
         addCampaignLog(state, 'warning', `⏭️ [${channelName.toUpperCase()}] Ignorado: ${contact.name} (${displayDest}) não tem WhatsApp ativo (proteção anti-ban).`);
+        recordFailedMessage(workspaceId, channel, displayDest, contact.name, 'Número sem conta ativa no WhatsApp');
       } else if (errDetail.toLowerCase().includes('desconectado') || errDetail.toLowerCase().includes('não está conectado')) {
         // Verifica se ainda existem outras linhas ativas conectadas no rodízio
         const remainingSlots = channel === 'whatsapp'
@@ -472,11 +488,13 @@ async function runCampaignLoop(workspaceId, listId) {
             'error',
             `🛑 [${channelName.toUpperCase()}] Disparo pausado no contato #${i + 1}: todas as linhas foram desconectadas. Reconecte e clique em "Continuar de onde parou".`
           );
+          recordFailedMessage(workspaceId, channel, displayDest, contact.name, 'Canal desconectado durante o envio');
         }
       } else {
         failCount++;
         sentSet.add(contactKey);
         addCampaignLog(state, 'error', `✗ [${channelName.toUpperCase()}] Falha ao enviar para ${contact.name}: ${errDetail}`);
+        recordFailedMessage(workspaceId, channel, displayDest, contact.name, errDetail);
       }
     }
 

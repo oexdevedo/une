@@ -118,9 +118,27 @@ async function connectToWhatsApp(workspaceId, forceNew = false, slot = 1) {
         // Se deslogou ou foi banido (401/403/loggedOut)
         session.isBanned = true;
         session.banReason = `Conta deslogada ou bloqueada pela Meta (Status ${statusCode || '401'}).`;
+        const bannedPhone = (session.sock?.user?.id || '').split(':')[0].split('@')[0];
         clearWhatsAppAuthDir(workspaceId, numSlot);
         session.sock = null;
         console.log(`⚠️ WhatsApp Linha #${numSlot} desconectado/deslogado pela Meta (Workspace ${workspaceId}). Código: ${statusCode}`);
+
+        // Registra evento de banimento da Meta no banco de dados para auditoria do Administrador
+        (async () => {
+          try {
+            const database = await db.getDB();
+            await database.run(
+              'INSERT INTO whatsapp_ban_logs (workspace_id, slot, phone, reason, status_code) VALUES (?, ?, ?, ?, ?)',
+              [workspaceId, numSlot, bannedPhone || null, `Desconexão/Bloqueio pela Meta (Status ${statusCode || '401'})`, statusCode || 401]
+            );
+            await database.run(
+              'UPDATE workspaces SET banned_whatsapp_count = COALESCE(banned_whatsapp_count, 0) + 1 WHERE id = ?',
+              [workspaceId]
+            );
+          } catch (logErr) {
+            console.error('Erro ao registrar log de banimento do WhatsApp:', logErr.message);
+          }
+        })();
       }
     } else if (connection === 'open') {
       if (reconnectTimeouts[sessionKey]) {

@@ -2245,7 +2245,44 @@ app.get('/api/admin/users', async (req, res) => {
       contactMap[c.workspace_id] = Number(c.total_contacts || 0);
     }
 
-    const { getSavedSlots } = require('./whatsapp');
+    // Busca contagem de mensagens perdidas / falhas (de logs e campanhas em massa)
+    const failLogs = await database.all(`
+      SELECT workspace_id, COUNT(*) as fail_count
+      FROM failed_message_logs
+      GROUP BY workspace_id
+    `).catch(() => []);
+    const failedMap = {};
+    for (const f of failLogs) {
+      failedMap[f.workspace_id] = Number(f.fail_count || 0);
+    }
+    // Soma com falhas registradas nas campanhas em massa (mass_campaigns.json)
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { DATA_DIR } = require('./storage');
+      const campFile = path.join(DATA_DIR, 'mass_campaigns.json');
+      if (fs.existsSync(campFile)) {
+        const campData = JSON.parse(fs.readFileSync(campFile, 'utf8'));
+        for (const [_, c] of Object.entries(campData)) {
+          const wsId = Number(c.workspaceId) || 1;
+          const cFails = Number(c.failed || 0);
+          failedMap[wsId] = (failedMap[wsId] || 0) + cFails;
+        }
+      }
+    } catch (_) {}
+
+    // Busca contagem de WhatsApps bloqueados pela Meta (logs e contadores)
+    const banLogs = await database.all(`
+      SELECT workspace_id, COUNT(*) as ban_count
+      FROM whatsapp_ban_logs
+      GROUP BY workspace_id
+    `).catch(() => []);
+    const banMap = {};
+    for (const b of banLogs) {
+      banMap[b.workspace_id] = Number(b.ban_count || 0);
+    }
+
+    const { getSavedSlots, getStatus } = require('./whatsapp');
     const enrichedUsers = users.map(u => {
       const wsId = u.workspace_id || 1;
       const mStat = statsMap[wsId] || { total: 0, sent: 0, received: 0 };
@@ -2254,6 +2291,17 @@ app.get('/api/admin/users', async (req, res) => {
       
       const isBlocked = Boolean(u.is_blocked === 1 || u.status === 'blocked');
       const limit = Number(u.message_limit || 0);
+
+      // Bloqueios de WhatsApp detectados neste workspace
+      let liveBans = 0;
+      try {
+        const waStatusObj = getStatus(wsId);
+        if (Array.isArray(waStatusObj?.slots)) {
+          liveBans = waStatusObj.slots.filter(s => s.isBanned).length;
+        }
+      } catch (_) {}
+      const totalBansForUser = Math.max(banMap[wsId] || 0, liveBans);
+      const totalFailsForUser = failedMap[wsId] || 0;
 
       return {
         id: u.id,
@@ -2271,6 +2319,8 @@ app.get('/api/admin/users', async (req, res) => {
         messages_sent: mStat.sent,
         messages_received: mStat.received,
         messages_total: mStat.total,
+        messages_failed: totalFailsForUser,
+        banned_whatsapps: totalBansForUser,
         contacts_count: cCount,
         wa_connected_slots: waSlots.length,
         has_wa: waSlots.length > 0
@@ -2281,6 +2331,8 @@ app.get('/api/admin/users', async (req, res) => {
     const activeUsers = enrichedUsers.filter(u => !u.is_blocked).length;
     const blockedUsers = enrichedUsers.filter(u => u.is_blocked).length;
     const totalSent = enrichedUsers.reduce((acc, u) => acc + u.messages_sent, 0);
+    const totalFailed = enrichedUsers.reduce((acc, u) => acc + (u.messages_failed || 0), 0);
+    const totalBannedWhatsapps = enrichedUsers.reduce((acc, u) => acc + (u.banned_whatsapps || 0), 0);
     const totalContacts = enrichedUsers.reduce((acc, u) => acc + u.contacts_count, 0);
 
     res.json({
@@ -2290,6 +2342,8 @@ app.get('/api/admin/users', async (req, res) => {
         active_users: activeUsers,
         blocked_users: blockedUsers,
         total_messages_sent: totalSent,
+        total_failed_messages: totalFailed,
+        total_banned_whatsapps: totalBannedWhatsapps,
         total_contacts: totalContacts
       },
       users: enrichedUsers
@@ -2297,6 +2351,26 @@ app.get('/api/admin/users', async (req, res) => {
   } catch (error) {
     console.error('Erro ao buscar usuários no painel admin:', error);
     res.status(500).json({ success: false, error: 'Erro ao carregar lista de usuários.' });
+  }
+});
+
+// 1.1 Listar histórico de bloqueios de WhatsApp (Meta)
+app.get('/api/admin/whatsapp-bans', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+    }
+    const database = await db.getDB();
+    const rows = await database.all(`
+      SELECT b.*, w.name as workspace_name 
+      FROM whatsapp_ban_logs b
+      LEFT JOIN workspaces w ON w.id = b.workspace_id
+      ORDER BY b.id DESC
+      LIMIT 100
+    `).catch(() => []);
+    res.json({ success: true, bans: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

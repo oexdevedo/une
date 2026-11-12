@@ -274,6 +274,24 @@
   border: 1px solid #e2e8f0;
 }
 
+.admin-badge.failed {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.admin-badge.banned-chip {
+  background: #ffe4e6;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+  font-weight: 800;
+  transition: transform 0.15s ease;
+}
+
+.admin-badge.banned-chip:hover {
+  transform: scale(1.05);
+}
+
 /* PROGRESS BAR QUOTA */
 .admin-quota-box {
   display: flex;
@@ -378,6 +396,10 @@
   animation: modalFadeIn 0.2s ease-out;
 }
 
+.admin-modal.admin-modal-wide {
+  max-width: 860px;
+}
+
 @keyframes modalFadeIn {
   from {
     opacity: 0;
@@ -433,3 +455,4 @@
   justify-content: flex-end;
   gap: 10px;
 }
+

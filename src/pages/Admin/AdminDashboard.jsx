@@ -16,7 +16,9 @@ import {
   Sliders,
   Smartphone,
   Telegram,
-  FileText
+  FileText,
+  SquareAlert,
+  Clock
 } from 'pixelarticons/react';
 import { getCurrentUser, isUserAdmin } from '../../utils/workspace';
 
@@ -31,9 +33,16 @@ export default function AdminDashboard() {
     active_users: 0,
     blocked_users: 0,
     total_messages_sent: 0,
+    total_failed_messages: 0,
+    total_banned_whatsapps: 0,
     total_contacts: 0
   });
   const [users, setUsers] = useState([]);
+
+  // Histórico de banimentos de WhatsApp
+  const [banLogs, setBanLogs] = useState([]);
+  const [loadingBans, setLoadingBans] = useState(false);
+  const [isBanLogsModalOpen, setIsBanLogsModalOpen] = useState(false);
 
   // Filtros e busca
   const [searchTerm, setSearchTerm] = useState('');
@@ -82,6 +91,31 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchBanLogs = async () => {
+    setLoadingBans(true);
+    try {
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch('/api/admin/whatsapp-bans', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBanLogs(data.bans || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar logs de banimento:', err);
+    } finally {
+      setLoadingBans(false);
+    }
+  };
+
+  const handleOpenBanLogs = () => {
+    setIsBanLogsModalOpen(true);
+    fetchBanLogs();
   };
 
   useEffect(() => {
@@ -316,18 +350,7 @@ export default function AdminDashboard() {
           <div className="admin-kpi-info">
             <span className="admin-kpi-label">Total de Usuários</span>
             <span className="admin-kpi-value">{summary.total_users}</span>
-            <span className="admin-kpi-subtext">Cadastrados no banco de dados</span>
-          </div>
-        </div>
-
-        <div className="admin-kpi-card">
-          <div className="admin-kpi-icon" style={{ backgroundColor: '#dcfce7', color: '#15803d' }}>
-            <Check size={24} />
-          </div>
-          <div className="admin-kpi-info">
-            <span className="admin-kpi-label">Usuários Ativos</span>
-            <span className="admin-kpi-value" style={{ color: '#16a34a' }}>{summary.active_users}</span>
-            <span className="admin-kpi-subtext">{summary.blocked_users} bloqueado(s)</span>
+            <span className="admin-kpi-subtext">{summary.active_users} ativos • {summary.blocked_users} bloqueado(s)</span>
           </div>
         </div>
 
@@ -338,7 +361,51 @@ export default function AdminDashboard() {
           <div className="admin-kpi-info">
             <span className="admin-kpi-label">Mensagens Disparadas</span>
             <span className="admin-kpi-value">{summary.total_messages_sent.toLocaleString('pt-BR')}</span>
-            <span className="admin-kpi-subtext">Histórico total do sistema</span>
+            <span className="admin-kpi-subtext">Histórico total com sucesso</span>
+          </div>
+        </div>
+
+        <div className="admin-kpi-card">
+          <div className="admin-kpi-icon" style={{ backgroundColor: '#fee2e2', color: '#dc2626' }}>
+            <SquareAlert size={24} />
+          </div>
+          <div className="admin-kpi-info">
+            <span className="admin-kpi-label">Mensagens Perdidas (Falhas)</span>
+            <span className="admin-kpi-value" style={{ color: (summary.total_failed_messages || 0) > 0 ? '#dc2626' : '#18181b' }}>
+              {(summary.total_failed_messages || 0).toLocaleString('pt-BR')}
+            </span>
+            <span className="admin-kpi-subtext">Falhas de envio / rejeições</span>
+          </div>
+        </div>
+
+        <div className="admin-kpi-card">
+          <div className="admin-kpi-icon" style={{ backgroundColor: '#ffe4e6', color: '#e11d48' }}>
+            <Smartphone size={24} />
+          </div>
+          <div className="admin-kpi-info">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <span className="admin-kpi-label">WhatsApps Bloqueados</span>
+              <button 
+                onClick={handleOpenBanLogs}
+                style={{ 
+                  background: 'none', 
+                  border: 'none', 
+                  color: '#e11d48', 
+                  fontSize: '0.72rem', 
+                  fontWeight: 700, 
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  padding: 0
+                }}
+                title="Abrir histórico de banimentos pela Meta"
+              >
+                Ver Histórico
+              </button>
+            </div>
+            <span className="admin-kpi-value" style={{ color: (summary.total_banned_whatsapps || 0) > 0 ? '#e11d48' : '#18181b' }}>
+              {summary.total_banned_whatsapps || 0}
+            </span>
+            <span className="admin-kpi-subtext">Chips/contas banidos pela Meta</span>
           </div>
         </div>
 
@@ -350,6 +417,17 @@ export default function AdminDashboard() {
             <span className="admin-kpi-label">Total de Contatos</span>
             <span className="admin-kpi-value">{summary.total_contacts.toLocaleString('pt-BR')}</span>
             <span className="admin-kpi-subtext">Em todos os workspaces</span>
+          </div>
+        </div>
+
+        <div className="admin-kpi-card">
+          <div className="admin-kpi-icon" style={{ backgroundColor: '#dcfce7', color: '#15803d' }}>
+            <Check size={24} />
+          </div>
+          <div className="admin-kpi-info">
+            <span className="admin-kpi-label">Contas Ativas</span>
+            <span className="admin-kpi-value" style={{ color: '#16a34a' }}>{summary.active_users}</span>
+            <span className="admin-kpi-subtext">{summary.blocked_users} conta(s) suspensa(s)</span>
           </div>
         </div>
       </div>
@@ -415,6 +493,8 @@ export default function AdminDashboard() {
                   <th>Função</th>
                   <th>Status</th>
                   <th>Cota / Mensagens</th>
+                  <th>Perdidas / Falhas</th>
+                  <th>Bans Meta</th>
                   <th style={{ textAlign: 'right' }}>Ações</th>
                 </tr>
               </thead>
@@ -424,6 +504,8 @@ export default function AdminDashboard() {
                   const isBlocked = u.is_blocked;
                   const limit = u.message_limit || 0;
                   const sent = u.messages_sent || 0;
+                  const failed = u.messages_failed || 0;
+                  const bans = u.banned_whatsapps || 0;
                   const pct = limit > 0 ? Math.min(100, Math.round((sent / limit) * 100)) : 0;
                   const isOverLimit = limit > 0 && sent >= limit;
 
@@ -504,6 +586,33 @@ export default function AdminDashboard() {
                             <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 600 }}>Cota livre</span>
                           )}
                         </div>
+                      </td>
+
+                      {/* MENSAGENS PERDIDAS / FALHAS */}
+                      <td>
+                        {failed > 0 ? (
+                          <span className="admin-badge failed" title={`${failed} mensagem(ns) com falha no envio`}>
+                            ⚠️ {failed} falha{failed > 1 ? 's' : ''}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.78rem', color: '#16a34a', fontWeight: 600 }}>0 falhas</span>
+                        )}
+                      </td>
+
+                      {/* WHATSAPPS BLOQUEADOS */}
+                      <td>
+                        {bans > 0 ? (
+                          <span 
+                            className="admin-badge banned-chip" 
+                            title={`${bans} número(s) bloqueado(s) pela Meta neste workspace`}
+                            onClick={handleOpenBanLogs}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            🚨 {bans} banido{bans > 1 ? 's' : ''}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>0 bans</span>
+                        )}
                       </td>
 
                       {/* AÇÕES */}
@@ -773,6 +882,110 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* MODAL 4: HISTÓRICO DE WHATSAPPS BLOQUEADOS PELA META */}
+      {isBanLogsModalOpen && (
+        <div className="admin-modal-overlay" onClick={() => setIsBanLogsModalOpen(false)}>
+          <div className="admin-modal admin-modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>
+                <Smartphone size={20} color="#e11d48" /> Histórico de WhatsApps Bloqueados pela Meta ({banLogs.length})
+              </h3>
+              <button className="admin-modal-close" onClick={() => setIsBanLogsModalOpen(false)}>
+                <Close size={18} />
+              </button>
+            </div>
+            <div className="admin-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', padding: '16px 24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                <p style={{ fontSize: '0.86rem', color: '#64748b', margin: 0 }}>
+                  Registro de desconexões forçadas e bloqueios de chips detectados pela Meta (Códigos 401/403/Logout).
+                </p>
+                <button 
+                  className="btn-secondary" 
+                  onClick={fetchBanLogs} 
+                  disabled={loadingBans}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', padding: '6px 12px' }}
+                >
+                  <Refresh size={14} className={loadingBans ? 'spin' : ''} /> Atualizar
+                </button>
+              </div>
+
+              {loadingBans ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                  <Refresh size={28} className="spin" style={{ marginBottom: '8px' }} />
+                  <p>Carregando histórico de bloqueios...</p>
+                </div>
+              ) : banLogs.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
+                    <Check size={24} />
+                  </div>
+                  <h4 style={{ margin: '0 0 6px', color: '#15803d' }}>Nenhum Bloqueio Registrado!</h4>
+                  <p style={{ fontSize: '0.84rem', color: '#64748b', margin: 0, maxWidth: '420px', marginInline: 'auto' }}>
+                    Até o momento nenhum chip de WhatsApp foi desconectado por banimento da Meta. O sistema de proteção e anti-ban está atuando com eficácia.
+                  </p>
+                </div>
+              ) : (
+                <div className="admin-table-wrapper" style={{ border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                  <table className="admin-table" style={{ fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Data / Horário</th>
+                        <th>Workspace</th>
+                        <th>Slot</th>
+                        <th>Telefone / Chip</th>
+                        <th>Motivo / Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {banLogs.map((log) => {
+                        const dateStr = log.created_at ? new Date(log.created_at).toLocaleString('pt-BR') : 'Recente';
+                        return (
+                          <tr key={log.id}>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', whiteSpace: 'nowrap' }}>
+                                <Clock size={14} color="#94a3b8" />
+                                <span>{dateStr}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                {log.workspace_name || `Workspace #${log.workspace_id}`}
+                              </div>
+                              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>ID #{log.workspace_id}</span>
+                            </td>
+                            <td>
+                              <span className="admin-badge" style={{ background: '#f1f5f9', color: '#334155' }}>
+                                Slot #{log.slot}
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>
+                                {log.phone || 'Não informado'}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="admin-badge banned-chip">
+                                {log.reason || 'Sessão revogada / Ban Meta'} {log.status_code ? `(${log.status_code})` : ''}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="admin-modal-footer">
+              <button className="btn-secondary" onClick={() => setIsBanLogsModalOpen(false)}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

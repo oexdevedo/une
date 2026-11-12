@@ -441,6 +441,30 @@ async function init() {
   await ensureColumn(db, 'users', 'message_limit', 'INTEGER DEFAULT 0');
   await ensureColumn(db, 'workspaces', 'message_limit', 'INTEGER DEFAULT 0');
   await ensureColumn(db, 'workspaces', 'is_blocked', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'workspaces', 'banned_whatsapp_count', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'workspaces', 'failed_messages_count', 'INTEGER DEFAULT 0');
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS whatsapp_ban_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL,
+      slot INTEGER NOT NULL,
+      phone TEXT,
+      reason TEXT,
+      status_code INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS failed_message_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL,
+      channel TEXT DEFAULT 'whatsapp',
+      recipient TEXT,
+      recipient_name TEXT,
+      error_reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
   try {
     await db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(LOWER(username)) WHERE username IS NOT NULL;");
     // Sincroniza telefone de recuperação a partir do Telegram conectado no workspace quando o usuário ainda não tem phone preenchido
