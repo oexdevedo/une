@@ -123,7 +123,7 @@ function resolveSpintax(text) {
   return result;
 }
 
-function formatMessageForContact(template, contact) {
+function formatMessageForContact(template, contact, config = {}) {
   if (!template) return '';
   let parsed = resolveSpintax(template);
   const rawName = (contact?.name || '').trim();
@@ -140,6 +140,23 @@ function formatMessageForContact(template, contact) {
   parsed = parsed.replace(/\{(?:email)\}/gi, contact?.email || '');
   parsed = parsed.replace(/\{(?:profissao|profissão|cargo)\}/gi, contact?.profession || contact?.cargo || '');
   parsed = parsed.replace(/\{(?:regiao|região|cidade)\}/gi, contact?.region || contact?.cidade || '');
+
+  // Rodapé amigável de Opt-Out (Anti-Spam / Redução de Denúncias à Meta)
+  if (config.enableOptOutFooter) {
+    const defaultOptOut = "Caso não queira mais receber mensagens, responda 'SAIR'.";
+    const customText = (config.optOutFooterText || defaultOptOut).trim();
+    if (customText) {
+      parsed += `\n\n_${customText}_`;
+    }
+  }
+
+  // Micro-variação invisível Anti-Hash (Zero-Width Unicode)
+  if (config.enableAntiHash !== false) {
+    try {
+      const { applyAntiHashJitter } = require('./antiban');
+      parsed = applyAntiHashJitter(parsed);
+    } catch (e) {}
+  }
 
   return parsed;
 }
@@ -224,7 +241,7 @@ function interruptibleSleep(runtime, ms) {
   });
 }
 
-async function sendSingleMessage(workspaceId, targetDest, text, file, contactName, simulateTyping) {
+async function sendSingleMessage(workspaceId, targetDest, text, file, contactName, simulateTyping, options = {}) {
   if (targetDest && targetDest.endsWith('@telegram')) {
     const telegramUserApi = require('./telegram_user');
     const userStatus = await telegramUserApi.getStatus(workspaceId);
@@ -236,7 +253,8 @@ async function sendSingleMessage(workspaceId, targetDest, text, file, contactNam
   } else {
     const whatsappApi = require('./whatsapp');
     return await whatsappApi.sendMessage(workspaceId, targetDest, text, file, contactName, {
-      simulateTyping: simulateTyping !== false
+      simulateTyping: simulateTyping !== false,
+      enableAntiHash: options.enableAntiHash !== false
     });
   }
 }
@@ -287,6 +305,20 @@ async function runCampaignLoop(workspaceId, listId) {
 
     if (sentSet.has(contactKey)) {
       continue;
+    }
+
+    // Janela de Horário Seguro Anti-Ban (08:00 às 20:00)
+    if (cfg.safeHoursOnly) {
+      const { isWithinSafeHours } = require('./antiban');
+      if (!isWithinSafeHours(8, 20)) {
+        pausedAtIndex = i;
+        addCampaignLog(
+          state,
+          'warning',
+          `🌙 [ANTI-BAN] Janela de Horário Seguro ativa (08:00 às 20:00). Disparo pausado no contato #${i + 1} durante a noite para evitar denúncias de spam por incômodo aos contatos. Retome a partir das 08:00!`
+        );
+        break;
+      }
     }
 
     // Opt-out check
@@ -384,9 +416,11 @@ async function runCampaignLoop(workspaceId, listId) {
       let lastSentRes = null;
       for (let mIdx = 0; mIdx < messagesToSend.length; mIdx++) {
         const tplItem = messagesToSend[mIdx];
-        const contactMsg = formatMessageForContact(tplItem.content, contact);
+        const contactMsg = formatMessageForContact(tplItem.content, contact, cfg);
         const fileForThisMsg = mIdx === 0 ? state.file : null;
-        lastSentRes = await sendSingleMessage(workspaceId, targetDest, contactMsg, fileForThisMsg, contact.name || '', simulateTyping);
+        lastSentRes = await sendSingleMessage(workspaceId, targetDest, contactMsg, fileForThisMsg, contact.name || '', simulateTyping, {
+          enableAntiHash: cfg.enableAntiHash !== false
+        });
         if (mIdx < messagesToSend.length - 1) {
           await interruptibleSleep(runtime, 2000 + Math.floor(Math.random() * 1500));
         }
@@ -400,14 +434,35 @@ async function runCampaignLoop(workspaceId, listId) {
       addCampaignLog(state, 'success', `✓ [${slotTag}] Enviado com sucesso para ${contact.name} (${displayDest})${tplHeader}`);
     } catch (err) {
       const errDetail = err?.message || 'Erro no envio';
-      if (errDetail.toLowerCase().includes('desconectado') || errDetail.toLowerCase().includes('não está conectado')) {
-        pausedAtIndex = i;
-        channelDisconnected = true;
-        addCampaignLog(
-          state,
-          'error',
-          `🛑 [${channelName.toUpperCase()}] Disparo pausado no contato #${i + 1}: o canal foi desconectado. Reconecte e clique em "Continuar de onde parou".`
-        );
+      if (errDetail.toLowerCase().includes('não possui conta ativa no whatsapp')) {
+        failCount++;
+        sentSet.add(contactKey);
+        addCampaignLog(state, 'warning', `⏭️ [${channelName.toUpperCase()}] Ignorado: ${contact.name} (${displayDest}) não tem WhatsApp ativo (proteção anti-ban).`);
+      } else if (errDetail.toLowerCase().includes('desconectado') || errDetail.toLowerCase().includes('não está conectado')) {
+        // Verifica se ainda existem outras linhas ativas conectadas no rodízio
+        const remainingSlots = channel === 'whatsapp'
+          ? require('./whatsapp').getConnectedSlots(workspaceId)
+          : require('./telegram_user').getConnectedSlots(workspaceId);
+
+        if (remainingSlots.length > 0) {
+          addCampaignLog(
+            state,
+            'warning',
+            `⚠️ [${channelName.toUpperCase()}] Uma das linhas desconectou. O sistema continuará automaticamente através das ${remainingSlots.length} linha(s) restante(s)...`
+          );
+          // Marca o contato atual como pendente para tentar na próxima linha ou continua
+          i--; // Tenta reenviar este mesmo contato na próxima linha ativa
+          await interruptibleSleep(runtime, 3000);
+          continue;
+        } else {
+          pausedAtIndex = i;
+          channelDisconnected = true;
+          addCampaignLog(
+            state,
+            'error',
+            `🛑 [${channelName.toUpperCase()}] Disparo pausado no contato #${i + 1}: todas as linhas foram desconectadas. Reconecte e clique em "Continuar de onde parou".`
+          );
+        }
       } else {
         failCount++;
         sentSet.add(contactKey);

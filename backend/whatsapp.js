@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
@@ -54,13 +54,24 @@ async function connectToWhatsApp(workspaceId, forceNew = false, slot = 1) {
   const authDir = getWhatsAppAuthDir(workspaceId, numSlot);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
 
+  // Perfis de navegadores legítimos e autênticos (Padrão Evolution API / Baileys)
+  // Cada linha/slot recebe uma assinatura legítima para simular acessos desktop reais e evitar detecção heurística da Meta
+  const browserProfiles = [
+    Browsers.ubuntu('Chrome'),
+    Browsers.windows('Chrome'),
+    Browsers.macOS('Desktop'),
+    Browsers.macOS('Chrome'),
+    Browsers.windows('Desktop')
+  ];
+  const chosenBrowser = browserProfiles[(numSlot - 1) % browserProfiles.length] || Browsers.ubuntu('Chrome');
+
   const sock = makeWASocket({
     auth: state,
     printQRInTerminal: false,
     syncFullHistory: false,
     markOnlineOnConnect: false,
     logger: pino({ level: 'silent' }),
-    browser: [`Unico CRM #${numSlot}`, 'Chrome', '1.0.0']
+    browser: chosenBrowser
   });
   
   session.sock = sock;
@@ -82,15 +93,21 @@ async function connectToWhatsApp(workspaceId, forceNew = false, slot = 1) {
       console.log(`📲 QR Code do WhatsApp (Linha #${numSlot}) gerado para Workspace ${workspaceId}`);
       session.currentQR = qr;
       session.status = 'connecting';
+      session.isBanned = false;
+      session.banReason = null;
     }
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error)?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 403;
+      const shouldReconnect = !isLoggedOut;
       console.log(`🔌 WhatsApp Linha #${numSlot} desconectado (Workspace ${workspaceId}). Código: ${statusCode}. Reconectar? ${shouldReconnect}`);
       session.status = 'disconnected';
       session.currentQR = '';
+
       if (shouldReconnect) {
+        session.isBanned = false;
+        session.banReason = null;
         if (!reconnectTimeouts[sessionKey]) {
           reconnectTimeouts[sessionKey] = setTimeout(() => {
             reconnectTimeouts[sessionKey] = null;
@@ -98,10 +115,12 @@ async function connectToWhatsApp(workspaceId, forceNew = false, slot = 1) {
           }, 3000);
         }
       } else {
-        // Se deslogou (401), apagar as pastas de sessão para permitir nova leitura de QR code
+        // Se deslogou ou foi banido (401/403/loggedOut)
+        session.isBanned = true;
+        session.banReason = `Conta deslogada ou bloqueada pela Meta (Status ${statusCode || '401'}).`;
         clearWhatsAppAuthDir(workspaceId, numSlot);
         session.sock = null;
-        console.log(`🧹 Sessão expirada/deslogada limpa com sucesso para Workspace ${workspaceId} (Linha #${numSlot}).`);
+        console.log(`⚠️ WhatsApp Linha #${numSlot} desconectado/deslogado pela Meta (Workspace ${workspaceId}). Código: ${statusCode}`);
       }
     } else if (connection === 'open') {
       if (reconnectTimeouts[sessionKey]) {
@@ -111,6 +130,8 @@ async function connectToWhatsApp(workspaceId, forceNew = false, slot = 1) {
       console.log(`✅ WhatsApp Linha #${numSlot} CONECTADO com sucesso para Workspace ${workspaceId}! User:`, sock.user?.id);
       session.status = 'connected';
       session.currentQR = '';
+      session.isBanned = false;
+      session.banReason = null;
       try {
         sock.sendPresenceUpdate('available').catch(() => {});
       } catch (e) {}
@@ -341,6 +362,8 @@ function getSlotInfo(workspaceId, slot = 1) {
     slot: numSlot,
     label: numSlot === 1 ? 'Linha 1 (Principal)' : `Linha ${numSlot}`,
     status: session?.status || 'disconnected',
+    isBanned: !!session?.isBanned,
+    banReason: session?.banReason || null,
     qr: session?.currentQR || '',
     phone,
     name,
@@ -549,16 +572,25 @@ async function sendMessageRaw(workspaceId, jid, text, file, contactName = '', op
     // 2. Se for @s.whatsapp.net, valida e resolve JID exato via onWhatsApp
     if (cleanJid.endsWith('@s.whatsapp.net')) {
       let verifiedJid = null;
+      let checkedExists = null;
       try {
         const results = await session.sock.onWhatsApp(...candidates);
         if (Array.isArray(results) && results.length > 0) {
           const active = results.find(r => r.exists);
           if (active && active.jid) {
             verifiedJid = active.jid;
+            checkedExists = true;
+          } else {
+            checkedExists = false;
           }
         }
       } catch (err) {
         console.warn('Aviso: Verificação onWhatsApp falhou:', err.message);
+      }
+
+      // Se o WhatsApp confirmou que o número não existe, NÃO dispara para evitar ban por spam/prospecção cega
+      if (checkedExists === false) {
+        throw new Error('Número não possui conta ativa no WhatsApp (ignorado para proteção anti-ban)');
       }
 
       if (verifiedJid) {
@@ -607,32 +639,45 @@ async function sendMessageRaw(workspaceId, jid, text, file, contactName = '', op
     fileUrl = '/uploads/' + file.filename;
   }
 
-  // Simulação de presença humana (Anti-Ban)
+  // Simulação de presença humana completa (Anti-Ban padrão Evolution API)
   const simulateTyping = options.simulateTyping !== false;
   if (simulateTyping && session.sock) {
     try {
       const isAudio = msgType === 'audio';
-      // 1. Sinaliza presença online (available)
+      // 1. Inscreve na presença do contato (simula que o usuário abriu a conversa no WhatsApp Web)
+      await session.sock.presenceSubscribe(cleanJid).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 200 + Math.floor(Math.random() * 300)));
+
+      // 2. Sinaliza presença online (available)
       await session.sock.sendPresenceUpdate('available').catch(() => {});
       
-      // 2. Sinaliza "digitando..." (composing) ou "gravando áudio..." (recording)
+      // 3. Sinaliza "digitando..." (composing) ou "gravando áudio..." (recording)
       await session.sock.sendPresenceUpdate(isAudio ? 'recording' : 'composing', cleanJid).catch(() => {});
       
-      // 3. Tempo humano realista proporcional ao tamanho da mensagem
-      // Mínimo 1.5s, máx 4.8s (~30ms por caractere + jitter aleatório)
+      // 4. Tempo humano realista proporcional ao tamanho da mensagem
+      // Mínimo 1.8s, máx 5.2s (~35ms por caractere + jitter aleatório de 600-1200ms)
       const baseChars = (text || '').length || 30;
-      const calculatedDuration = Math.min(Math.max(baseChars * 30, 1500), 4800);
-      const jitter = Math.floor(Math.random() * 700);
+      const calculatedDuration = Math.min(Math.max(baseChars * 35, 1800), 5200);
+      const jitter = Math.floor(Math.random() * 800);
       const typingMs = options.typingDurationMs || (calculatedDuration + jitter);
       
       await new Promise(resolve => setTimeout(resolve, typingMs));
       
-      // 4. Pausa a digitação antes do envio
+      // 5. Pausa a digitação antes do envio (comportamento natural de releitura humana antes de enviar)
       await session.sock.sendPresenceUpdate('paused', cleanJid).catch(() => {});
-      await new Promise(resolve => setTimeout(resolve, 250 + Math.floor(Math.random() * 300)));
+      await new Promise(resolve => setTimeout(resolve, 300 + Math.floor(Math.random() * 400)));
     } catch (presenceErr) {
       console.warn('[WhatsApp] Erro não-bloqueante ao atualizar presença:', presenceErr.message);
     }
+  }
+
+  // Aplica micro-variação Anti-Hash invisível (exclusividade criptográfica de byte-sequence)
+  if (options.enableAntiHash !== false && text && msgType === 'text') {
+    try {
+      const { applyAntiHashJitter } = require('./antiban');
+      text = applyAntiHashJitter(text);
+      messageOptions.text = text;
+    } catch (e) {}
   }
 
   const sentMsg = await session.sock.sendMessage(cleanJid, messageOptions);

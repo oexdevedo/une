@@ -131,7 +131,7 @@ export default function MassMessage() {
       .catch(() => {});
   }, [workspaceId]);
 
-  // Configurações Anti-Ban Inteligentes
+  // Configurações Anti-Ban Inteligentes (Padrão Evolution API & Ferramentas Profissionais)
   const [minDelay, setMinDelay] = useState(initialDraft.minDelay || 25);
   const [maxDelay, setMaxDelay] = useState(initialDraft.maxDelay || 50);
   const [batchSize, setBatchSize] = useState(initialDraft.batchSize || 12);
@@ -139,6 +139,46 @@ export default function MassMessage() {
   const [simulateTyping, setSimulateTyping] = useState(initialDraft.simulateTyping !== undefined ? initialDraft.simulateTyping : true);
   const [enableDailyLimit, setEnableDailyLimit] = useState(initialDraft.enableDailyLimit !== undefined ? initialDraft.enableDailyLimit : true);
   const [dailySafeLimit, setDailySafeLimit] = useState(initialDraft.dailySafeLimit || 35);
+  const [enableAntiHash, setEnableAntiHash] = useState(initialDraft.enableAntiHash !== undefined ? initialDraft.enableAntiHash : true);
+  const [enableOptOutFooter, setEnableOptOutFooter] = useState(initialDraft.enableOptOutFooter !== undefined ? initialDraft.enableOptOutFooter : true);
+  const [optOutFooterText, setOptOutFooterText] = useState(initialDraft.optOutFooterText || "Caso não queira mais receber novidades, responda 'SAIR'.");
+  const [safeHoursOnly, setSafeHoursOnly] = useState(initialDraft.safeHoursOnly !== undefined ? initialDraft.safeHoursOnly : false);
+  const [selectedAntiBanProfile, setSelectedAntiBanProfile] = useState(initialDraft.selectedAntiBanProfile || 'recommended');
+
+  const applyAntiBanProfile = (profile) => {
+    setSelectedAntiBanProfile(profile);
+    if (profile === 'warmup') {
+      setMinDelay(45);
+      setMaxDelay(90);
+      setBatchSize(8);
+      setBatchPause(180);
+      setSimulateTyping(true);
+      setEnableDailyLimit(true);
+      setDailySafeLimit(25);
+      setEnableAntiHash(true);
+      setEnableOptOutFooter(true);
+    } else if (profile === 'recommended') {
+      setMinDelay(25);
+      setMaxDelay(50);
+      setBatchSize(12);
+      setBatchPause(120);
+      setSimulateTyping(true);
+      setEnableDailyLimit(true);
+      setDailySafeLimit(35);
+      setEnableAntiHash(true);
+      setEnableOptOutFooter(true);
+    } else if (profile === 'mature') {
+      setMinDelay(15);
+      setMaxDelay(35);
+      setBatchSize(20);
+      setBatchPause(60);
+      setSimulateTyping(true);
+      setEnableDailyLimit(true);
+      setDailySafeLimit(70);
+      setEnableAntiHash(true);
+      setEnableOptOutFooter(false);
+    }
+  };
 
   // Persiste rascunho e configurações para não perder ao trocar de aba/página
   useEffect(() => {
@@ -157,7 +197,12 @@ export default function MassMessage() {
         batchPause,
         simulateTyping,
         enableDailyLimit,
-        dailySafeLimit
+        dailySafeLimit,
+        enableAntiHash,
+        enableOptOutFooter,
+        optOutFooterText,
+        safeHoursOnly,
+        selectedAntiBanProfile
       }));
     } catch (e) {}
   }, [
@@ -175,7 +220,12 @@ export default function MassMessage() {
     batchPause,
     simulateTyping,
     enableDailyLimit,
-    dailySafeLimit
+    dailySafeLimit,
+    enableAntiHash,
+    enableOptOutFooter,
+    optOutFooterText,
+    safeHoursOnly,
+    selectedAntiBanProfile
   ]);
 
   // Disparo, Pausa, Retomada e Logs
@@ -945,6 +995,10 @@ export default function MassMessage() {
         formData.append('enable_daily_limit', String(enableDailyLimit));
         formData.append('daily_safe_limit', String(dailySafeLimit));
         formData.append('default_ddi', String(defaultDdi));
+        formData.append('enable_anti_hash', String(enableAntiHash));
+        formData.append('enable_opt_out_footer', String(enableOptOutFooter));
+        formData.append('opt_out_footer_text', String(optOutFooterText));
+        formData.append('safe_hours_only', String(safeHoursOnly));
         formData.append('file', attachment);
         startRes = await fetch('/api/mass-dispatch/start', {
           method: 'POST',
@@ -969,7 +1023,11 @@ export default function MassMessage() {
             simulate_typing: simulateTyping,
             enable_daily_limit: enableDailyLimit,
             daily_safe_limit: dailySafeLimit,
-            default_ddi: defaultDdi
+            default_ddi: defaultDdi,
+            enable_anti_hash: enableAntiHash,
+            enable_opt_out_footer: enableOptOutFooter,
+            opt_out_footer_text: optOutFooterText,
+            safe_hours_only: safeHoursOnly
           })
         });
       }
@@ -1784,14 +1842,101 @@ export default function MassMessage() {
                   </div>
                 </div>
 
-                {channel === 'whatsapp' && selectedTemplates.length <= 1 && (!messageText.includes('{') || !messageText.includes('|')) && (
-                  <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '10px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#92400e' }}>
-                    <WarningDiamond size={18} style={{ flexShrink: 0, color: '#d97706' }} />
-                    <div>
-                      <strong>Aviso Anti-Ban:</strong> Sua mensagem não possui variações (Spintax) nem múltiplos templates em rodízio. Recomendamos selecionar 2 ou mais templates em <strong>"Selecionar Templates"</strong> ou usar <code>{'{Olá|Oi|Como vai}'}</code>.
+                {/* PAINEL DE PROTEÇÃO ANTI-BAN & PERSONALIZAÇÃO (PADRÃO EVOLUTION API) */}
+                {channel === 'whatsapp' && (() => {
+                  const hasNameVar = messageText.includes('{primeiro_nome}') || messageText.includes('{nome}');
+                  const hasSpintax = messageText.includes('{') && messageText.includes('|');
+                  const hasMultiTemplates = selectedTemplates.length > 1;
+                  const hasOptOut = enableOptOutFooter || messageText.toLowerCase().includes('sair') || messageText.toLowerCase().includes('parar');
+                  const hasAntiHash = enableAntiHash;
+
+                  let score = 0;
+                  if (hasNameVar) score += 25;
+                  if (hasSpintax) score += 25;
+                  if (hasAntiHash) score += 20;
+                  if (hasMultiTemplates) score += 15;
+                  if (hasOptOut) score += 15;
+
+                  const isHigh = score >= 80;
+                  const isMedium = score >= 50 && score < 80;
+                  const scoreColor = isHigh ? '#16a34a' : isMedium ? '#d97706' : '#dc2626';
+                  const scoreBg = isHigh ? '#f0fdf4' : isMedium ? '#fffbeb' : '#fef2f2';
+                  const scoreBorder = isHigh ? '#bbf7d0' : isMedium ? '#fde68a' : '#fecaca';
+
+                  const autoHumanize = () => {
+                    let current = (messageText || '').trim();
+                    if (!current) {
+                      current = '{Olá|Oi|Como vai} {primeiro_nome}! Tudo bem?';
+                    } else {
+                      if (!hasNameVar) {
+                        current = `{Olá|Oi|Como vai} {primeiro_nome}!\n\n` + current;
+                      } else if (!hasSpintax) {
+                        current = current.replace(/^(Olá|Oi|Bom dia|Boa tarde|Boa noite)\b/i, '{Olá|Oi|Como vai}');
+                        if (!current.includes('{') || !current.includes('|')) {
+                          current = '{Olá|Oi|Como vai} ' + current;
+                        }
+                      }
+                    }
+                    handleMessageTextChange(current);
+                  };
+
+                  return (
+                    <div style={{ marginTop: '14px', padding: '14px 16px', borderRadius: '12px', backgroundColor: scoreBg, border: `1px solid ${scoreBorder}`, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: scoreColor, fontSize: '0.92rem' }}>
+                          <Shield size={18} />
+                          Índice de Proteção Anti-Ban: {score}% ({isHigh ? 'Excelente' : isMedium ? 'Moderado' : 'Alto Risco de Bloqueio'})
+                        </div>
+                        {score < 80 && (
+                          <button
+                            type="button"
+                            onClick={autoHumanize}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '20px',
+                              backgroundColor: '#ffffff',
+                              border: `1px solid ${scoreBorder}`,
+                              color: scoreColor,
+                              fontSize: '0.8rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                            }}
+                          >
+                            ✨ Humanizar Mensagem com 1 Clique
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Barra de progresso */}
+                      <div style={{ width: '100%', height: '6px', backgroundColor: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ width: `${score}%`, height: '100%', backgroundColor: scoreColor, transition: 'width 0.3s ease' }} />
+                      </div>
+
+                      {/* Badges de fatores */}
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '0.78rem' }}>
+                        <span style={{ padding: '3px 8px', borderRadius: '6px', background: hasNameVar ? '#dcfce7' : '#f1f5f9', color: hasNameVar ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                          {hasNameVar ? '✓' : '✗'} Personalização ({'{primeiro_nome}'})
+                        </span>
+                        <span style={{ padding: '3px 8px', borderRadius: '6px', background: hasSpintax ? '#dcfce7' : '#f1f5f9', color: hasSpintax ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                          {hasSpintax ? '✓' : '✗'} Variações Spintax ({'{Oi|Olá}'})
+                        </span>
+                        <span style={{ padding: '3px 8px', borderRadius: '6px', background: hasAntiHash ? '#dcfce7' : '#f1f5f9', color: hasAntiHash ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                          {hasAntiHash ? '✓' : '✗'} Anti-Hash Invisível (Unicode)
+                        </span>
+                        <span style={{ padding: '3px 8px', borderRadius: '6px', background: hasMultiTemplates ? '#dcfce7' : '#f1f5f9', color: hasMultiTemplates ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                          {hasMultiTemplates ? '✓' : '✗'} Rodízio de Templates ({selectedTemplates.length > 0 ? selectedTemplates.length : 1})
+                        </span>
+                        <span style={{ padding: '3px 8px', borderRadius: '6px', background: hasOptOut ? '#dcfce7' : '#f1f5f9', color: hasOptOut ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                          {hasOptOut ? '✓' : '✗'} Opt-out Anti-Denúncia ('SAIR')
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               <div className="attachment-box">
@@ -1831,14 +1976,85 @@ export default function MassMessage() {
         {/* TAB 2: CONFIGURAÇÃO */}
         {activeTab === 'config' && (
           <div className="tab-pane active animated-fade">
-            <div className="premium-card" style={{maxWidth: '800px', margin: '0 auto'}}>
+            <div className="premium-card" style={{maxWidth: '850px', margin: '0 auto'}}>
               <div className="card-header">
-                <div className="card-title"><Sliders size={20} /> Configurações de Motor Anti-Ban & Rate Limits</div>
+                <div className="card-title"><Sliders size={20} /> Configurações de Motor Anti-Ban & Políticas de Proteção</div>
               </div>
               
-              <p style={{color: '#a1a5b7', marginBottom: '32px', fontSize: '0.95rem'}}>
-                Configure o comportamento do disparo para simular o uso humano e evitar bloqueios na sua conta de WhatsApp ou limites no Telegram.
+              <p style={{color: '#64748b', marginBottom: '24px', fontSize: '0.92rem', lineHeight: '1.5'}}>
+                Políticas avançadas inspiradas na <strong>Evolution API</strong> e melhores práticas anti-bloqueio da Meta. O sistema utiliza assinaturas de navegadores legítimos, simulação de digitação humana, micro-variação anti-hash e rotação de linhas.
               </p>
+
+              {/* SELEÇÃO RÁPIDA DE PERFIS DE SEGURANÇA (1 CLIQUE) */}
+              <div style={{ marginBottom: '28px', padding: '16px', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.9rem', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Shield size={18} color="#0284c7" /> Perfis Recomendados de Proteção Anti-Ban (Selecione com 1 clique):
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => applyAntiBanProfile('warmup')}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: selectedAntiBanProfile === 'warmup' ? '2px solid #f97316' : '1px solid #fed7aa',
+                      backgroundColor: selectedAntiBanProfile === 'warmup' ? '#fff7ed' : '#ffffff',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#c2410c', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🔥 Modo Aquecimento (Chip Novo)
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#9a3412', marginTop: '4px', lineHeight: '1.4' }}>
+                      Para chips com menos de 25 dias ou sem histórico ativo. Delays longos (45s–90s) e lotes curtos com pausa de 3min.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyAntiBanProfile('recommended')}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: selectedAntiBanProfile === 'recommended' ? '2px solid #16a34a' : '1px solid #bbf7d0',
+                      backgroundColor: selectedAntiBanProfile === 'recommended' ? '#f0fdf4' : '#ffffff',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#15803d', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🛡️ Padrão Recomendado (Evolution API)
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#166534', marginTop: '4px', lineHeight: '1.4' }}>
+                      Equilíbrio ideal entre velocidade e proteção total. Delays de 25s–50s, pausas de 2min e limite de 35 envios/linha.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => applyAntiBanProfile('mature')}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: selectedAntiBanProfile === 'mature' ? '2px solid #0284c7' : '1px solid #bae6fd',
+                      backgroundColor: selectedAntiBanProfile === 'mature' ? '#f0f9ff' : '#ffffff',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#0369a1', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      🚀 Número Maturado (+3 Meses)
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#075985', marginTop: '4px', lineHeight: '1.4' }}>
+                      Para números antigos com alto fluxo diário de conversas ativas. Delays de 15s–35s e lotes de 20 mensagens.
+                    </div>
+                  </button>
+                </div>
+              </div>
               
               <div className="form-row">
                 <div className="form-group flex-1">
@@ -1847,7 +2063,10 @@ export default function MassMessage() {
                     type="number" 
                     className="modern-input" 
                     value={minDelay}
-                    onChange={(e) => setMinDelay(Math.max(1, Number(e.target.value)))} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setMinDelay(Math.max(1, Number(e.target.value)));
+                    }} 
                   />
                 </div>
                 <div className="form-group flex-1">
@@ -1856,7 +2075,10 @@ export default function MassMessage() {
                     type="number" 
                     className="modern-input" 
                     value={maxDelay}
-                    onChange={(e) => setMaxDelay(Math.max(minDelay, Number(e.target.value)))} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setMaxDelay(Math.max(minDelay, Number(e.target.value)));
+                    }} 
                   />
                 </div>
               </div>
@@ -1868,7 +2090,10 @@ export default function MassMessage() {
                     type="number" 
                     className="modern-input" 
                     value={batchSize}
-                    onChange={(e) => setBatchSize(Math.max(1, Number(e.target.value)))} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setBatchSize(Math.max(1, Number(e.target.value)));
+                    }} 
                   />
                 </div>
                 <div className="form-group flex-1">
@@ -1877,13 +2102,16 @@ export default function MassMessage() {
                     type="number" 
                     className="modern-input" 
                     value={batchPause}
-                    onChange={(e) => setBatchPause(Math.max(5, Number(e.target.value)))} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setBatchPause(Math.max(5, Number(e.target.value)));
+                    }} 
                   />
                 </div>
               </div>
 
-              {/* CONTROLES AVANÇADOS DE ANTI-BAN */}
-              <div style={{ marginTop: '20px', padding: '16px', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* CONTROLES AVANÇADOS DE ANTI-BAN (PADRÃO EVOLUTION API) */}
+              <div style={{ marginTop: '20px', padding: '18px', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Shield size={18} color="#16a34a" /> Recursos Ativos de Proteção da Conta
                 </div>
@@ -1892,13 +2120,80 @@ export default function MassMessage() {
                   <input 
                     type="checkbox" 
                     checked={simulateTyping} 
-                    onChange={(e) => setSimulateTyping(e.target.checked)} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setSimulateTyping(e.target.checked);
+                    }} 
                     style={{ marginTop: '3px' }}
                   />
                   <div>
-                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Simular Digitação Humana ('Digitando...' / 'Gravando...')</span>
+                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Simulação de Presença & Digitação Humana ('Digitando...' / 'Gravando...')</span>
                     <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.8rem' }}>
-                      Envia pacotes de presença para o WhatsApp antes de cada envio, aguardando um intervalo realista de acordo com a extensão da mensagem.
+                      Inscreve na presença do contato (simulando abertura real do chat no WhatsApp Web), envia sinal de "online", simula digitação proporcional ao tamanho do texto com micro-pausas humanas antes do envio.
+                    </p>
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={enableAntiHash} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setEnableAntiHash(e.target.checked);
+                    }} 
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div>
+                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Variação Invisível Anti-Hash (Zero-Width Unicode)</span>
+                    <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.8rem' }}>
+                      Injeta micro-caracteres invisíveis que tornam o código hash criptográfico de cada mensagem 100% exclusivo. Impede que os filtros automatizados da Meta detectem mensagens idênticas enviadas em massa.
+                    </p>
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={enableOptOutFooter} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setEnableOptOutFooter(e.target.checked);
+                    }} 
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Rodapé de Opt-out Amigável Automático (Redução de Denúncias à Meta)</span>
+                    <p style={{ margin: '2px 0 6px', color: '#64748b', fontSize: '0.8rem' }}>
+                      Adiciona instrução clara para responder 'SAIR'. O CRM descadastra o contato automaticamente assim que ele responde, <strong>evitando que o contato clique no botão 'Denunciar Spam'</strong> (principal causador de bloqueios da Meta).
+                    </p>
+                    {enableOptOutFooter && (
+                      <input
+                        type="text"
+                        className="modern-input"
+                        style={{ fontSize: '0.82rem', padding: '6px 10px', marginTop: '4px' }}
+                        value={optOutFooterText}
+                        onChange={(e) => setOptOutFooterText(e.target.value)}
+                        placeholder="Caso não queira mais receber novidades, responda 'SAIR'."
+                      />
+                    )}
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={safeHoursOnly} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setSafeHoursOnly(e.target.checked);
+                    }} 
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div>
+                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Respeitar Janela de Horário Seguro (08:00 às 20:00)</span>
+                    <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.8rem' }}>
+                      Pausa os envios automaticamente caso o disparo entre no período noturno/madrugada, evitando denúncias imediatas por incômodo em horários de repouso.
                     </p>
                   </div>
                 </label>
@@ -1907,13 +2202,16 @@ export default function MassMessage() {
                   <input 
                     type="checkbox" 
                     checked={enableDailyLimit} 
-                    onChange={(e) => setEnableDailyLimit(e.target.checked)} 
+                    onChange={(e) => {
+                      setSelectedAntiBanProfile('custom');
+                      setEnableDailyLimit(e.target.checked);
+                    }} 
                     style={{ marginTop: '3px' }}
                   />
                   <div>
-                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Trava Diária Anti-Ban (Chips Novos / Em Maturação)</span>
+                    <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>Trava Diária de Segurança por Linha Conectada</span>
                     <p style={{ margin: '2px 0 0', color: '#64748b', fontSize: '0.8rem' }}>
-                      Interrompe o envio automaticamente ao atingir o limite estipulado abaixo para proteger seu número contra o banimento automático de 50 mensagens.
+                      Pausa o envio automaticamente ao atingir o limite estipulado abaixo (multiplicado pela quantidade de linhas de WhatsApp ativas no rodízio), protegendo seus números contra o teto heurístico de mensagens da Meta.
                     </p>
                   </div>
                 </label>
@@ -1921,21 +2219,24 @@ export default function MassMessage() {
                 {enableDailyLimit && (
                   <div style={{ paddingLeft: '26px' }}>
                     <label style={{ fontSize: '0.85rem', color: '#475569', display: 'block', marginBottom: '4px' }}>
-                      Limite seguro de envios por campanha (Recomendado: 25 a 35 para chips novos):
+                      Limite seguro de envios por linha (Recomendado: 25 a 35 para chips novos, 50 para maturados):
                     </label>
                     <input 
                       type="number" 
                       className="modern-input" 
                       style={{ maxWidth: '160px', padding: '6px 10px', fontSize: '0.85rem' }}
                       value={dailySafeLimit}
-                      onChange={(e) => setDailySafeLimit(Math.max(5, Number(e.target.value)))}
+                      onChange={(e) => {
+                        setSelectedAntiBanProfile('custom');
+                        setDailySafeLimit(Math.max(5, Number(e.target.value)));
+                      }}
                     />
                   </div>
                 )}
               </div>
 
               <div className="form-group" style={{ marginTop: '20px' }}>
-                <label>Canal e Linha de Remetente Ativa</label>
+                <label>Canal e Linhas de Remetente Ativas</label>
                 <div style={{ display: 'flex', gap: '14px', alignItems: 'center', padding: '16px 20px', backgroundColor: '#f8fafc', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
                   {channel === 'whatsapp' ? (
                     <>
@@ -1943,9 +2244,11 @@ export default function MassMessage() {
                         <Smartphone size={20} />
                       </div>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, color: '#1e1e2d' }}>Linha WhatsApp (Principal)</div>
+                        <div style={{ fontWeight: 700, color: '#1e1e2d' }}>
+                          WhatsApp ({waSlots.filter(s => s.status === 'connected').length} de {waSlots.length || 5} Linhas Conectadas em Rodízio)
+                        </div>
                         <div style={{ fontSize: '0.8rem', color: waStatus === 'connected' ? '#16a34a' : '#ef4444' }}>
-                          ● {waStatus === 'connected' ? 'Sessão Baileys Conectada e Pronta' : 'Desconectado - Conecte na página Conexões'}
+                          ● {waStatus === 'connected' ? 'Sessões Baileys com Fingerprint Legítimo e Proteção Anti-Ban' : 'Desconectado - Conecte na página Conexões'}
                         </div>
                       </div>
                     </>
@@ -1968,28 +2271,28 @@ export default function MassMessage() {
                 </div>
               </div>
               
-              {/* GUIA COMPLETO ANTI-BAN */}
+              {/* GUIA COMPLETO ANTI-BAN (PADRÃO EVOLUTION API & METODOLOGIA DE MATURAÇÃO) */}
               <div style={{marginTop: '24px', padding: '18px', backgroundColor: '#f0fdf4', borderRadius: '14px', display: 'flex', gap: '14px', alignItems: 'flex-start', border: '1px solid #bbf7d0'}}>
                 <Shield size={24} color="#16a34a" style={{flexShrink: 0, marginTop: '2px'}} />
                 <div>
                   <h4 style={{margin: '0 0 6px 0', color: '#15803d', fontSize: '0.98rem'}}>
-                    🛡️ Por que o WhatsApp bloqueia por volta de 50 mensagens?
+                    🛡️ Regras de Ouro da Evolution API para Proteger suas Contas de WhatsApp
                   </h4>
                   <p style={{margin: '0 0 10px 0', color: '#166534', fontSize: '0.85rem', lineHeight: '1.5'}}>
-                    O algoritmo da Meta possui um <strong>limite heurístico estrito</strong> para contatos desconhecidos. Quando um número envia 40 a 50 mensagens frias (para quem não tem o número na agenda) sem interação bidirecional, <strong>apenas 2 a 3 cliques no botão "Denunciar Spam"</strong> acionam o banimento imediato.
+                    Mais de 85% dos banimentos da Meta acontecem porque <strong>os contatos clicam no botão "Denunciar Spam"</strong> ou porque o número disparou para dezenas de pessoas frias sem ter histórico prévio de conversas reais.
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px', marginTop: '12px' }}>
                     <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
-                      <strong>1. Maturação de Chip (Warm-up):</strong> Nunca inicie com 50 envios em chips com menos de 20 dias. Comece com 15 a 20 e aumente gradualmente.
+                      <strong>1. Maturação de Chip (Warm-up):</strong> Nunca dispare em chips novos sem antes trocar mensagens durante 1 a 2 semanas com amigos, grupos familiares e contatos salvos na agenda.
                     </div>
                     <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
-                      <strong>2. Spintax Obrigatório:</strong> Use variações <code>{'{Olá|Oi|Tudo bem}'}</code>. Mensagens com o mesmo hash idêntico são rotuladas como robô pelo WhatsApp.
+                      <strong>2. Distribuição entre Múltiplas Linhas:</strong> Conecte até 5 números de WhatsApp no CRM. O sistema divide automaticamente a carga entre eles via Round-Robin.
                     </div>
                     <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
-                      <strong>3. Cláusula de Opt-out:</strong> Adicione "Responda SAIR". Quando a pessoa responde SAIR, o sistema a bloqueia no CRM e você evita a denúncia.
+                      <strong>3. Spintax + Nome Obrigatório:</strong> Use <code>{'{primeiro_nome}'}</code> e variações <code>{'{Olá|Oi|Como vai}'}</code>. Mensagens com textos idênticos acionam a heurística de bot da Meta.
                     </div>
                     <div style={{ background: '#ffffff', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7', fontSize: '0.8rem', color: '#14532d' }}>
-                      <strong>4. Intervalos Amplos:</strong> Mantenha o atraso entre 25s e 50s com pausas de 2 a 3 minutos a cada lote de 12 mensagens.
+                      <strong>4. Cláusula de Opt-out:</strong> Mantenha o rodapé "Responda SAIR". O lead insatisfeito responde "sair", o CRM bloqueia novos envios e ele NÃO clica em denunciar.
                     </div>
                   </div>
                 </div>

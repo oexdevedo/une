@@ -659,6 +659,7 @@ export default function Connections({ isSubpage = false }) {
               const isSelected = activeWaSlot === slotNum;
               const isSlotConnected = slotObj.status === 'connected';
               const isSlotConnecting = slotObj.status === 'connecting';
+              const isSlotBanned = Boolean(slotObj.isBanned);
               return (
                 <button
                   key={slotNum}
@@ -688,12 +689,12 @@ export default function Connections({ isSubpage = false }) {
                       width: 8,
                       height: 8,
                       borderRadius: '50%',
-                      backgroundColor: isSlotConnected ? '#16A34A' : isSlotConnecting ? '#F59E0B' : '#CBD5E1'
+                      backgroundColor: isSlotConnected ? '#16A34A' : isSlotConnecting ? '#F59E0B' : isSlotBanned ? '#EF4444' : '#CBD5E1'
                     }} />
                     Linha #{slotNum}
                   </div>
-                  <span style={{ fontSize: '0.68rem', color: isSlotConnected ? '#15803D' : '#64748B', fontWeight: 600 }}>
-                    {isSlotConnected ? (slotObj.phone ? `+${slotObj.phone}` : 'Conectado') : isSlotConnecting ? 'QR Code' : 'Livre'}
+                  <span style={{ fontSize: '0.68rem', color: isSlotConnected ? '#15803D' : isSlotBanned ? '#DC2626' : '#64748B', fontWeight: 600 }}>
+                    {isSlotConnected ? (slotObj.phone ? `+${slotObj.phone}` : 'Conectado') : isSlotConnecting ? 'QR Code' : isSlotBanned ? 'Bloqueada' : 'Livre'}
                   </span>
                 </button>
               );
@@ -749,6 +750,17 @@ export default function Connections({ isSubpage = false }) {
               <div className="empty-state">
                 <QrCode size={48} color="#A1A1AA" />
                 <p>A <strong>Linha #{activeWaSlot}</strong> do WhatsApp está livre.</p>
+                {(() => {
+                  const currentSlot = waSlots.find(s => s.slot === activeWaSlot);
+                  if (currentSlot?.isBanned) {
+                    return (
+                      <div style={{ margin: '8px 0 16px', padding: '10px 14px', borderRadius: '10px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: '0.82rem', textAlign: 'left', lineHeight: '1.4' }}>
+                        <strong>⚠️ Alerta de Bloqueio/Desconexão:</strong> {currentSlot.banReason || 'A sessão desta linha foi desconectada ou bloqueada pela Meta.'} Se o chip foi banido no WhatsApp, use outro número para reconectar.
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
                 <button className="btn-primary" onClick={() => startWhatsApp(true, activeWaSlot)} disabled={isLoadingWA}>
                   {isLoadingWA ? 'Iniciando...' : `Gerar QR Code (Linha #${activeWaSlot})`}
                 </button>

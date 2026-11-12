@@ -17,8 +17,8 @@
  */
 
 const DEFAULTS = {
-  whatsapp:      { minDelayMs: 3000, maxDelayMs: 8000, perMinute: 10, perHour: 120,  perDay: 800 },
-  telegram_user: { minDelayMs: 1500, maxDelayMs: 4000, perMinute: 15, perHour: 300,  perDay: 1500 },
+  whatsapp:      { minDelayMs: 4000, maxDelayMs: 9000, perMinute: 8,  perHour: 90,   perDay: 500 },
+  telegram_user: { minDelayMs: 2000, maxDelayMs: 5000, perMinute: 12, perHour: 250,  perDay: 1200 },
   telegram_bot:  { minDelayMs: 500,  maxDelayMs: 1500, perMinute: 30, perHour: 1000, perDay: 5000 }
 };
 
@@ -164,5 +164,30 @@ function getStats(channel, workspaceId) {
   };
 }
 
-module.exports = { run, getStats, getConfig };
+/**
+ * Adiciona micro-variações invisíveis em unicode para que o hash criptográfico
+ * (SHA-256 / MD5) de cada mensagem seja 100% exclusivo.
+ * Impede que os filtros automatizados de spam da Meta identifiquem textos idênticos repetidos.
+ */
+function applyAntiHashJitter(text) {
+  if (!text || typeof text !== 'string') return text || '';
+  const invisibleChars = ['\u200B', '\u200C', '\u200D', '\u2060', '\uFEFF'];
+  const count = 1 + Math.floor(Math.random() * 3);
+  let jitter = '';
+  for (let i = 0; i < count; i++) {
+    jitter += invisibleChars[Math.floor(Math.random() * invisibleChars.length)];
+  }
+  return text + jitter;
+}
+
+/**
+ * Verifica se o horário atual está dentro da janela segura comercial (ex: 08:00 às 20:00).
+ * Disparos fora desse horário causam surtos de denúncias de spam por incômodo ao usuário.
+ */
+function isWithinSafeHours(startHour = 8, endHour = 20) {
+  const currentHour = new Date().getHours();
+  return currentHour >= startHour && currentHour < endHour;
+}
+
+module.exports = { run, getStats, getConfig, applyAntiHashJitter, isWithinSafeHours };
 

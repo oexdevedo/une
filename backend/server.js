@@ -2404,7 +2404,11 @@ app.post('/api/mass-dispatch/start', upload.single('file'), async (req, res) => 
       simulate_typing,
       enable_daily_limit,
       daily_safe_limit,
-      default_ddi
+      default_ddi,
+      enable_anti_hash,
+      enable_opt_out_footer,
+      opt_out_footer_text,
+      safe_hours_only
     } = req.body;
 
     let parsedTemplates = [];
@@ -2435,7 +2439,11 @@ app.post('/api/mass-dispatch/start', upload.single('file'), async (req, res) => 
         simulateTyping: simulate_typing === undefined ? true : (simulate_typing === true || simulate_typing === 'true'),
         enableDailyLimit: enable_daily_limit === undefined ? true : (enable_daily_limit === true || enable_daily_limit === 'true'),
         dailySafeLimit: Number(daily_safe_limit) || 35,
-        defaultDdi: default_ddi || '66'
+        defaultDdi: default_ddi || '66',
+        enableAntiHash: enable_anti_hash === undefined ? true : (enable_anti_hash === true || enable_anti_hash === 'true'),
+        enableOptOutFooter: enable_opt_out_footer === true || enable_opt_out_footer === 'true',
+        optOutFooterText: opt_out_footer_text || "Caso não queira mais receber mensagens, responda 'SAIR'.",
+        safeHoursOnly: safe_hours_only === true || safe_hours_only === 'true'
       }
     });
 
