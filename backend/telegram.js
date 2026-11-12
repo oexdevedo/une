@@ -282,6 +282,10 @@ async function disconnectTelegram(workspaceId, clearToken = false) {
 }
 
 async function sendMessageRaw(workspaceId, jid, text, file, contactName = '') {
+  // Valida cota de mensagens e bloqueio da conta/workspace antes de enviar
+  const { checkMessageQuota } = require('./quota_service');
+  await checkMessageQuota(workspaceId);
+
   let session = sessions[workspaceId];
   if (!session || !session.bot) {
     const database = await db.getDB();

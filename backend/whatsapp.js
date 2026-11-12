@@ -530,6 +530,10 @@ async function disconnectWhatsApp(workspaceId, slot = 1) {
 }
 
 async function sendMessageRaw(workspaceId, jid, text, file, contactName = '', options = {}) {
+  // Valida cota de mensagens e bloqueio da conta/workspace antes de enviar
+  const { checkMessageQuota } = require('./quota_service');
+  await checkMessageQuota(workspaceId);
+
   const chosenSlot = options._chosenSlot || pickNextConnectedSlot(workspaceId, options.slot) || 1;
   const sessionKey = getSessionKey(workspaceId, chosenSlot);
   const session = sessions[sessionKey];

@@ -231,6 +231,19 @@ export default function Settings({ initialTab }) {
             <LinkIcon size={18} />
             <span>Conexões e Integrações</span>
           </button>
+
+          {isAdmin && (
+            <button 
+              type="button" 
+              className="settings-tab-btn"
+              onClick={() => window.location.href = '/admin'}
+              style={{ color: '#6366f1', fontWeight: 700 }}
+              title="Acessar o Painel de Controle de Usuários"
+            >
+              <Shield size={18} />
+              <span>Painel de Usuários (Admin)</span>
+            </button>
+          )}
         </div>
       </header>
 

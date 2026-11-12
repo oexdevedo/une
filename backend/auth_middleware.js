@@ -42,12 +42,20 @@ async function requireAuth(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
     const database = await db.getDB();
     const user = await database.get(
-      'SELECT id, workspace_id, role, name, username, email FROM users WHERE id = ?',
+      'SELECT id, workspace_id, role, name, username, email, is_blocked, status, message_limit FROM users WHERE id = ?',
       [decoded.id]
     );
 
     if (!user) {
       return res.status(401).json({ success: false, error: 'Sessão inválida: Usuário não encontrado no sistema.' });
+    }
+
+    // Se o usuário foi bloqueado pelo Admin, rejeita a requisição imediatamente
+    if (user.is_blocked === 1 || user.status === 'blocked') {
+      return res.status(403).json({
+        success: false,
+        error: 'Sua conta foi suspensa/bloqueada pelo administrador do sistema. Entre em contato com o suporte.'
+      });
     }
 
     req.user = user;

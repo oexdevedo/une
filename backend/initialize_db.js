@@ -436,6 +436,11 @@ async function init() {
 
   await ensureColumn(db, 'users', 'username', 'TEXT');
   await ensureColumn(db, 'users', 'phone', 'TEXT');
+  await ensureColumn(db, 'users', 'is_blocked', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'users', 'status', "TEXT DEFAULT 'active'");
+  await ensureColumn(db, 'users', 'message_limit', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'workspaces', 'message_limit', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'workspaces', 'is_blocked', 'INTEGER DEFAULT 0');
   try {
     await db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(LOWER(username)) WHERE username IS NOT NULL;");
     // Sincroniza telefone de recuperação a partir do Telegram conectado no workspace quando o usuário ainda não tem phone preenchido

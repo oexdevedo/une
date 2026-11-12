@@ -15,6 +15,7 @@ import Templates from './pages/Templates/Templates';
 import Contracts from './pages/Contracts/Contracts';
 import Emails from './pages/Emails/Emails';
 import Tasks from './pages/Tasks/Tasks';
+import AdminDashboard from './pages/Admin/AdminDashboard';
 
 function PlaceholderPage({ title }) {
   return (
@@ -89,6 +90,7 @@ function App() {
           <Route path="massa" element={<MassMessage />} />
           <Route path="agenda" element={<Calendar />} />
           <Route path="templates" element={<Templates />} />
+          <Route path="admin" element={<AdminDashboard />} />
           <Route path="configuracoes" element={<Settings />} />
           <Route path="configuracoes/conexoes" element={<Settings initialTab="conexoes" />} />
           <Route path="conexoes" element={<Navigate to="/configuracoes?tab=conexoes" replace />} />

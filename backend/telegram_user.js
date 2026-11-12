@@ -815,6 +815,10 @@ async function disconnectTelegramUser(workspaceId, slot = 1) {
  * 6. Enviar mensagem direta via Telegram MTProto (suporta rodízio entre até 5 contas)
  */
 async function sendMessageRaw(workspaceId, to, text, file, contactName = '', preferredSlot = null) {
+  // Valida cota de mensagens e bloqueio da conta/workspace antes de enviar
+  const { checkMessageQuota } = require('./quota_service');
+  await checkMessageQuota(workspaceId);
+
   let chosenSlot = preferredSlot ? normalizeSlot(preferredSlot) : await pickNextConnectedSlot(workspaceId);
   if (!chosenSlot) {
     chosenSlot = 1;

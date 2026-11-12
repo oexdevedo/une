@@ -1539,7 +1539,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     const database = await db.getDB();
     const user = await database.get(
-      `SELECT id, workspace_id, name, username, email, phone, password_hash, role, created_at 
+      `SELECT id, workspace_id, name, username, email, phone, password_hash, role, created_at, is_blocked, status, message_limit 
        FROM users 
        WHERE LOWER(email) = ? OR LOWER(username) = ?`,
       [cleanInput, cleanHandle]
@@ -1547,6 +1547,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ success: false, error: 'Usuário ou e-mail não encontrado.' });
+    }
+
+    if (user.is_blocked === 1 || user.status === 'blocked') {
+      return res.status(403).json({
+        success: false,
+        error: 'Sua conta foi suspensa/bloqueada pelo administrador do sistema. Entre em contato com o suporte.'
+      });
     }
 
     // Valida senha (compatível com bcrypt e auto-migração de legados) - SEC-02
@@ -2183,6 +2190,305 @@ app.post('/api/admin/database/upload', upload.single('database'), async (req, re
   } catch (error) {
     console.error('Erro ao importar banco de dados:', error);
     res.status(500).json({ success: false, error: 'Erro ao processar importação do banco de dados.' });
+  }
+});
+
+// ==========================================
+// PAINEL DE CONTROLE ADMINISTRATIVO DE USUÁRIOS (ADMIN DASHBOARD)
+// ==========================================
+
+// 1. Listar todos os usuários com estatísticas de mensagens, conexões e limites
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador do Sistema.' });
+    }
+
+    const database = await db.getDB();
+    const users = await database.all(`
+      SELECT 
+        u.id, u.name, u.username, u.email, u.phone, u.role, u.created_at,
+        u.workspace_id, u.is_blocked, u.status, u.message_limit,
+        w.name as workspace_name
+      FROM users u
+      LEFT JOIN workspaces w ON w.id = u.workspace_id
+      ORDER BY u.id ASC
+    `);
+
+    // Busca estatísticas agregadas de mensagens por workspace
+    const msgStats = await database.all(`
+      SELECT 
+        workspace_id,
+        COUNT(*) as total_messages,
+        SUM(CASE WHEN from_me = 1 THEN 1 ELSE 0 END) as sent_messages,
+        SUM(CASE WHEN from_me = 0 THEN 1 ELSE 0 END) as received_messages
+      FROM messages
+      GROUP BY workspace_id
+    `);
+    const statsMap = {};
+    for (const s of msgStats) {
+      statsMap[s.workspace_id] = {
+        total: Number(s.total_messages || 0),
+        sent: Number(s.sent_messages || 0),
+        received: Number(s.received_messages || 0)
+      };
+    }
+
+    // Busca contagem de contatos por workspace
+    const contactStats = await database.all(`
+      SELECT workspace_id, COUNT(*) as total_contacts
+      FROM contacts
+      GROUP BY workspace_id
+    `);
+    const contactMap = {};
+    for (const c of contactStats) {
+      contactMap[c.workspace_id] = Number(c.total_contacts || 0);
+    }
+
+    const { getSavedSlots } = require('./whatsapp');
+    const enrichedUsers = users.map(u => {
+      const wsId = u.workspace_id || 1;
+      const mStat = statsMap[wsId] || { total: 0, sent: 0, received: 0 };
+      const cCount = contactMap[wsId] || 0;
+      const waSlots = getSavedSlots(wsId);
+      
+      const isBlocked = Boolean(u.is_blocked === 1 || u.status === 'blocked');
+      const limit = Number(u.message_limit || 0);
+
+      return {
+        id: u.id,
+        name: u.name,
+        username: u.username ? (u.username.startsWith('@') ? u.username : `@${u.username}`) : '',
+        email: u.email,
+        phone: u.phone || '',
+        role: u.role || 'agent',
+        workspace_id: wsId,
+        workspace_name: u.workspace_name || `Espaço #${wsId}`,
+        created_at: u.created_at,
+        is_blocked: isBlocked,
+        status: isBlocked ? 'blocked' : 'active',
+        message_limit: limit, // 0 = ilimitado
+        messages_sent: mStat.sent,
+        messages_received: mStat.received,
+        messages_total: mStat.total,
+        contacts_count: cCount,
+        wa_connected_slots: waSlots.length,
+        has_wa: waSlots.length > 0
+      };
+    });
+
+    const totalUsers = enrichedUsers.length;
+    const activeUsers = enrichedUsers.filter(u => !u.is_blocked).length;
+    const blockedUsers = enrichedUsers.filter(u => u.is_blocked).length;
+    const totalSent = enrichedUsers.reduce((acc, u) => acc + u.messages_sent, 0);
+    const totalContacts = enrichedUsers.reduce((acc, u) => acc + u.contacts_count, 0);
+
+    res.json({
+      success: true,
+      summary: {
+        total_users: totalUsers,
+        active_users: activeUsers,
+        blocked_users: blockedUsers,
+        total_messages_sent: totalSent,
+        total_contacts: totalContacts
+      },
+      users: enrichedUsers
+    });
+  } catch (error) {
+    console.error('Erro ao buscar usuários no painel admin:', error);
+    res.status(500).json({ success: false, error: 'Erro ao carregar lista de usuários.' });
+  }
+});
+
+// 2. Bloquear / Desbloquear Usuário
+app.post('/api/admin/users/:id/toggle-block', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador do Sistema.' });
+    }
+
+    const userId = Number(req.params.id);
+    const database = await db.getDB();
+    const user = await database.get('SELECT id, name, role, is_blocked, status, workspace_id FROM users WHERE id = ?', [userId]);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
+
+    if (userId === req.user.id) {
+      return res.status(400).json({ success: false, error: 'Você não pode bloquear sua própria conta de administrador.' });
+    }
+
+    const currentBlocked = Boolean(user.is_blocked === 1 || user.status === 'blocked');
+    const newBlockedState = req.body.is_blocked !== undefined ? Boolean(req.body.is_blocked) : !currentBlocked;
+    const newStatus = newBlockedState ? 'blocked' : 'active';
+    const newBlockedInt = newBlockedState ? 1 : 0;
+
+    await database.run(
+      'UPDATE users SET is_blocked = ?, status = ? WHERE id = ?',
+      [newBlockedInt, newStatus, userId]
+    );
+
+    if (user.workspace_id) {
+      await database.run(
+        'UPDATE workspaces SET is_blocked = ? WHERE id = ?',
+        [newBlockedInt, user.workspace_id]
+      );
+    }
+
+    res.json({
+      success: true,
+      user_id: userId,
+      is_blocked: newBlockedState,
+      status: newStatus,
+      message: newBlockedState ? `Usuário ${user.name} foi bloqueado com sucesso.` : `Usuário ${user.name} foi desbloqueado com sucesso.`
+    });
+  } catch (error) {
+    console.error('Erro ao alternar bloqueio de usuário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao alterar status de bloqueio.' });
+  }
+});
+
+// 3. Configurar Limite de Mensagens do Usuário / Workspace
+app.post('/api/admin/users/:id/limit', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador do Sistema.' });
+    }
+
+    const userId = Number(req.params.id);
+    const rawLimit = Number(req.body.message_limit);
+    const limit = isNaN(rawLimit) ? 0 : Math.max(0, rawLimit);
+
+    const database = await db.getDB();
+    const user = await database.get('SELECT id, name, workspace_id FROM users WHERE id = ?', [userId]);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
+
+    await database.run('UPDATE users SET message_limit = ? WHERE id = ?', [limit, userId]);
+    if (user.workspace_id) {
+      await database.run('UPDATE workspaces SET message_limit = ? WHERE id = ?', [limit, user.workspace_id]);
+    }
+
+    res.json({
+      success: true,
+      user_id: userId,
+      message_limit: limit,
+      message: limit > 0 ? `Limite de ${limit} mensagens configurado para ${user.name}.` : `Envios ilimitados liberados para ${user.name}.`
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar limite de mensagens:', error);
+    res.status(500).json({ success: false, error: 'Erro ao configurar limite de mensagens.' });
+  }
+});
+
+// 4. Resetar Conta / Redefinir Senha
+app.post('/api/admin/users/:id/reset', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador do Sistema.' });
+    }
+
+    const userId = Number(req.params.id);
+    const database = await db.getDB();
+    const user = await database.get('SELECT id, name, username, email, workspace_id FROM users WHERE id = ?', [userId]);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
+
+    const customPass = req.body.new_password ? String(req.body.new_password).trim() : '';
+    const tempPassword = customPass || `Unne@${Math.floor(100000 + Math.random() * 900000)}`;
+    const newHash = await bcrypt.hash(tempPassword, 10);
+
+    await database.run(
+      'UPDATE users SET password_hash = ?, is_blocked = 0, status = "active" WHERE id = ?',
+      [newHash, userId]
+    );
+
+    // Se solicitado reset de conexões/sessões
+    if (req.body.reset_sessions && user.workspace_id) {
+      const { clearWhatsAppAuthDir } = require('./storage');
+      for (let s = 1; s <= 5; s++) {
+        clearWhatsAppAuthDir(user.workspace_id, s);
+      }
+      try {
+        await database.run('DELETE FROM telegram_user_sessions WHERE workspace_id = ?', [user.workspace_id]);
+      } catch (_) {}
+    }
+
+    res.json({
+      success: true,
+      user_id: userId,
+      user_name: user.name,
+      temporary_password: tempPassword,
+      message: `Conta de ${user.name} redefinida com sucesso!`
+    });
+  } catch (error) {
+    console.error('Erro ao resetar conta do usuário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao resetar conta de usuário.' });
+  }
+});
+
+// 5. Enviar Mensagem Direta no Privado para o Usuário
+app.post('/api/admin/users/:id/send-direct-message', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador do Sistema.' });
+    }
+
+    const userId = Number(req.params.id);
+    const { channel = 'whatsapp', message, target_phone } = req.body;
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'Digite a mensagem a ser enviada.' });
+    }
+
+    const database = await db.getDB();
+    const user = await database.get('SELECT id, name, phone, email, workspace_id FROM users WHERE id = ?', [userId]);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado.' });
+    }
+
+    const recipientPhone = (target_phone || user.phone || '').trim();
+    if (!recipientPhone) {
+      return res.status(400).json({
+        success: false,
+        error: `O usuário ${user.name} não possui telefone cadastrado. Forneça o número manualmente no formulário.`
+      });
+    }
+
+    // O envio é feito a partir do Workspace do Administrador (Workspace 1 ou req.workspaceId)
+    const adminWorkspaceId = req.user.workspace_id || 1;
+    let sendResult = null;
+
+    if (channel === 'telegram') {
+      const telegramUserApi = require('./telegram_user');
+      const userStatus = await telegramUserApi.getStatus(adminWorkspaceId);
+      if (userStatus && userStatus.connected) {
+        sendResult = await telegramUserApi.sendMessage(adminWorkspaceId, recipientPhone, message, null, user.name);
+      } else {
+        const telegramApi = require('./telegram');
+        sendResult = await telegramApi.sendMessage(adminWorkspaceId, recipientPhone, message, null, user.name);
+      }
+    } else {
+      const whatsappApi = require('./whatsapp');
+      sendResult = await whatsappApi.sendMessage(adminWorkspaceId, recipientPhone, message, null, user.name, {
+        simulateTyping: true
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Mensagem enviada com sucesso para ${user.name} (${recipientPhone})!`,
+      result: sendResult
+    });
+  } catch (error) {
+    console.error('Erro ao enviar mensagem direta para usuário:', error);
+    res.status(500).json({ success: false, error: error.message || 'Falha ao enviar mensagem privada.' });
   }
 });
 

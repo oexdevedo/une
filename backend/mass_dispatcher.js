@@ -307,6 +307,16 @@ async function runCampaignLoop(workspaceId, listId) {
       continue;
     }
 
+    // Validação de Cota Máxima e Bloqueio de Conta
+    try {
+      const { checkMessageQuota } = require('./quota_service');
+      await checkMessageQuota(workspaceId);
+    } catch (quotaErr) {
+      pausedAtIndex = i;
+      addCampaignLog(state, 'error', `🛑 [BLOQUEIO/COTA] ${quotaErr.message}`);
+      break;
+    }
+
     // Janela de Horário Seguro Anti-Ban (08:00 às 20:00)
     if (cfg.safeHoursOnly) {
       const { isWithinSafeHours } = require('./antiban');
@@ -528,6 +538,10 @@ async function runCampaignLoop(workspaceId, listId) {
 }
 
 async function startCampaign(workspaceId, params) {
+  // Valida cota de mensagens e bloqueio de conta antes de iniciar disparo
+  const { checkMessageQuota } = require('./quota_service');
+  await checkMessageQuota(workspaceId);
+
   const listId = normalizeListKey(params.listId || '');
   if (!listId) throw new Error('Selecione ao menos uma lista de contatos.');
 

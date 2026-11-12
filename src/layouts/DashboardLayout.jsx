@@ -16,10 +16,11 @@ import {
   File,
   FileText,
   Mail,
-  Notes
+  Notes,
+  Shield
 } from 'pixelarticons/react';
 
-import { getWorkspaceId } from '../utils/workspace';
+import { getWorkspaceId, isUserAdmin } from '../utils/workspace';
 
 const navItems = [
   { path: '/', icon: ChartBarBig, label: 'Dashboard' },
@@ -168,6 +169,7 @@ export default function DashboardLayout() {
   const getTitle = () => {
     const current = navItems.find(item => item.path === location.pathname);
     if (current) return current.label;
+    if (location.pathname === '/admin') return 'Painel Administrativo';
     if (location.pathname.startsWith('/configuracoes') || location.pathname === '/conexoes') return 'Configurações';
     return 'Unico';
   };
@@ -211,6 +213,18 @@ export default function DashboardLayout() {
               <span>{item.label}</span>
             </Link>
           ))}
+
+          {isUserAdmin(currentUser) && (
+            <Link 
+              to="/admin" 
+              className={`nav-item ${location.pathname === '/admin' ? 'active' : ''}`}
+              onClick={() => setIsSidebarOpen(false)}
+              style={{ color: location.pathname === '/admin' ? '#ffffff' : '#6366f1', fontWeight: 700 }}
+            >
+              <Shield size={18} />
+              <span>Painel Admin</span>
+            </Link>
+          )}
         </nav>
 
         <div className="sidebar-bottom-actions">
