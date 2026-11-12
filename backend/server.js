@@ -2205,6 +2205,17 @@ app.get('/api/admin/users', async (req, res) => {
     }
 
     const database = await db.getDB();
+
+    // 1. Estatísticas globais calculadas diretamente sobre as tabelas do banco SQLite
+    const totalUsersRow = await database.get('SELECT COUNT(*) as total FROM users');
+    const activeUsersRow = await database.get('SELECT COUNT(*) as total FROM users WHERE COALESCE(is_blocked, 0) = 0');
+    const blockedUsersRow = await database.get('SELECT COUNT(*) as total FROM users WHERE is_blocked = 1');
+    const totalSentRow = await database.get('SELECT COUNT(*) as total FROM messages WHERE from_me = 1');
+    const totalFailedRow = await database.get('SELECT COUNT(*) as total FROM failed_message_logs');
+    const totalBannedRow = await database.get('SELECT COUNT(*) as total FROM whatsapp_ban_logs');
+    const totalContactsRow = await database.get('SELECT COUNT(*) as total FROM contacts');
+
+    // 2. Busca todos os usuários cadastrados no banco de dados SQLite
     const users = await database.all(`
       SELECT 
         u.id, u.name, u.username, u.email, u.phone, u.role, u.created_at,
@@ -2215,7 +2226,7 @@ app.get('/api/admin/users', async (req, res) => {
       ORDER BY u.id ASC
     `);
 
-    // Busca estatísticas agregadas de mensagens por workspace
+    // Busca estatísticas agregadas de mensagens por workspace diretamente da tabela messages
     const msgStats = await database.all(`
       SELECT 
         workspace_id,
@@ -2234,7 +2245,7 @@ app.get('/api/admin/users', async (req, res) => {
       };
     }
 
-    // Busca contagem de contatos por workspace
+    // Busca contagem de contatos por workspace diretamente da tabela contacts
     const contactStats = await database.all(`
       SELECT workspace_id, COUNT(*) as total_contacts
       FROM contacts
@@ -2245,7 +2256,7 @@ app.get('/api/admin/users', async (req, res) => {
       contactMap[c.workspace_id] = Number(c.total_contacts || 0);
     }
 
-    // Busca contagem de mensagens perdidas / falhas (de logs e campanhas em massa)
+    // Busca contagem de mensagens perdidas / falhas diretamente da tabela failed_message_logs
     const failLogs = await database.all(`
       SELECT workspace_id, COUNT(*) as fail_count
       FROM failed_message_logs
@@ -2255,23 +2266,8 @@ app.get('/api/admin/users', async (req, res) => {
     for (const f of failLogs) {
       failedMap[f.workspace_id] = Number(f.fail_count || 0);
     }
-    // Soma com falhas registradas nas campanhas em massa (mass_campaigns.json)
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const { DATA_DIR } = require('./storage');
-      const campFile = path.join(DATA_DIR, 'mass_campaigns.json');
-      if (fs.existsSync(campFile)) {
-        const campData = JSON.parse(fs.readFileSync(campFile, 'utf8'));
-        for (const [_, c] of Object.entries(campData)) {
-          const wsId = Number(c.workspaceId) || 1;
-          const cFails = Number(c.failed || 0);
-          failedMap[wsId] = (failedMap[wsId] || 0) + cFails;
-        }
-      }
-    } catch (_) {}
 
-    // Busca contagem de WhatsApps bloqueados pela Meta (logs e contadores)
+    // Busca contagem de WhatsApps bloqueados diretamente da tabela whatsapp_ban_logs
     const banLogs = await database.all(`
       SELECT workspace_id, COUNT(*) as ban_count
       FROM whatsapp_ban_logs
@@ -2292,15 +2288,8 @@ app.get('/api/admin/users', async (req, res) => {
       const isBlocked = Boolean(u.is_blocked === 1 || u.status === 'blocked');
       const limit = Number(u.message_limit || 0);
 
-      // Bloqueios de WhatsApp detectados neste workspace
-      let liveBans = 0;
-      try {
-        const waStatusObj = getStatus(wsId);
-        if (Array.isArray(waStatusObj?.slots)) {
-          liveBans = waStatusObj.slots.filter(s => s.isBanned).length;
-        }
-      } catch (_) {}
-      const totalBansForUser = Math.max(banMap[wsId] || 0, liveBans);
+      // Bloqueios de WhatsApp registrados no banco SQLite para este workspace
+      const totalBansForUser = banMap[wsId] || 0;
       const totalFailsForUser = failedMap[wsId] || 0;
 
       return {
@@ -2327,24 +2316,16 @@ app.get('/api/admin/users', async (req, res) => {
       };
     });
 
-    const totalUsers = enrichedUsers.length;
-    const activeUsers = enrichedUsers.filter(u => !u.is_blocked).length;
-    const blockedUsers = enrichedUsers.filter(u => u.is_blocked).length;
-    const totalSent = enrichedUsers.reduce((acc, u) => acc + u.messages_sent, 0);
-    const totalFailed = enrichedUsers.reduce((acc, u) => acc + (u.messages_failed || 0), 0);
-    const totalBannedWhatsapps = enrichedUsers.reduce((acc, u) => acc + (u.banned_whatsapps || 0), 0);
-    const totalContacts = enrichedUsers.reduce((acc, u) => acc + u.contacts_count, 0);
-
     res.json({
       success: true,
       summary: {
-        total_users: totalUsers,
-        active_users: activeUsers,
-        blocked_users: blockedUsers,
-        total_messages_sent: totalSent,
-        total_failed_messages: totalFailed,
-        total_banned_whatsapps: totalBannedWhatsapps,
-        total_contacts: totalContacts
+        total_users: Number(totalUsersRow?.total || 0),
+        active_users: Number(activeUsersRow?.total || 0),
+        blocked_users: Number(blockedUsersRow?.total || 0),
+        total_messages_sent: Number(totalSentRow?.total || 0),
+        total_failed_messages: Number(totalFailedRow?.total || 0),
+        total_banned_whatsapps: Number(totalBannedRow?.total || 0),
+        total_contacts: Number(totalContactsRow?.total || 0)
       },
       users: enrichedUsers
     });
@@ -2369,6 +2350,26 @@ app.get('/api/admin/whatsapp-bans', async (req, res) => {
       LIMIT 100
     `).catch(() => []);
     res.json({ success: true, bans: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 1.2 Listar histórico de mensagens perdidas / falhas registradas no banco de dados SQLite
+app.get('/api/admin/failed-messages', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Acesso restrito ao Administrador.' });
+    }
+    const database = await db.getDB();
+    const rows = await database.all(`
+      SELECT f.*, w.name as workspace_name 
+      FROM failed_message_logs f
+      LEFT JOIN workspaces w ON w.id = f.workspace_id
+      ORDER BY f.id DESC
+      LIMIT 100
+    `).catch(() => []);
+    res.json({ success: true, failures: rows });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

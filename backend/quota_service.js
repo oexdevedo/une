@@ -61,8 +61,63 @@ async function checkMessageQuota(workspaceId) {
   return stats;
 }
 
+/**
+ * Registra falha de mensagem diretamente no banco de dados SQLite (tabela failed_message_logs)
+ */
+async function recordFailedMessage(workspaceId, channel, recipient, recipientName, reason) {
+  try {
+    const database = await db.getDB();
+    const wsId = Number(workspaceId) || 1;
+    await database.run(
+      'INSERT INTO failed_message_logs (workspace_id, channel, recipient, recipient_name, error_reason) VALUES (?, ?, ?, ?, ?)',
+      [
+        wsId,
+        channel || 'whatsapp',
+        recipient ? String(recipient).slice(0, 100) : null,
+        recipientName ? String(recipientName).slice(0, 150) : null,
+        String(reason || 'Erro no envio').slice(0, 500)
+      ]
+    );
+    await database.run(
+      'UPDATE workspaces SET failed_messages_count = COALESCE(failed_messages_count, 0) + 1 WHERE id = ?',
+      [wsId]
+    );
+  } catch (err) {
+    console.warn('[quota_service] Aviso ao registrar falha de mensagem no banco SQLite:', err.message);
+  }
+}
+
+/**
+ * Registra banimento/desconexão forçada de WhatsApp diretamente no banco de dados SQLite (tabela whatsapp_ban_logs)
+ */
+async function recordWhatsAppBan(workspaceId, slot, phone, reason, statusCode) {
+  try {
+    const database = await db.getDB();
+    const wsId = Number(workspaceId) || 1;
+    const numSlot = Math.min(Math.max(Number(slot) || 1, 1), 5);
+    await database.run(
+      'INSERT INTO whatsapp_ban_logs (workspace_id, slot, phone, reason, status_code) VALUES (?, ?, ?, ?, ?)',
+      [
+        wsId,
+        numSlot,
+        phone ? String(phone).slice(0, 60) : null,
+        String(reason || 'Sessão revogada / Ban Meta').slice(0, 255),
+        Number(statusCode) || 401
+      ]
+    );
+    await database.run(
+      'UPDATE workspaces SET banned_whatsapp_count = COALESCE(banned_whatsapp_count, 0) + 1 WHERE id = ?',
+      [wsId]
+    );
+  } catch (err) {
+    console.warn('[quota_service] Aviso ao registrar banimento de WhatsApp no banco SQLite:', err.message);
+  }
+}
+
 module.exports = {
   getWorkspaceMessageStats,
-  checkMessageQuota
+  checkMessageQuota,
+  recordFailedMessage,
+  recordWhatsAppBan
 };
 

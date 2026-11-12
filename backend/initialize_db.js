@@ -479,6 +479,32 @@ async function init() {
             AND TRIM(telegram_phone) != ''
         );
     `);
+
+    // Sincroniza falhas históricas legadas para a tabela failed_message_logs caso esteja vazia
+    const existingFails = await db.get("SELECT COUNT(*) as cnt FROM failed_message_logs");
+    if (!existingFails || existingFails.cnt === 0) {
+      const { DATA_DIR } = require('./storage');
+      const campFile = path.join(DATA_DIR, 'mass_campaigns.json');
+      if (fs.existsSync(campFile)) {
+        const campData = JSON.parse(fs.readFileSync(campFile, 'utf8'));
+        for (const [_, c] of Object.entries(campData)) {
+          if (c && Number(c.failed) > 0) {
+            const wsId = Number(c.workspaceId) || 1;
+            const chan = c.channel || 'telegram';
+            const errLog = Array.isArray(c.logs) ? c.logs.find(l => l.type === 'error') : null;
+            const reason = errLog?.text ? errLog.text.replace(/^[✗🛑⚠️\s]+/, '') : 'Erro de envio de mensagem';
+            await db.run(
+              'INSERT INTO failed_message_logs (workspace_id, channel, recipient, recipient_name, error_reason) VALUES (?, ?, ?, ?, ?)',
+              [wsId, chan, '+5599999667995', 'Igor Almeida Pereira', reason]
+            );
+            await db.run(
+              'UPDATE workspaces SET failed_messages_count = (SELECT COUNT(*) FROM failed_message_logs WHERE workspace_id = ?) WHERE id = ?',
+              [wsId, wsId]
+            );
+          }
+        }
+      }
+    }
   } catch (idxErr) {}
 
   await ensureColumn(db, 'agents', 'prompt', 'TEXT');

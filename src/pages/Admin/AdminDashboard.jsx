@@ -44,6 +44,11 @@ export default function AdminDashboard() {
   const [loadingBans, setLoadingBans] = useState(false);
   const [isBanLogsModalOpen, setIsBanLogsModalOpen] = useState(false);
 
+  // Histórico de mensagens perdidas / falhas
+  const [failureLogs, setFailureLogs] = useState([]);
+  const [loadingFailures, setLoadingFailures] = useState(false);
+  const [isFailuresModalOpen, setIsFailuresModalOpen] = useState(false);
+
   // Filtros e busca
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active' | 'blocked'
@@ -116,6 +121,31 @@ export default function AdminDashboard() {
   const handleOpenBanLogs = () => {
     setIsBanLogsModalOpen(true);
     fetchBanLogs();
+  };
+
+  const fetchFailureLogs = async () => {
+    setLoadingFailures(true);
+    try {
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch('/api/admin/failed-messages', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setFailureLogs(data.failures || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar logs de falhas:', err);
+    } finally {
+      setLoadingFailures(false);
+    }
+  };
+
+  const handleOpenFailureLogs = () => {
+    setIsFailuresModalOpen(true);
+    fetchFailureLogs();
   };
 
   useEffect(() => {
@@ -370,7 +400,27 @@ export default function AdminDashboard() {
             <SquareAlert size={24} />
           </div>
           <div className="admin-kpi-info">
-            <span className="admin-kpi-label">Mensagens Perdidas (Falhas)</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <span className="admin-kpi-label">Mensagens Perdidas (Falhas)</span>
+              {(summary.total_failed_messages || 0) > 0 && (
+                <button 
+                  onClick={handleOpenFailureLogs}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    color: '#dc2626', 
+                    fontSize: '0.72rem', 
+                    fontWeight: 700, 
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    padding: 0
+                  }}
+                  title="Abrir histórico de falhas do banco de dados"
+                >
+                  Ver Falhas
+                </button>
+              )}
+            </div>
             <span className="admin-kpi-value" style={{ color: (summary.total_failed_messages || 0) > 0 ? '#dc2626' : '#18181b' }}>
               {(summary.total_failed_messages || 0).toLocaleString('pt-BR')}
             </span>
@@ -591,7 +641,12 @@ export default function AdminDashboard() {
                       {/* MENSAGENS PERDIDAS / FALHAS */}
                       <td>
                         {failed > 0 ? (
-                          <span className="admin-badge failed" title={`${failed} mensagem(ns) com falha no envio`}>
+                          <span 
+                            className="admin-badge failed" 
+                            title={`${failed} mensagem(ns) com falha no envio. Clique para ver detalhes.`}
+                            onClick={handleOpenFailureLogs}
+                            style={{ cursor: 'pointer' }}
+                          >
                             ⚠️ {failed} falha{failed > 1 ? 's' : ''}
                           </span>
                         ) : (
@@ -979,6 +1034,112 @@ export default function AdminDashboard() {
             </div>
             <div className="admin-modal-footer">
               <button className="btn-secondary" onClick={() => setIsBanLogsModalOpen(false)}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: HISTÓRICO DE MENSAGENS PERDIDAS / FALHAS DO BANCO DE DADOS */}
+      {isFailuresModalOpen && (
+        <div className="admin-modal-overlay" onClick={() => setIsFailuresModalOpen(false)}>
+          <div className="admin-modal admin-modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>
+                <SquareAlert size={20} color="#dc2626" /> Mensagens Perdidas / Falhas ({failureLogs.length})
+              </h3>
+              <button className="admin-modal-close" onClick={() => setIsFailuresModalOpen(false)}>
+                <Close size={18} />
+              </button>
+            </div>
+            <div className="admin-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', padding: '16px 24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                <p style={{ fontSize: '0.86rem', color: '#64748b', margin: 0 }}>
+                  Registro de envios com falha, rejeições de operadoras e números inválidos armazenados no banco SQLite.
+                </p>
+                <button 
+                  className="btn-secondary" 
+                  onClick={fetchFailureLogs} 
+                  disabled={loadingFailures}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', padding: '6px 12px' }}
+                >
+                  <Refresh size={14} className={loadingFailures ? 'spin' : ''} /> Atualizar
+                </button>
+              </div>
+
+              {loadingFailures ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                  <Refresh size={28} className="spin" style={{ marginBottom: '8px' }} />
+                  <p>Carregando histórico de falhas do banco...</p>
+                </div>
+              ) : failureLogs.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
+                    <Check size={24} />
+                  </div>
+                  <h4 style={{ margin: '0 0 6px', color: '#15803d' }}>Nenhuma Falha Registrada!</h4>
+                  <p style={{ fontSize: '0.84rem', color: '#64748b', margin: 0, maxWidth: '420px', marginInline: 'auto' }}>
+                    Todas as mensagens enviadas até o momento foram entregues com sucesso e sem perdas.
+                  </p>
+                </div>
+              ) : (
+                <div className="admin-table-wrapper" style={{ border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                  <table className="admin-table" style={{ fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Data / Horário</th>
+                        <th>Workspace</th>
+                        <th>Canal</th>
+                        <th>Destinatário</th>
+                        <th>Motivo da Falha</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {failureLogs.map((log) => {
+                        const dateStr = log.created_at ? new Date(log.created_at).toLocaleString('pt-BR') : 'Recente';
+                        return (
+                          <tr key={log.id}>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569', whiteSpace: 'nowrap' }}>
+                                <Clock size={14} color="#94a3b8" />
+                                <span>{dateStr}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                {log.workspace_name || `Workspace #${log.workspace_id}`}
+                              </div>
+                              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>ID #{log.workspace_id}</span>
+                            </td>
+                            <td>
+                              <span className="admin-badge" style={{ textTransform: 'capitalize', background: log.channel === 'telegram' ? '#e0f2fe' : '#dcfce7', color: log.channel === 'telegram' ? '#0369a1' : '#15803d' }}>
+                                {log.channel || 'whatsapp'}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                                {log.recipient_name || 'Contato'}
+                              </div>
+                              <span style={{ fontSize: '0.72rem', color: '#64748b', fontFamily: 'monospace' }}>
+                                {log.recipient || 'Sem número'}
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{ color: '#dc2626', fontWeight: 600, fontSize: '0.78rem' }}>
+                                {log.error_reason || 'Erro no envio'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="admin-modal-footer">
+              <button className="btn-secondary" onClick={() => setIsFailuresModalOpen(false)}>
                 Fechar
               </button>
             </div>
