@@ -13,6 +13,7 @@ import {
   Link as LinkIcon
 } from 'pixelarticons/react';
 import Connections from '../Connections/Connections';
+import AdminDashboard from '../Admin/AdminDashboard';
 import { getCurrentUser, isUserAdmin } from '../../utils/workspace';
 
 export default function Settings({ initialTab }) {
@@ -25,16 +26,19 @@ export default function Settings({ initialTab }) {
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab) return initialTab;
     if (tabParam === 'conexoes' || location.pathname.includes('/conexoes')) return 'conexoes';
+    if (tabParam === 'admin' && isAdmin) return 'admin';
     return 'perfil';
   });
 
   useEffect(() => {
     if (tabParam === 'conexoes' || location.pathname.includes('/conexoes')) {
       setActiveTab('conexoes');
+    } else if (tabParam === 'admin' && isAdmin) {
+      setActiveTab('admin');
     } else if (tabParam === 'perfil' || location.pathname === '/configuracoes') {
       if (!tabParam) setActiveTab('perfil');
     }
-  }, [tabParam, location.pathname]);
+  }, [tabParam, location.pathname, isAdmin]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -235,13 +239,13 @@ export default function Settings({ initialTab }) {
           {isAdmin && (
             <button 
               type="button" 
-              className="settings-tab-btn"
-              onClick={() => window.location.href = '/admin'}
-              style={{ color: '#6366f1', fontWeight: 700 }}
+              className={`settings-tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
+              onClick={() => handleTabChange('admin')}
+              style={{ color: activeTab === 'admin' ? '#ffffff' : '#6366f1', fontWeight: 700 }}
               title="Acessar o Painel de Controle de Usuários"
             >
               <Shield size={18} />
-              <span>Painel de Usuários (Admin)</span>
+              <span>Dashboard Admin</span>
             </button>
           )}
         </div>
@@ -250,6 +254,10 @@ export default function Settings({ initialTab }) {
       {activeTab === 'conexoes' ? (
         <div className="settings-tab-content">
           <Connections isSubpage={true} />
+        </div>
+      ) : activeTab === 'admin' && isAdmin ? (
+        <div className="settings-tab-content">
+          <AdminDashboard />
         </div>
       ) : (
         <div className="settings-content">

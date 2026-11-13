@@ -217,18 +217,6 @@ export default function DashboardLayout() {
               <span>{item.label}</span>
             </Link>
           ))}
-
-          {isUserAdmin(currentUser) && (
-            <Link 
-              to="/admin" 
-              className={`nav-item ${location.pathname === '/admin' ? 'active' : ''}`}
-              onClick={() => setIsSidebarOpen(false)}
-              style={{ color: location.pathname === '/admin' ? '#ffffff' : '#6366f1', fontWeight: 700 }}
-            >
-              <Shield size={18} />
-              <span>Painel Admin</span>
-            </Link>
-          )}
         </nav>
 
         <div className="sidebar-bottom-actions">
