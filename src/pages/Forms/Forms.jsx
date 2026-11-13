@@ -884,7 +884,12 @@ export default function Forms() {
                       {formData.fields.map((field, idx) => (
                         <div key={field.id || idx} className="builder-field-card">
                           <div className="builder-field-top">
-                            <span className="builder-field-badge">{idx + 1}. {field.type.toUpperCase()}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span className="builder-field-badge">{idx + 1}. {field.type.toUpperCase()}</span>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: '#f1f5f9', color: '#475569' }}>
+                                Página {Math.floor(idx / 2) + 1}
+                              </span>
+                            </div>
                             <div className="builder-field-controls">
                               <button 
                                 type="button" 

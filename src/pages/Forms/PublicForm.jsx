@@ -15,6 +15,7 @@ export default function PublicForm() {
   // Estado dos campos preenchidos
   const [answers, setAnswers] = useState({});
   const [lgpdConsent, setLgpdConsent] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [successInfo, setSuccessInfo] = useState({ message: '', redirect_url: '' });
@@ -228,149 +229,270 @@ export default function PublicForm() {
 
   const primaryCol = form.primary_color || '#6366f1';
 
+  // Agrupa campos em páginas de 2 componentes cada + 1 etapa final de revisão/envio
+  const allFields = form.fields || [];
+  const fieldPages = [];
+  for (let i = 0; i < allFields.length; i += 2) {
+    fieldPages.push(allFields.slice(i, i + 2));
+  }
+  const totalSteps = fieldPages.length + 1;
+  const isFinalStep = currentStep >= fieldPages.length;
+
+  const handleNextStep = () => {
+    const currentFields = fieldPages[currentStep] || [];
+    for (const f of currentFields) {
+      if (f.required && (!answers[f.name] || String(answers[f.name]).trim() === '')) {
+        alert(`Por favor, preencha o campo obrigatório: ${f.label || f.name}`);
+        return;
+      }
+    }
+    setCurrentStep((prev) => Math.min(prev + 1, totalSteps - 1));
+  };
+
+  const handlePrevStep = () => {
+    setCurrentStep((prev) => Math.max(prev - 1, 0));
+  };
+
   return (
     <div className="public-form-wrapper" style={{ backgroundColor: form.background_color || '#f8fafc' }}>
-      <div className="public-form-card">
-        {/* BANNER DA EMPRESA (QUANDO CONFIGURADO) */}
-        {form.banner_url && (
-          <div style={{ margin: '-36px -32px 24px -32px', borderRadius: '20px 20px 0 0', overflow: 'hidden', borderBottom: '1px solid #e2e8f0' }}>
-            <img
-              src={form.banner_url}
-              alt={form.title}
-              style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', display: 'block' }}
-            />
-          </div>
-        )}
-
-        {/* CABEÇALHO DO FORMULÁRIO */}
-        <div className="public-form-header">
-          <div className="public-form-badge" style={{ backgroundColor: `${primaryCol}18`, color: primaryCol }}>
-            <ClipboardNote size={16} /> Formulário Oficial
-          </div>
-
-          <h1 className="public-form-title">{form.title}</h1>
-
-          {form.description && (
-            <p className="public-form-desc">{form.description}</p>
+      <div className="public-form-card public-form-wizard-card">
+        {/* SIDEBAR ESQUERDA: BANNER, TÍTULO E ETAPAS */}
+        <aside className="public-form-sidebar">
+          {form.banner_url && (
+            <div className="public-form-sidebar-banner">
+              <img src={form.banner_url} alt={form.title} />
+            </div>
           )}
-        </div>
 
-        {/* FORMULÁRIO DINÂMICO */}
-        <form onSubmit={handleSubmit} className="public-form-body">
-          {form.fields && form.fields.map((field, idx) => (
-            <div key={field.id || idx} className="public-form-group">
-              <label className="public-form-label">
-                {field.label}
-                {field.required && <span className="public-form-required-star"> *</span>}
-              </label>
+          <div className="public-form-badge" style={{ backgroundColor: `${primaryCol}18`, color: primaryCol }}>
+            <ClipboardNote size={14} /> Formulário Oficial
+          </div>
 
-              {field.type === 'textarea' ? (
-                <textarea
-                  className="public-form-input textarea"
-                  rows={4}
-                  placeholder={field.placeholder || 'Digite sua resposta...'}
-                  value={answers[field.name] || ''}
-                  onChange={(e) => handleInputChange(field, e.target.value)}
-                  required={Boolean(field.required)}
-                />
-              ) : field.type === 'select' ? (
-                <select
-                  className="public-form-input select"
-                  value={answers[field.name] || ''}
-                  onChange={(e) => handleInputChange(field, e.target.value)}
-                  required={Boolean(field.required)}
+          <h1 className="public-form-sidebar-title">{form.title}</h1>
+          {form.description && (
+            <p className="public-form-sidebar-desc">{form.description}</p>
+          )}
+
+          <div className="public-form-steps-list">
+            {fieldPages.map((pageFields, idx) => {
+              const isDone = idx < currentStep;
+              const isActive = idx === currentStep;
+              const stepLabel = pageFields.map(f => f.label).filter(Boolean).join(' & ');
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  className={`public-form-step-item ${isActive ? 'active' : ''} ${isDone ? 'done' : ''}`}
+                  onClick={() => {
+                    if (idx < currentStep) setCurrentStep(idx);
+                  }}
+                  disabled={idx > currentStep}
+                  style={isActive ? { borderColor: primaryCol, backgroundColor: `${primaryCol}10` } : undefined}
                 >
-                  <option value="">Selecione uma opção...</option>
-                  {(field.options || []).map((opt, optIdx) => (
-                    <option key={optIdx} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              ) : field.type === 'phone' ? (
-                <div className="public-form-input-with-icon">
-                  <span className="input-icon-prefix">
-                    <Message size={16} color={primaryCol} />
+                  <span
+                    className="public-form-step-num"
+                    style={isActive || isDone ? { backgroundColor: primaryCol, color: '#fff' } : undefined}
+                  >
+                    {isDone ? <Check size={12} /> : idx + 1}
                   </span>
-                  <input
-                    type="tel"
-                    className="public-form-input has-prefix"
-                    placeholder={field.placeholder || '(11) 99999-9999'}
-                    value={answers[field.name] || ''}
-                    onChange={(e) => handleInputChange(field, e.target.value)}
-                    required={Boolean(field.required)}
-                  />
+                  <span className="public-form-step-text">
+                    <strong>Etapa {idx + 1}</strong>
+                    <small>{stepLabel || `Campos ${idx * 2 + 1}-${idx * 2 + pageFields.length}`}</small>
+                  </span>
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              className={`public-form-step-item ${isFinalStep ? 'active' : ''}`}
+              disabled={!isFinalStep}
+              style={isFinalStep ? { borderColor: primaryCol, backgroundColor: `${primaryCol}10` } : undefined}
+            >
+              <span
+                className="public-form-step-num"
+                style={isFinalStep ? { backgroundColor: primaryCol, color: '#fff' } : undefined}
+              >
+                {fieldPages.length + 1}
+              </span>
+              <span className="public-form-step-text">
+                <strong>Revisão e Envio</strong>
+                <small>{form.enable_booking ? 'Agenda, LGPD e envio' : 'Conferir dados e enviar'}</small>
+              </span>
+            </button>
+          </div>
+        </aside>
+
+        {/* PAINEL DIREITO: CAMPOS DA ETAPA ATUAL OU REVISÃO FINAL */}
+        <main className="public-form-main">
+          <div className="public-form-step-header">
+            <span className="public-form-step-counter" style={{ color: primaryCol }}>
+              Etapa {currentStep + 1} de {totalSteps}
+            </span>
+            <h2 className="public-form-step-heading">
+              {isFinalStep ? 'Revisão e Finalização' : `Preencha os dados (${currentStep + 1}/${fieldPages.length})`}
+            </h2>
+          </div>
+
+          <form onSubmit={handleSubmit} className="public-form-body">
+            {!isFinalStep ? (
+              <div className="public-form-page-fields">
+                {(fieldPages[currentStep] || []).map((field, idx) => (
+                  <div key={field.id || idx} className="public-form-group">
+                    <label className="public-form-label">
+                      {field.label}
+                      {field.required && <span className="public-form-required-star"> *</span>}
+                    </label>
+
+                    {field.type === 'textarea' ? (
+                      <textarea
+                        className="public-form-input textarea"
+                        rows={4}
+                        placeholder={field.placeholder || 'Digite sua resposta...'}
+                        value={answers[field.name] || ''}
+                        onChange={(e) => handleInputChange(field, e.target.value)}
+                        required={Boolean(field.required)}
+                      />
+                    ) : field.type === 'select' ? (
+                      <select
+                        className="public-form-input select"
+                        value={answers[field.name] || ''}
+                        onChange={(e) => handleInputChange(field, e.target.value)}
+                        required={Boolean(field.required)}
+                      >
+                        <option value="">Selecione uma opção...</option>
+                        {(field.options || []).map((opt, optIdx) => (
+                          <option key={optIdx} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : field.type === 'phone' ? (
+                      <div className="public-form-input-with-icon">
+                        <span className="input-icon-prefix">
+                          <Message size={16} color={primaryCol} />
+                        </span>
+                        <input
+                          type="tel"
+                          className="public-form-input has-prefix"
+                          placeholder={field.placeholder || '(11) 99999-9999'}
+                          value={answers[field.name] || ''}
+                          onChange={(e) => handleInputChange(field, e.target.value)}
+                          required={Boolean(field.required)}
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        type={field.type === 'email' ? 'email' : field.type === 'number' ? 'number' : 'text'}
+                        className="public-form-input"
+                        placeholder={field.placeholder || ''}
+                        value={answers[field.name] || ''}
+                        onChange={(e) => handleInputChange(field, e.target.value)}
+                        required={Boolean(field.required)}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="public-form-review-section">
+                {/* RESUMO DAS RESPOSTAS */}
+                <div className="public-form-review-grid">
+                  {allFields.map((field, idx) => (
+                    <div key={field.id || idx} className="public-form-review-item">
+                      <span className="public-form-review-label">{field.label}</span>
+                      <strong className="public-form-review-value">
+                        {answers[field.name] ? String(answers[field.name]) : '—'}
+                      </strong>
+                    </div>
+                  ))}
                 </div>
+
+                {/* RESERVA DE DATA NA AGENDA (QUANDO ATIVADA) */}
+                {form.enable_booking && (
+                  <div className="public-form-booking-box" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px 16px' }}>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      📅 Escolha uma Data e Horário para Atendimento <span className="public-form-required-star">*</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                      <div className="public-form-group" style={{ flex: 1, minWidth: '150px' }}>
+                        <label className="public-form-label" style={{ fontSize: '0.78rem', color: '#64748b' }}>Data:</label>
+                        <input
+                          type="date"
+                          className="public-form-input"
+                          min={new Date().toISOString().split('T')[0]}
+                          value={answers.booking_date || ''}
+                          onChange={(e) => setAnswers(prev => ({ ...prev, booking_date: e.target.value }))}
+                          required
+                        />
+                      </div>
+                      <div className="public-form-group" style={{ flex: 1, minWidth: '130px' }}>
+                        <label className="public-form-label" style={{ fontSize: '0.78rem', color: '#64748b' }}>Horário:</label>
+                        <input
+                          type="time"
+                          className="public-form-input"
+                          value={answers.booking_time || '09:00'}
+                          onChange={(e) => setAnswers(prev => ({ ...prev, booking_time: e.target.value }))}
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TERMO DE CONSENTIMENTO LGPD */}
+                <div className="public-form-lgpd-box" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 14px' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', color: '#475569', lineHeight: 1.45 }}>
+                    <input
+                      type="checkbox"
+                      checked={lgpdConsent}
+                      onChange={(e) => setLgpdConsent(e.target.checked)}
+                      required
+                      style={{ marginTop: '3px', accentColor: primaryCol, width: '16px', height: '16px', flexShrink: 0 }}
+                    />
+                    <span>
+                      Concordo com o tratamento dos meus dados pessoais para fins de contato e atendimento, conforme a{' '}
+                      <strong>Lei Geral de Proteção de Dados (LGPD)</strong>. <span className="public-form-required-star">*</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* RODAPÉ DE NAVEGAÇÃO DO WIZARD */}
+            <div className="public-form-wizard-footer">
+              {currentStep > 0 ? (
+                <button
+                  type="button"
+                  className="public-form-nav-btn secondary"
+                  onClick={handlePrevStep}
+                >
+                  &lt; Voltar
+                </button>
               ) : (
-                <input
-                  type={field.type === 'email' ? 'email' : field.type === 'number' ? 'number' : 'text'}
-                  className="public-form-input"
-                  placeholder={field.placeholder || ''}
-                  value={answers[field.name] || ''}
-                  onChange={(e) => handleInputChange(field, e.target.value)}
-                  required={Boolean(field.required)}
-                />
+                <span />
+              )}
+
+              {!isFinalStep ? (
+                <button
+                  type="button"
+                  className="public-form-nav-btn primary"
+                  style={{ backgroundColor: primaryCol }}
+                  onClick={handleNextStep}
+                >
+                  Próximo &gt;
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="public-form-submit-btn"
+                  style={{ backgroundColor: primaryCol, marginTop: 0, width: 'auto', padding: '12px 28px' }}
+                  disabled={submitting}
+                >
+                  {submitting ? 'Enviando dados...' : (form.button_text || 'Enviar Dados')}
+                </button>
               )}
             </div>
-          ))}
-
-          {/* RESERVA DE DATA NA AGENDA (QUANDO ATIVADA) */}
-          {form.enable_booking && (
-            <div className="public-form-booking-box" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px 16px' }}>
-              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                📅 Escolha uma Data e Horário para Atendimento <span className="public-form-required-star">*</span>
-              </div>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <div className="public-form-group" style={{ flex: 1, minWidth: '150px' }}>
-                  <label className="public-form-label" style={{ fontSize: '0.78rem', color: '#64748b' }}>Data:</label>
-                  <input
-                    type="date"
-                    className="public-form-input"
-                    min={new Date().toISOString().split('T')[0]}
-                    value={answers.booking_date || ''}
-                    onChange={(e) => setAnswers(prev => ({ ...prev, booking_date: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="public-form-group" style={{ flex: 1, minWidth: '130px' }}>
-                  <label className="public-form-label" style={{ fontSize: '0.78rem', color: '#64748b' }}>Horário:</label>
-                  <input
-                    type="time"
-                    className="public-form-input"
-                    value={answers.booking_time || '09:00'}
-                    onChange={(e) => setAnswers(prev => ({ ...prev, booking_time: e.target.value }))}
-                    required
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TERMO DE CONSENTIMENTO LGPD */}
-          <div className="public-form-lgpd-box" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 14px' }}>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', color: '#475569', lineHeight: 1.45 }}>
-              <input
-                type="checkbox"
-                checked={lgpdConsent}
-                onChange={(e) => setLgpdConsent(e.target.checked)}
-                required
-                style={{ marginTop: '3px', accentColor: primaryCol, width: '16px', height: '16px', flexShrink: 0 }}
-              />
-              <span>
-                Concordo com o tratamento dos meus dados pessoais para fins de contato e atendimento, conforme a{' '}
-                <strong>Lei Geral de Proteção de Dados (LGPD)</strong>. <span className="public-form-required-star">*</span>
-              </span>
-            </label>
-          </div>
-
-          {/* BOTÃO DE ENVIO COM COR DO TEMA */}
-          <button
-            type="submit"
-            className="public-form-submit-btn"
-            style={{ backgroundColor: primaryCol }}
-            disabled={submitting}
-          >
-            {submitting ? 'Enviando dados...' : (form.button_text || 'Enviar Dados')}
-          </button>
-        </form>
+          </form>
+        </main>
       </div>
 
       <div className="public-form-footer-credit">
