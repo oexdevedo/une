@@ -1142,61 +1142,62 @@ export default function Forms() {
                     {/* BANNER DA EMPRESA */}
                     <div className="form-group" style={{ marginBottom: '16px' }}>
                       <label>Banner / Capa com a Marca da Empresa (Opcional):</label>
-                      {formData.banner_url ? (
-                        <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #e2e8f0', marginBottom: '8px' }}>
+                      {formData.banner_url && (
+                        <div style={{ borderRadius: '10px', overflow: 'hidden', border: '1px solid #e2e8f0', marginBottom: '10px', background: '#f8fafc' }}>
                           <img
                             src={formData.banner_url}
                             alt="Banner da Empresa"
                             style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', display: 'block' }}
                           />
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                          <label
+                            className="btn-secondary"
+                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', margin: 0 }}
+                          >
+                            {uploadingBanner ? 'Enviando...' : '🖼️ Carregar Nova Imagem'}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleBannerUpload}
+                              disabled={uploadingBanner}
+                              style={{ display: 'none' }}
+                            />
+                          </label>
+
                           <button
                             type="button"
                             className="btn-secondary"
-                            onClick={() => setFormData(prev => ({ ...prev, banner_url: '' }))}
-                            style={{
-                              position: 'absolute',
-                              top: '8px',
-                              right: '8px',
-                              padding: '4px 10px',
-                              fontSize: '0.76rem',
-                              background: 'rgba(255,255,255,0.92)',
-                              color: '#dc2626',
-                              borderColor: '#fecaca'
-                            }}
+                            onClick={() => setShowImagePicker(!showImagePicker)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                           >
-                            Remover Banner
+                            📁 {showImagePicker ? 'Fechar Galeria' : `Selecionar na Galeria${savedImages.length > 0 ? ` (${savedImages.length})` : ''}`}
                           </button>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                            <label
+
+                          {formData.banner_url && (
+                            <button
+                              type="button"
                               className="btn-secondary"
-                              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', margin: 0 }}
+                              onClick={() => setFormData(prev => ({ ...prev, banner_url: '' }))}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                color: '#dc2626',
+                                borderColor: '#fecaca',
+                                background: '#fef2f2'
+                              }}
                             >
-                              {uploadingBanner ? 'Enviando...' : '🖼️ Carregar Nova Imagem'}
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleBannerUpload}
-                                disabled={uploadingBanner}
-                                style={{ display: 'none' }}
-                              />
-                            </label>
+                              🗑️ Remover Banner
+                            </button>
+                          )}
+                        </div>
 
-                            {savedImages.length > 0 && (
-                              <button
-                                type="button"
-                                className="btn-secondary"
-                                onClick={() => setShowImagePicker(!showImagePicker)}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                              >
-                                📁 {showImagePicker ? 'Fechar Galeria' : `Escolher dos Arquivos (${savedImages.length})`}
-                              </button>
-                            )}
-                          </div>
-
-                          {showImagePicker && savedImages.length > 0 && (
+                        {showImagePicker && (
+                          savedImages.length > 0 ? (
                             <div style={{
                               display: 'grid',
                               gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
@@ -1220,7 +1221,7 @@ export default function Forms() {
                                     cursor: 'pointer',
                                     borderRadius: '8px',
                                     overflow: 'hidden',
-                                    border: '2px solid transparent',
+                                    border: formData.banner_url === img.url ? '2px solid #4f46e5' : '2px solid transparent',
                                     background: '#fff',
                                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
                                   }}
@@ -1236,13 +1237,17 @@ export default function Forms() {
                                 </div>
                               ))}
                             </div>
-                          )}
+                          ) : (
+                            <div style={{ padding: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.82rem', color: '#64748b' }}>
+                              Nenhuma imagem salva na galeria ainda. Carregue uma nova imagem acima para salvá-la automaticamente.
+                            </div>
+                          )
+                        )}
 
-                          <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                            As imagens enviadas ficam salvas automaticamente na aba <strong>Arquivos &gt; Banners</strong> para reutilização.
-                          </span>
-                        </div>
-                      )}
+                        <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                          As imagens enviadas ficam salvas automaticamente na aba <strong>Arquivos &gt; Banners</strong> para reutilização.
+                        </span>
+                      </div>
                     </div>
 
                     <div className="form-group">
