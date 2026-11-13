@@ -402,11 +402,28 @@ async function init() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS file_shares (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_type TEXT NOT NULL DEFAULT 'file',
+      file_id INTEGER REFERENCES stored_files(id) ON DELETE CASCADE,
+      folder_name TEXT,
+      owner_workspace_id INTEGER NOT NULL,
+      shared_by_user_id INTEGER,
+      shared_with_username TEXT NOT NULL,
+      shared_with_user_id INTEGER,
+      permission TEXT DEFAULT 'read',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (file_id) REFERENCES stored_files(id) ON DELETE CASCADE
+    );
   `);
 
   await db.exec(`
     CREATE INDEX IF NOT EXISTS idx_stored_files_ws_cat ON stored_files(workspace_id, category);
     CREATE INDEX IF NOT EXISTS idx_stored_files_ws_folder ON stored_files(workspace_id, folder);
+    CREATE INDEX IF NOT EXISTS idx_file_shares_user ON file_shares(LOWER(shared_with_username));
+    CREATE INDEX IF NOT EXISTS idx_file_shares_file ON file_shares(file_id);
+    CREATE INDEX IF NOT EXISTS idx_file_shares_folder ON file_shares(owner_workspace_id, folder_name);
   `);
 
   // 2. Garantir colunas essenciais caso o banco seja herdado de versão legada

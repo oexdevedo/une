@@ -777,3 +777,449 @@
   padding-top: 12px;
   border-top: 1px solid #f1f5f9;
 }
+
+/* SCOPE TABS */
+.files-scope-tabs {
+  display: flex;
+  gap: 6px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 12px;
+  width: fit-content;
+}
+
+.files-scope-tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.files-scope-tab:hover {
+  color: #1e293b;
+}
+
+.files-scope-tab.active {
+  background: #ffffff;
+  color: #4f46e5;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* COMPARTILHAR PASTA BUTTON */
+.files-share-folder-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #e0e7ff;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.files-share-folder-btn:hover {
+  background: #4f46e5;
+  color: #ffffff;
+  border-color: #4f46e5;
+}
+
+/* TAGS DE COMPARTILHAMENTO NOS CARDS */
+.file-shared-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  margin-top: 6px;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-shared-tag.from {
+  background: #f3e8ff;
+  color: #7e22ce;
+  border: 1px solid #e9d5ff;
+}
+
+.file-shared-tag.to {
+  background: #e0e7ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.file-shared-tag.to:hover {
+  background: #c7d2fe;
+}
+
+.file-shared-tag.folder {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+/* MINI TAGS NA TABELA */
+.file-shared-tag-mini {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.file-shared-tag-mini.from {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+.file-shared-tag-mini.to {
+  background: #e0e7ff;
+  color: #4338ca;
+  cursor: pointer;
+}
+
+.file-shared-tag-mini.folder {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.file-action-btn.share-btn {
+  color: #4f46e5;
+}
+
+.file-action-btn.share-btn:hover {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+
+/* MODAL DE COMPARTILHAMENTO */
+.files-share-modal {
+  max-width: 540px;
+}
+
+.files-share-modal-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #eef2ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.files-share-intro {
+  font-size: 0.88rem;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0 0 18px 0;
+}
+
+.files-share-input-wrapper {
+  position: relative;
+  margin-bottom: 14px;
+}
+
+.files-share-input-box {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 3px 4px 3px 12px;
+  transition: all 0.2s ease;
+}
+
+.files-share-input-box:focus-within {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.files-mention-at {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #6366f1;
+  margin-right: 4px;
+  user-select: none;
+}
+
+.files-mention-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 0.9rem;
+  color: #1e293b;
+  background: transparent;
+  padding: 8px 4px;
+}
+
+.files-share-add-btn {
+  padding: 7px 16px !important;
+  font-size: 0.84rem !important;
+  border-radius: 8px !important;
+  white-space: nowrap;
+}
+
+/* DROPDOWN DE AUTOCOMPLETE DE MENÇÃO */
+.files-mention-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  margin-top: 6px;
+  z-index: 50;
+  overflow: hidden;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.files-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border-bottom: 1px solid #f8fafc;
+}
+
+.files-mention-item:last-child {
+  border-bottom: none;
+}
+
+.files-mention-item:hover {
+  background: #f5f3ff;
+}
+
+.files-mention-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #eef2ff;
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.files-mention-user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.files-mention-name {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.files-mention-handle {
+  font-size: 0.76rem;
+  color: #6366f1;
+  font-weight: 600;
+}
+
+.files-mention-add-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #4f46e5;
+  background: #e0e7ff;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+/* QUICK MENTIONS */
+.files-quick-mentions {
+  margin-bottom: 18px;
+}
+
+.files-quick-mentions-label {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.files-quick-mentions-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.files-quick-mention-pill {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.files-quick-mention-pill:hover {
+  background: #eef2ff;
+  color: #4f46e5;
+  border-color: #c7d2fe;
+}
+
+/* LISTA DE COMPARTILHAMENTOS ATIVOS */
+.files-shares-list-section {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 16px;
+}
+
+.files-shares-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.files-shares-badge-folder {
+  font-size: 0.72rem;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.files-shares-empty {
+  text-align: center;
+  padding: 24px 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px dashed #e2e8f0;
+}
+
+.files-shares-empty p {
+  margin: 6px 0 2px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.files-shares-empty span {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.files-shares-loading {
+  text-align: center;
+  padding: 18px;
+  color: #94a3b8;
+  font-size: 0.84rem;
+}
+
+.files-shares-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.files-share-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.files-share-item:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.files-share-user-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.files-share-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #eef2ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.files-share-username {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.files-share-role {
+  display: block;
+  font-size: 0.74rem;
+  color: #64748b;
+}
+
+.files-share-remove-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #dc2626;
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.files-share-remove-btn:hover {
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+

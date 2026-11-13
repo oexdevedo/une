@@ -19,7 +19,9 @@ import {
   Close,
   ExternalLink,
   Grid3x3,
-  Bulletlist
+  Bulletlist,
+  Users,
+  User
 } from 'pixelarticons/react';
 import { getWorkspaceId } from '../../utils/workspace';
 
@@ -35,10 +37,11 @@ export default function Files() {
   });
   const [loading, setLoading] = useState(true);
 
-  // Filtros e Visualização
+  // Filtros, Escopo e Visualização
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedFolder, setSelectedFolder] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedScope, setSelectedScope] = useState('all'); // 'all' | 'mine' | 'shared'
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
 
   // Modais
@@ -47,6 +50,14 @@ export default function Files() {
   const [editingFile, setEditingFile] = useState(null);
   const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+
+  // Compartilhamento com @
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState(null); // { type: 'file', file } | { type: 'folder', folderName }
+  const [targetShares, setTargetShares] = useState([]);
+  const [mentionSuggestions, setMentionSuggestions] = useState([]);
+  const [mentionInput, setMentionInput] = useState('');
+  const [isSharingLoading, setIsSharingLoading] = useState(false);
 
   // Estado do formulário de Upload
   const [uploadFilesList, setUploadFilesList] = useState([]);
@@ -69,6 +80,7 @@ export default function Files() {
       const params = new URLSearchParams({ workspace_id: workspaceId });
       if (selectedCategory !== 'all') params.append('category', selectedCategory);
       if (selectedFolder !== 'all') params.append('folder', selectedFolder);
+      if (selectedScope !== 'all') params.append('scope', selectedScope);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
 
       const res = await fetch(`/api/files?${params.toString()}`, {
@@ -88,7 +100,7 @@ export default function Files() {
 
   useEffect(() => {
     fetchFiles();
-  }, [workspaceId, selectedCategory, selectedFolder]);
+  }, [workspaceId, selectedCategory, selectedFolder, selectedScope]);
 
   // Busca instantânea com debounce simples
   useEffect(() => {
@@ -97,6 +109,141 @@ export default function Files() {
     }, 350);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Carrega sugestões de usuários (@) para autocomplete
+  const fetchMentionSuggestions = async () => {
+    try {
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch('/api/users/mention-suggestions', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMentionSuggestions(data.users || []);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar sugestões de menção:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchMentionSuggestions();
+  }, []);
+
+  // Abrir modal de compartilhamento para arquivo específico
+  const handleOpenShareModal = async (file) => {
+    setShareTarget({ type: 'file', file, id: file.id, title: file.name });
+    setIsShareModalOpen(true);
+    setMentionInput('');
+    setIsSharingLoading(true);
+    try {
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch(`/api/files/${file.id}/shares`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTargetShares(data.shares || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar compartilhamentos:', err);
+    } finally {
+      setIsSharingLoading(false);
+    }
+  };
+
+  // Abrir modal de compartilhamento para pasta inteira
+  const handleOpenFolderShareModal = async (folderName) => {
+    const targetFolder = folderName || selectedFolder;
+    if (!targetFolder || targetFolder === 'all') {
+      alert('Por favor, selecione uma pasta específica para compartilhar.');
+      return;
+    }
+    setShareTarget({ type: 'folder', folderName: targetFolder, title: `Pasta: ${targetFolder}` });
+    setIsShareModalOpen(true);
+    setMentionInput('');
+    setIsSharingLoading(true);
+    try {
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch(`/api/files/folders/${encodeURIComponent(targetFolder)}/shares`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTargetShares(data.shares || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar compartilhamentos da pasta:', err);
+    } finally {
+      setIsSharingLoading(false);
+    }
+  };
+
+  // Adicionar compartilhamento com @username
+  const handleAddShare = async (rawUsername) => {
+    const username = (rawUsername || mentionInput).trim().replace(/^@/, '').toLowerCase();
+    if (!username) return;
+    if (!shareTarget) return;
+
+    setIsSharingLoading(true);
+    try {
+      const token = localStorage.getItem('unne_token');
+      const endpoint = shareTarget.type === 'file'
+        ? `/api/files/${shareTarget.id}/share`
+        : `/api/files/folders/${encodeURIComponent(shareTarget.folderName)}/share`;
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ usernames: [username] })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTargetShares(data.shares || []);
+        setMentionInput('');
+        fetchFiles();
+      } else {
+        alert(data.error || 'Erro ao compartilhar.');
+      }
+    } catch (err) {
+      console.error('Erro ao adicionar compartilhamento:', err);
+      alert('Erro de conexão ao compartilhar.');
+    } finally {
+      setIsSharingLoading(false);
+    }
+  };
+
+  // Remover / revogar compartilhamento de um usuário
+  const handleRemoveShare = async (username) => {
+    if (!shareTarget) return;
+    setIsSharingLoading(true);
+    try {
+      const token = localStorage.getItem('unne_token');
+      const endpoint = shareTarget.type === 'file'
+        ? `/api/files/${shareTarget.id}/share/${encodeURIComponent(username)}`
+        : `/api/files/folders/${encodeURIComponent(shareTarget.folderName)}/share/${encodeURIComponent(username)}`;
+
+      const res = await fetch(endpoint, {
+        method: 'DELETE',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTargetShares(prev => prev.filter(s => s.shared_with_username !== username));
+        fetchFiles();
+      } else {
+        alert(data.error || 'Erro ao remover compartilhamento.');
+      }
+    } catch (err) {
+      console.error('Erro ao remover compartilhamento:', err);
+      alert('Erro de conexão ao remover compartilhamento.');
+    } finally {
+      setIsSharingLoading(false);
+    }
+  };
 
   // Formatação de bytes para formato amigável (KB, MB, GB)
   const formatBytes = (bytes) => {
@@ -368,6 +515,28 @@ export default function Files() {
 
       {/* TOOLBAR E FILTROS */}
       <div className="files-toolbar">
+        {/* Scope Tabs: Todos | Meus Arquivos | Compartilhados Comigo */}
+        <div className="files-scope-tabs">
+          <button 
+            className={`files-scope-tab ${selectedScope === 'all' ? 'active' : ''}`}
+            onClick={() => setSelectedScope('all')}
+          >
+            Todos os Arquivos
+          </button>
+          <button 
+            className={`files-scope-tab ${selectedScope === 'mine' ? 'active' : ''}`}
+            onClick={() => setSelectedScope('mine')}
+          >
+            Meus Arquivos
+          </button>
+          <button 
+            className={`files-scope-tab ${selectedScope === 'shared' ? 'active' : ''}`}
+            onClick={() => setSelectedScope('shared')}
+          >
+            <Users size={14} /> Compartilhados Comigo
+          </button>
+        </div>
+
         {/* Categorias Pills */}
         <div className="files-category-pills">
           <button 
@@ -432,6 +601,15 @@ export default function Files() {
                 <option key={f} value={f}>📂 {f}</option>
               ))}
             </select>
+
+            <button
+              type="button"
+              className="files-share-folder-btn"
+              onClick={() => handleOpenFolderShareModal(selectedFolder === 'all' ? (summary.folders[0] || 'Raiz') : selectedFolder)}
+              title={`Compartilhar pasta "${selectedFolder === 'all' ? (summary.folders[0] || 'Raiz') : selectedFolder}" com outros usuários`}
+            >
+              <Users size={14} /> Compartilhar Pasta (@)
+            </button>
           </div>
 
           <div className="files-view-toggle">
@@ -504,6 +682,25 @@ export default function Files() {
                     <span className="file-meta-size">{formatBytes(file.size_bytes)}</span>
                   </div>
 
+                  {/* Badges de Compartilhamento com @ */}
+                  {file.is_owner === false ? (
+                    <div className="file-shared-tag from">
+                      <Users size={12} /> De @{file.shared_by || 'outro usuário'}
+                    </div>
+                  ) : file.shared_with && file.shared_with.length > 0 ? (
+                    <div 
+                      className="file-shared-tag to" 
+                      onClick={(e) => { e.stopPropagation(); handleOpenShareModal(file); }} 
+                      title="Clique para gerenciar acessos"
+                    >
+                      <Users size={12} /> Compartilhado: {file.shared_with.map(u => `@${u}`).join(', ')}
+                    </div>
+                  ) : file.is_folder_shared ? (
+                    <div className="file-shared-tag folder" title="Esta pasta inteira está compartilhada">
+                      <Folder size={12} /> Pasta compartilhada
+                    </div>
+                  ) : null}
+
                   {file.description && (
                     <div className="file-card-desc" title={file.description}>
                       {file.description}
@@ -517,6 +714,16 @@ export default function Files() {
 
                 {/* Ações do Card */}
                 <div className="file-card-actions">
+                  {file.is_owner !== false && (
+                    <button 
+                      className="file-action-btn share-btn"
+                      title="Compartilhar com @"
+                      onClick={() => handleOpenShareModal(file)}
+                    >
+                      <Users size={15} />
+                    </button>
+                  )}
+
                   <button 
                     className={`file-action-btn ${isCopied ? 'copied' : ''}`}
                     title={isCopied ? 'Link Copiado!' : 'Copiar Link Direto'}
@@ -534,21 +741,25 @@ export default function Files() {
                     <Download size={15} />
                   </a>
 
-                  <button 
-                    className="file-action-btn"
-                    title="Editar / Renomear"
-                    onClick={() => setEditingFile({ ...file })}
-                  >
-                    <Pencil size={15} />
-                  </button>
+                  {file.is_owner !== false && (
+                    <>
+                      <button 
+                        className="file-action-btn"
+                        title="Editar / Renomear"
+                        onClick={() => setEditingFile({ ...file })}
+                      >
+                        <Pencil size={15} />
+                      </button>
 
-                  <button 
-                    className="file-action-btn delete"
-                    title="Excluir Arquivo"
-                    onClick={() => handleDeleteFile(file)}
-                  >
-                    <Trash size={15} />
-                  </button>
+                      <button 
+                        className="file-action-btn delete"
+                        title="Excluir Arquivo"
+                        onClick={() => handleDeleteFile(file)}
+                      >
+                        <Trash size={15} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -585,7 +796,28 @@ export default function Files() {
                           )}
                         </div>
                         <div>
-                          <span className="files-table-file-name">{file.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span className="files-table-file-name">{file.name}</span>
+                            {file.is_owner === false && (
+                              <span className="file-shared-tag-mini from" title={`Compartilhado por @${file.shared_by}`}>
+                                de @{file.shared_by}
+                              </span>
+                            )}
+                            {file.is_owner !== false && file.shared_with && file.shared_with.length > 0 && (
+                              <span 
+                                className="file-shared-tag-mini to" 
+                                title={`Compartilhado com: ${file.shared_with.map(u => `@${u}`).join(', ')}`}
+                                onClick={(e) => { e.stopPropagation(); handleOpenShareModal(file); }}
+                              >
+                                👥 {file.shared_with.length} {file.shared_with.length === 1 ? 'usuário' : 'usuários'}
+                              </span>
+                            )}
+                            {file.is_owner !== false && file.is_folder_shared && (!file.shared_with || file.shared_with.length === 0) && (
+                              <span className="file-shared-tag-mini folder" title="Pasta compartilhada">
+                                📁 pasta
+                              </span>
+                            )}
+                          </div>
                           {file.description && (
                             <span className="files-table-file-desc">{file.description}</span>
                           )}
@@ -621,6 +853,15 @@ export default function Files() {
                         >
                           <Eye size={15} />
                         </button>
+                        {file.is_owner !== false && (
+                          <button 
+                            className="file-action-btn share-btn"
+                            title="Compartilhar com @"
+                            onClick={() => handleOpenShareModal(file)}
+                          >
+                            <Users size={15} />
+                          </button>
+                        )}
                         <button 
                           className={`file-action-btn ${isCopied ? 'copied' : ''}`}
                           title={isCopied ? 'Link Copiado!' : 'Copiar Link'}
@@ -636,20 +877,24 @@ export default function Files() {
                         >
                           <Download size={15} />
                         </a>
-                        <button 
-                          className="file-action-btn"
-                          title="Editar"
-                          onClick={() => setEditingFile({ ...file })}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button 
-                          className="file-action-btn delete"
-                          title="Excluir"
-                          onClick={() => handleDeleteFile(file)}
-                        >
-                          <Trash size={15} />
-                        </button>
+                        {file.is_owner !== false && (
+                          <>
+                            <button 
+                              className="file-action-btn"
+                              title="Editar"
+                              onClick={() => setEditingFile({ ...file })}
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button 
+                              className="file-action-btn delete"
+                              title="Excluir"
+                              onClick={() => handleDeleteFile(file)}
+                            >
+                              <Trash size={15} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -992,6 +1237,180 @@ export default function Files() {
                 disabled={!newFolderName.trim()}
               >
                 Criar Pasta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: COMPARTILHAR COM @ */}
+      {isShareModalOpen && shareTarget && (
+        <div className="files-modal-overlay" onClick={() => !isSharingLoading && setIsShareModalOpen(false)}>
+          <div className="files-modal files-share-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="files-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div className="files-share-modal-icon">
+                  <Users size={22} color="#6366f1" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem' }}>
+                    Compartilhar {shareTarget.type === 'file' ? 'Arquivo' : 'Pasta'} com @
+                  </h3>
+                  <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                    {shareTarget.title}
+                  </span>
+                </div>
+              </div>
+              <button 
+                className="files-modal-close" 
+                onClick={() => !isSharingLoading && setIsShareModalOpen(false)}
+                disabled={isSharingLoading}
+              >
+                <Close size={18} />
+              </button>
+            </div>
+
+            <div className="files-modal-body">
+              <p className="files-share-intro">
+                Mencione qualquer usuário do sistema usando <strong>@username</strong> para conceder acesso imediato a {shareTarget.type === 'file' ? 'este arquivo' : 'todos os arquivos desta pasta'}.
+              </p>
+
+              {/* INPUT DE MENÇÃO COM @ */}
+              <div className="files-share-input-wrapper">
+                <div className="files-share-input-box">
+                  <span className="files-mention-at">@</span>
+                  <input 
+                    type="text" 
+                    className="files-mention-input"
+                    placeholder="Digite o @usuário (ex: @yuri, @assis, @admin)..."
+                    value={mentionInput}
+                    onChange={(e) => setMentionInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddShare();
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <button 
+                    type="button"
+                    className="btn-primary files-share-add-btn"
+                    onClick={() => handleAddShare()}
+                    disabled={isSharingLoading || !mentionInput.trim()}
+                  >
+                    Compartilhar
+                  </button>
+                </div>
+
+                {/* SUGESTÕES DE AUTOCOMPLETE AO DIGITAR */}
+                {mentionInput.trim() && (
+                  <div className="files-mention-dropdown">
+                    {mentionSuggestions
+                      .filter(u => {
+                        const q = mentionInput.trim().replace(/^@/, '').toLowerCase();
+                        const isAlreadyShared = targetShares.some(s => s.shared_with_username === u.username);
+                        const matchUser = u.username?.toLowerCase().includes(q);
+                        const matchName = u.name?.toLowerCase().includes(q);
+                        return !isAlreadyShared && (matchUser || matchName);
+                      })
+                      .slice(0, 6)
+                      .map((u) => (
+                        <div 
+                          key={u.id || u.username} 
+                          className="files-mention-item"
+                          onClick={() => handleAddShare(u.username)}
+                        >
+                          <div className="files-mention-avatar">
+                            <User size={14} color="#6366f1" />
+                          </div>
+                          <div className="files-mention-user-info">
+                            <span className="files-mention-name">{u.name || u.username}</span>
+                            <span className="files-mention-handle">@{u.username}</span>
+                          </div>
+                          <span className="files-mention-add-label">+ Adicionar</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* CHIPS RÁPIDOS DE USUÁRIOS DO SISTEMA */}
+              {mentionSuggestions.length > 0 && (
+                <div className="files-quick-mentions">
+                  <span className="files-quick-mentions-label">Sugestões de usuários:</span>
+                  <div className="files-quick-mentions-list">
+                    {mentionSuggestions
+                      .filter(u => !targetShares.some(s => s.shared_with_username === u.username))
+                      .slice(0, 8)
+                      .map((u) => (
+                        <button
+                          key={u.id || u.username}
+                          type="button"
+                          className="files-quick-mention-pill"
+                          onClick={() => handleAddShare(u.username)}
+                          title={`Compartilhar com @${u.username}`}
+                        >
+                          <span>@{u.username}</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* LISTA DE USUÁRIOS QUE TÊM ACESSO */}
+              <div className="files-shares-list-section">
+                <div className="files-shares-list-header">
+                  <span>Pessoas com acesso ({targetShares.length})</span>
+                  {shareTarget.type === 'folder' && (
+                    <span className="files-shares-badge-folder">Acesso a toda a pasta</span>
+                  )}
+                </div>
+
+                {isSharingLoading && targetShares.length === 0 ? (
+                  <div className="files-shares-loading">Carregando permissões...</div>
+                ) : targetShares.length === 0 ? (
+                  <div className="files-shares-empty">
+                    <Users size={28} color="#94a3b8" />
+                    <p>Nenhum usuário com acesso compartilhado ainda.</p>
+                    <span>Use o campo acima para adicionar pelo @</span>
+                  </div>
+                ) : (
+                  <div className="files-shares-list">
+                    {targetShares.map((share) => (
+                      <div key={share.id || share.shared_with_username} className="files-share-item">
+                        <div className="files-share-user-cell">
+                          <div className="files-share-avatar">
+                            <User size={16} color="#6366f1" />
+                          </div>
+                          <div>
+                            <span className="files-share-username">@{share.shared_with_username}</span>
+                            <span className="files-share-role">Leitura e Download</span>
+                          </div>
+                        </div>
+
+                        <button 
+                          className="files-share-remove-btn"
+                          title={`Remover acesso de @${share.shared_with_username}`}
+                          onClick={() => handleRemoveShare(share.shared_with_username)}
+                          disabled={isSharingLoading}
+                        >
+                          <Close size={14} /> Remover
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="files-modal-footer">
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={() => setIsShareModalOpen(false)}
+              >
+                Concluir
               </button>
             </div>
           </div>

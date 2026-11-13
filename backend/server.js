@@ -610,44 +610,142 @@ app.delete('/api/templates/:id', async (req, res) => {
 });
 
 // ==========================================
-// COFRE DE ARQUIVOS (DOCUMENTOS, FOTOS, E-BOOKS)
+// COFRE DE ARQUIVOS (DOCUMENTOS, FOTOS, E-BOOKS) & COMPARTILHAMENTO (@)
 // ==========================================
 
-// 1. Listar arquivos com filtros de categoria, pasta e busca
+// 0. Sugestões de menção com @ para compartilhamento
+app.get('/api/users/mention-suggestions', async (req, res) => {
+  try {
+    const database = await db.getDB();
+    const users = await database.all(`
+      SELECT id, name, username, email, role, workspace_id
+      FROM users
+      WHERE COALESCE(is_blocked, 0) = 0 AND username IS NOT NULL AND TRIM(username) != ''
+      ORDER BY name ASC
+    `);
+
+    const suggestions = users.map(u => {
+      const clean = (u.username || '').replace(/^@/, '').trim();
+      return {
+        id: u.id,
+        name: u.name,
+        username: clean,
+        handle: `@${clean}`,
+        role: u.role,
+        email: u.email,
+        workspace_id: u.workspace_id
+      };
+    });
+
+    res.json({ success: true, users: suggestions });
+  } catch (error) {
+    console.error('Erro ao buscar sugestões de menções:', error);
+    res.status(500).json({ success: false, error: 'Erro ao buscar lista de usuários para menção.' });
+  }
+});
+
+// 1. Listar arquivos com suporte a escopo (todos / meus / compartilhados comigo), filtros e busca
 app.get('/api/files', async (req, res) => {
   try {
     const workspaceId = getEffectiveWorkspaceId(req);
     const database = await db.getDB();
-    const { category, folder, search } = req.query;
+    const { category, folder, search, scope } = req.query;
 
-    let query = 'SELECT * FROM stored_files WHERE workspace_id = ?';
-    const params = [workspaceId];
+    const currentUsername = (req.user?.username || '').replace(/^@/, '').toLowerCase().trim();
+    const currentUserId = req.user?.id || 0;
+
+    let whereParts = [];
+    let params = [];
+
+    // Filtro de Escopo: 'all' (meus + compartilhados) | 'mine' (apenas meus) | 'shared' (apenas compartilhados comigo)
+    if (scope === 'mine') {
+      whereParts.push('f.workspace_id = ?');
+      params.push(workspaceId);
+    } else if (scope === 'shared') {
+      whereParts.push(`(
+        f.workspace_id != ? AND (
+          f.id IN (SELECT file_id FROM file_shares WHERE file_id IS NOT NULL AND (LOWER(shared_with_username) = ? OR shared_with_user_id = ?))
+          OR
+          (f.workspace_id || '_' || f.folder) IN (
+            SELECT (owner_workspace_id || '_' || folder_name) 
+            FROM file_shares 
+            WHERE target_type = 'folder' AND (LOWER(shared_with_username) = ? OR shared_with_user_id = ?)
+          )
+        )
+      )`);
+      params.push(workspaceId, currentUsername, currentUserId, currentUsername, currentUserId);
+    } else {
+      // 'all': meus arquivos do workspace + arquivos/pastas explicitamente compartilhados comigo
+      whereParts.push(`(
+        f.workspace_id = ? 
+        OR f.id IN (SELECT file_id FROM file_shares WHERE file_id IS NOT NULL AND (LOWER(shared_with_username) = ? OR shared_with_user_id = ?))
+        OR (f.workspace_id || '_' || f.folder) IN (
+          SELECT (owner_workspace_id || '_' || folder_name) 
+          FROM file_shares 
+          WHERE target_type = 'folder' AND (LOWER(shared_with_username) = ? OR shared_with_user_id = ?)
+        )
+      )`);
+      params.push(workspaceId, currentUsername, currentUserId, currentUsername, currentUserId);
+    }
 
     if (category && category !== 'all' && category !== 'todos') {
-      query += ' AND category = ?';
+      whereParts.push('f.category = ?');
       params.push(category);
     }
 
     if (folder && folder !== 'all' && folder !== 'todas') {
-      query += ' AND folder = ?';
+      whereParts.push('f.folder = ?');
       params.push(folder);
     }
 
     if (search && search.trim()) {
-      query += ' AND (name LIKE ? OR original_name LIKE ? OR description LIKE ? OR extension LIKE ?)';
+      whereParts.push('(f.name LIKE ? OR f.original_name LIKE ? OR f.description LIKE ? OR f.extension LIKE ?)');
       const term = `%${search.trim()}%`;
       params.push(term, term, term, term);
     }
 
-    query += ' ORDER BY id DESC';
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+    const query = `
+      SELECT 
+        f.*,
+        w.name as owner_workspace_name,
+        u.name as uploader_name,
+        u.username as uploader_username
+      FROM stored_files f
+      LEFT JOIN workspaces w ON w.id = f.workspace_id
+      LEFT JOIN users u ON u.id = f.user_id
+      ${whereClause}
+      ORDER BY f.id DESC
+    `;
+
     const rows = await database.all(query, params);
 
+    // Busca compartilhamentos ativos para os arquivos e pastas retornados
+    const allFileShares = await database.all(`
+      SELECT file_id, folder_name, owner_workspace_id, shared_with_username, target_type
+      FROM file_shares
+    `);
+
+    const fileSharesMap = {};
+    const folderSharesMap = {};
+    for (const sh of allFileShares) {
+      if (sh.target_type === 'file' && sh.file_id) {
+        if (!fileSharesMap[sh.file_id]) fileSharesMap[sh.file_id] = [];
+        fileSharesMap[sh.file_id].push(`@${sh.shared_with_username}`);
+      } else if (sh.target_type === 'folder' && sh.folder_name) {
+        const fKey = `${sh.owner_workspace_id}_${sh.folder_name}`;
+        if (!folderSharesMap[fKey]) folderSharesMap[fKey] = [];
+        folderSharesMap[fKey].push(`@${sh.shared_with_username}`);
+      }
+    }
+
     // Sumários para métricas do dashboard de arquivos
-    const allFiles = await database.all('SELECT category, folder, size_bytes FROM stored_files WHERE workspace_id = ?', [workspaceId]);
+    const allWorkspaceFiles = await database.all('SELECT category, folder, size_bytes FROM stored_files WHERE workspace_id = ?', [workspaceId]);
 
     let totalSize = 0;
     const catCounts = {
-      todos: allFiles.length,
+      todos: allWorkspaceFiles.length,
       documentos: 0,
       fotos: 0,
       ebooks: 0,
@@ -656,7 +754,7 @@ app.get('/api/files', async (req, res) => {
     };
     const folderSet = new Set(['Raiz']);
 
-    for (const f of allFiles) {
+    for (const f of allWorkspaceFiles) {
       totalSize += Number(f.size_bytes || 0);
       const cat = f.category || 'outros';
       if (catCounts[cat] !== undefined) {
@@ -669,16 +767,37 @@ app.get('/api/files', async (req, res) => {
       }
     }
 
-    const files = rows.map(r => ({
-      ...r,
-      url: `/uploads/${r.filename}`
-    }));
+    const files = rows.map(r => {
+      const isOwner = Number(r.workspace_id) === Number(workspaceId);
+      const directShares = fileSharesMap[r.id] || [];
+      const fKey = `${r.workspace_id}_${r.folder}`;
+      const fShares = folderSharesMap[fKey] || [];
+      const combinedShares = Array.from(new Set([...directShares, ...fShares]));
+
+      let sharedBy = null;
+      if (!isOwner) {
+        sharedBy = {
+          name: r.uploader_name || r.owner_workspace_name || 'Usuário',
+          username: r.uploader_username ? `@${r.uploader_username.replace(/^@/, '')}` : null,
+          workspace: r.owner_workspace_name
+        };
+      }
+
+      return {
+        ...r,
+        url: `/uploads/${r.filename}`,
+        is_owner: isOwner,
+        shared_by: sharedBy,
+        shared_with: combinedShares,
+        is_folder_shared: fShares.length > 0
+      };
+    });
 
     res.json({
       success: true,
       files,
       summary: {
-        total_files: allFiles.length,
+        total_files: allWorkspaceFiles.length,
         total_size_bytes: totalSize,
         categories: catCounts,
         folders: Array.from(folderSet).sort()
@@ -836,6 +955,199 @@ app.delete('/api/files/:id', async (req, res) => {
   } catch (error) {
     console.error('Erro ao deletar arquivo:', error);
     res.status(500).json({ success: false, error: 'Erro ao excluir arquivo.' });
+  }
+});
+
+// 5. Listar compartilhamentos de um arquivo
+app.get('/api/files/:id/shares', async (req, res) => {
+  try {
+    const database = await db.getDB();
+    const fileId = req.params.id;
+    const shares = await database.all(`
+      SELECT s.*, u.name as user_name, u.email as user_email
+      FROM file_shares s
+      LEFT JOIN users u ON u.id = s.shared_with_user_id OR LOWER(u.username) = LOWER(s.shared_with_username)
+      WHERE s.file_id = ?
+      ORDER BY s.id DESC
+    `, [fileId]);
+
+    res.json({
+      success: true,
+      shares: shares.map(s => ({
+        ...s,
+        handle: `@${s.shared_with_username}`
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 6. Compartilhar arquivo com outros usuários através do @
+app.post('/api/files/:id/share', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const fileId = req.params.id;
+    const { usernames, permission } = req.body;
+
+    const file = await database.get('SELECT * FROM stored_files WHERE id = ?', [fileId]);
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'Arquivo não encontrado.' });
+    }
+
+    const rawList = Array.isArray(usernames)
+      ? usernames
+      : String(usernames || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    const added = [];
+    for (const raw of rawList) {
+      const clean = String(raw).replace(/^@/, '').toLowerCase().trim();
+      if (!clean) continue;
+
+      const targetUser = await database.get('SELECT id, name, username FROM users WHERE LOWER(username) = ?', [clean]);
+      if (!targetUser) continue;
+
+      const existing = await database.get(
+        'SELECT id FROM file_shares WHERE file_id = ? AND LOWER(shared_with_username) = ?',
+        [fileId, clean]
+      );
+      if (!existing) {
+        await database.run(
+          `INSERT INTO file_shares 
+            (target_type, file_id, folder_name, owner_workspace_id, shared_by_user_id, shared_with_username, shared_with_user_id, permission)
+           VALUES ('file', ?, ?, ?, ?, ?, ?, ?)`,
+          [fileId, file.folder, file.workspace_id, req.user?.id || null, clean, targetUser.id, permission || 'read']
+        );
+      }
+      added.push(`@${clean}`);
+    }
+
+    const currentShares = await database.all(
+      'SELECT shared_with_username, permission FROM file_shares WHERE file_id = ?',
+      [fileId]
+    );
+
+    res.json({
+      success: true,
+      message: added.length > 0 
+        ? `Arquivo compartilhado com sucesso com ${added.join(', ')}.`
+        : 'Nenhum novo usuário adicionado.',
+      shares: currentShares.map(s => `@${s.shared_with_username}`)
+    });
+  } catch (error) {
+    console.error('Erro ao compartilhar arquivo:', error);
+    res.status(500).json({ success: false, error: 'Erro ao processar compartilhamento.' });
+  }
+});
+
+// 7. Remover compartilhamento de arquivo com um @usuário
+app.delete('/api/files/:id/share/:username', async (req, res) => {
+  try {
+    const database = await db.getDB();
+    const fileId = req.params.id;
+    const clean = String(req.params.username).replace(/^@/, '').toLowerCase().trim();
+
+    await database.run(
+      'DELETE FROM file_shares WHERE file_id = ? AND LOWER(shared_with_username) = ?',
+      [fileId, clean]
+    );
+    res.json({ success: true, message: `Compartilhamento com @${clean} removido.` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 8. Listar compartilhamentos de uma pasta
+app.get('/api/files/folders/:folderName/shares', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const folderName = decodeURIComponent(req.params.folderName);
+
+    const shares = await database.all(`
+      SELECT s.*, u.name as user_name, u.email as user_email
+      FROM file_shares s
+      LEFT JOIN users u ON u.id = s.shared_with_user_id OR LOWER(u.username) = LOWER(s.shared_with_username)
+      WHERE s.target_type = 'folder' AND s.folder_name = ? AND s.owner_workspace_id = ?
+      ORDER BY s.id DESC
+    `, [folderName, workspaceId]);
+
+    res.json({
+      success: true,
+      folder: folderName,
+      shares: shares.map(s => ({
+        ...s,
+        handle: `@${s.shared_with_username}`
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 9. Compartilhar pasta inteira através do @
+app.post('/api/files/folders/:folderName/share', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const folderName = decodeURIComponent(req.params.folderName);
+    const { usernames, permission } = req.body;
+
+    const rawList = Array.isArray(usernames)
+      ? usernames
+      : String(usernames || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    const added = [];
+    for (const raw of rawList) {
+      const clean = String(raw).replace(/^@/, '').toLowerCase().trim();
+      if (!clean) continue;
+
+      const targetUser = await database.get('SELECT id, name, username FROM users WHERE LOWER(username) = ?', [clean]);
+      if (!targetUser) continue;
+
+      const existing = await database.get(
+        "SELECT id FROM file_shares WHERE target_type = 'folder' AND folder_name = ? AND owner_workspace_id = ? AND LOWER(shared_with_username) = ?",
+        [folderName, workspaceId, clean]
+      );
+      if (!existing) {
+        await database.run(
+          `INSERT INTO file_shares 
+            (target_type, file_id, folder_name, owner_workspace_id, shared_by_user_id, shared_with_username, shared_with_user_id, permission)
+           VALUES ('folder', NULL, ?, ?, ?, ?, ?, ?)`,
+          [folderName, workspaceId, req.user?.id || null, clean, targetUser.id, permission || 'read']
+        );
+      }
+      added.push(`@${clean}`);
+    }
+
+    res.json({
+      success: true,
+      message: added.length > 0
+        ? `Pasta "${folderName}" compartilhada com ${added.join(', ')}.`
+        : 'Nenhum novo usuário adicionado.'
+    });
+  } catch (error) {
+    console.error('Erro ao compartilhar pasta:', error);
+    res.status(500).json({ success: false, error: 'Erro ao compartilhar pasta.' });
+  }
+});
+
+// 10. Remover compartilhamento de pasta com um @usuário
+app.delete('/api/files/folders/:folderName/share/:username', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const folderName = decodeURIComponent(req.params.folderName);
+    const clean = String(req.params.username).replace(/^@/, '').toLowerCase().trim();
+
+    await database.run(
+      "DELETE FROM file_shares WHERE target_type = 'folder' AND folder_name = ? AND owner_workspace_id = ? AND LOWER(shared_with_username) = ?",
+      [folderName, workspaceId, clean]
+    );
+    res.json({ success: true, message: `Compartilhamento da pasta com @${clean} removido.` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
