@@ -69,6 +69,8 @@ export default function Forms() {
   const [newListName, setNewListName] = useState('');
   const [creatingListLoading, setCreatingListLoading] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [savedImages, setSavedImages] = useState([]);
+  const [showImagePicker, setShowImagePicker] = useState(false);
 
   // Modal de Submissões / Leads Capturados
   const [isSubmissionsOpen, setIsSubmissionsOpen] = useState(false);
@@ -125,23 +127,45 @@ export default function Forms() {
     }
   };
 
-  // Upload de Banner da Empresa
+  // Carrega imagens já salvas na aba Arquivos
+  const fetchSavedImages = async () => {
+    try {
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch(`/api/files?workspace_id=${workspaceId}&category=fotos`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSavedImages(data.files || []);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar imagens dos arquivos:', err);
+    }
+  };
+
+  // Upload de Banner da Empresa (salva automaticamente na aba Arquivos > pasta Banners)
   const handleBannerUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingBanner(true);
     try {
       const fd = new FormData();
-      fd.append('banner', file);
+      fd.append('workspace_id', workspaceId);
+      fd.append('folder', 'Banners');
+      fd.append('category', 'fotos');
+      fd.append('description', 'Banner de Formulário');
+      fd.append('files', file);
+
       const token = localStorage.getItem('unne_token');
-      const res = await fetch('/api/forms/banner', {
+      const res = await fetch('/api/files/upload', {
         method: 'POST',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: fd
       });
       const data = await res.json();
-      if (res.ok && data.success && data.url) {
-        setFormData(prev => ({ ...prev, banner_url: data.url }));
+      if (res.ok && data.success && data.files && data.files.length > 0) {
+        setFormData(prev => ({ ...prev, banner_url: data.files[0].url }));
+        fetchSavedImages();
       } else {
         alert(data.error || 'Erro ao enviar banner.');
       }
@@ -175,6 +199,7 @@ export default function Forms() {
   useEffect(() => {
     fetchForms();
     fetchContactLists();
+    fetchSavedImages();
   }, [workspaceId]);
 
   // Copia link público
@@ -1137,22 +1162,78 @@ export default function Forms() {
                           </button>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                          <label
-                            className="btn-secondary"
-                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', margin: 0 }}
-                          >
-                            {uploadingBanner ? 'Enviando...' : '🖼️ Carregar Imagem de Banner'}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={handleBannerUpload}
-                              disabled={uploadingBanner}
-                              style={{ display: 'none' }}
-                            />
-                          </label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <label
+                              className="btn-secondary"
+                              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', margin: 0 }}
+                            >
+                              {uploadingBanner ? 'Enviando...' : '🖼️ Carregar Nova Imagem'}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleBannerUpload}
+                                disabled={uploadingBanner}
+                                style={{ display: 'none' }}
+                              />
+                            </label>
+
+                            {savedImages.length > 0 && (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => setShowImagePicker(!showImagePicker)}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                              >
+                                📁 {showImagePicker ? 'Fechar Galeria' : `Escolher dos Arquivos (${savedImages.length})`}
+                              </button>
+                            )}
+                          </div>
+
+                          {showImagePicker && savedImages.length > 0 && (
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+                              gap: '8px',
+                              padding: '10px',
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '10px',
+                              maxHeight: '180px',
+                              overflowY: 'auto'
+                            }}>
+                              {savedImages.map(img => (
+                                <div
+                                  key={img.id}
+                                  onClick={() => {
+                                    setFormData(prev => ({ ...prev, banner_url: img.url }));
+                                    setShowImagePicker(false);
+                                  }}
+                                  title={img.name}
+                                  style={{
+                                    cursor: 'pointer',
+                                    borderRadius: '8px',
+                                    overflow: 'hidden',
+                                    border: '2px solid transparent',
+                                    background: '#fff',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                                  }}
+                                >
+                                  <img
+                                    src={img.url}
+                                    alt={img.name}
+                                    style={{ width: '100%', height: '64px', objectFit: 'cover', display: 'block' }}
+                                  />
+                                  <div style={{ fontSize: '0.68rem', padding: '3px 5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#475569' }}>
+                                    {img.name}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
                           <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                            Recomendado: PNG ou JPG horizontal (ex: 1200x400px).
+                            As imagens enviadas ficam salvas automaticamente na aba <strong>Arquivos &gt; Banners</strong> para reutilização.
                           </span>
                         </div>
                       )}
