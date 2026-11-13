@@ -817,40 +817,41 @@ export default function Forms() {
               </button>
             </div>
 
-            {/* Abas do Construtor */}
-            <div className="forms-builder-tabs">
-              <button 
-                type="button"
-                className={`forms-builder-tab ${builderTab === 'fields' ? 'active' : ''}`}
-                onClick={() => setBuilderTab('fields')}
-              >
-                1. Campos do Formulário ({formData.fields.length})
-              </button>
-              <button 
-                type="button"
-                className={`forms-builder-tab ${builderTab === 'general' ? 'active' : ''}`}
-                onClick={() => setBuilderTab('general')}
-              >
-                2. Informações & Destino
-              </button>
-              <button 
-                type="button"
-                className={`forms-builder-tab ${builderTab === 'appearance' ? 'active' : ''}`}
-                onClick={() => setBuilderTab('appearance')}
-              >
-                3. Design & Sucesso
-              </button>
-              <button 
-                type="button"
-                className={`forms-builder-tab ${builderTab === 'integrations' ? 'active' : ''}`}
-                onClick={() => setBuilderTab('integrations')}
-              >
-                4. Agenda & Mensagem
-              </button>
-            </div>
+            {/* Layout Wizard 2 Colunas: Sidebar de Etapas + Conteúdo */}
+            <form onSubmit={handleSaveForm} className="forms-wizard-form">
+              <div className="forms-wizard-layout">
+                <aside className="forms-wizard-sidebar">
+                  {[
+                    { id: 'fields', num: 1, title: 'Campos do Formulário', sub: `${formData.fields.length} campo(s)` },
+                    { id: 'general', num: 2, title: 'Informações & Destino', sub: 'Título, slug e lista' },
+                    { id: 'appearance', num: 3, title: 'Design & Sucesso', sub: 'Banner, cores e texto' },
+                    { id: 'integrations', num: 4, title: 'Agenda & Mensagem', sub: 'Agendamento e resposta' }
+                  ].map((step) => {
+                    const stepOrder = ['fields', 'general', 'appearance', 'integrations'];
+                    const currentIdx = stepOrder.indexOf(builderTab);
+                    const stepIdx = stepOrder.indexOf(step.id);
+                    const isActive = builderTab === step.id;
+                    const isDone = stepIdx < currentIdx;
+                    return (
+                      <button
+                        key={step.id}
+                        type="button"
+                        className={`forms-wizard-step ${isActive ? 'active' : ''} ${isDone ? 'done' : ''}`}
+                        onClick={() => setBuilderTab(step.id)}
+                      >
+                        <span className="forms-wizard-step-num">
+                          {isDone ? '✓' : step.num}
+                        </span>
+                        <span className="forms-wizard-step-info">
+                          <strong>{step.title}</strong>
+                          <small>{step.sub}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </aside>
 
-            <form onSubmit={handleSaveForm}>
-              <div className="forms-modal-body">
+                <div className="forms-modal-body forms-wizard-main">
                 {/* ABA 1: CAMPOS DO FORMULÁRIO */}
                 {builderTab === 'fields' && (
                   <div className="builder-fields-tab">
@@ -1412,9 +1413,10 @@ export default function Forms() {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
 
-              <div className="forms-modal-footer">
+              <div className="forms-modal-footer forms-wizard-footer">
                 <button 
                   type="button" 
                   className="btn-secondary" 
@@ -1423,13 +1425,43 @@ export default function Forms() {
                 >
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
-                  className="btn-primary" 
-                  disabled={isSaving}
-                >
-                  {isSaving ? 'Salvando...' : (editingFormId ? 'Salvar Alterações' : 'Criar e Publicar')}
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  {builderTab !== 'fields' && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        const order = ['fields', 'general', 'appearance', 'integrations'];
+                        const idx = order.indexOf(builderTab);
+                        if (idx > 0) setBuilderTab(order[idx - 1]);
+                      }}
+                      disabled={isSaving}
+                    >
+                      &lt; Voltar
+                    </button>
+                  )}
+                  {builderTab !== 'integrations' ? (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => {
+                        const order = ['fields', 'general', 'appearance', 'integrations'];
+                        const idx = order.indexOf(builderTab);
+                        if (idx < order.length - 1) setBuilderTab(order[idx + 1]);
+                      }}
+                    >
+                      Próximo &gt;
+                    </button>
+                  ) : (
+                    <button 
+                      type="submit" 
+                      className="btn-primary" 
+                      disabled={isSaving}
+                    >
+                      {isSaving ? 'Salvando...' : (editingFormId ? 'Salvar Alterações' : 'Criar e Publicar')}
+                    </button>
+                  )}
+                </div>
               </div>
             </form>
           </div>
