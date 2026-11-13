@@ -95,7 +95,7 @@ function App() {
           <Route path="tarefas" element={<Tasks />} />
           <Route path="contratos" element={<Contracts />} />
           <Route path="arquivos" element={<Files />} />
-          <Route path="automacao" element={<Automations />} />
+          <Route path="automacao" element={<Navigate to="/ia?tab=automacao" replace />} />
           <Route path="massa" element={<MassMessage />} />
           <Route path="agenda" element={<Calendar />} />
           <Route path="templates" element={<Templates />} />

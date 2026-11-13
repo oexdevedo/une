@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import './Agents.css';
+import Automations from '../Automations/Automations';
 import {
   Robot,
   Plus,
@@ -25,6 +27,23 @@ import PhoneInput, { detectCountryFromPhone } from '../../components/PhoneInput/
 
 export default function Agents() {
   const workspaceId = getWorkspaceId();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabParam === 'automacao' ? 'automacao' : 'equipe');
+
+  useEffect(() => {
+    if (tabParam === 'automacao') {
+      setActiveTab('automacao');
+    } else if (tabParam === 'equipe') {
+      setActiveTab('equipe');
+    }
+  }, [tabParam]);
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [agents, setAgents] = useState([]);
   const [editingAgent, setEditingAgent] = useState(null);
@@ -560,15 +579,62 @@ Quando o gestor responder autorizando o disparo com 'SIM', 'Pode confirmar', 'Ok
 
   return (
     <div className="agents-container">
-      <header className="agents-header">
+      <header className="agents-header" style={{ flexWrap: 'wrap', gap: '16px' }}>
         <div>
-          <h1>Funcionários de IA</h1>
-          <p>Crie e gerencie sua equipe de funcionários virtuais com prompts armazenados no banco de dados.</p>
+          <h1>Equipe & Automação</h1>
+          <p>Gerencie sua equipe de funcionários virtuais de IA e fluxos de automação inteligentes.</p>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+            <button
+              type="button"
+              onClick={() => handleTabChange('equipe')}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '10px',
+                border: activeTab === 'equipe' ? '1px solid #6366f1' : '1px solid #e2e8f0',
+                background: activeTab === 'equipe' ? '#6366f1' : '#ffffff',
+                color: activeTab === 'equipe' ? '#ffffff' : '#475569',
+                fontWeight: 700,
+                fontSize: '0.86rem',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <Robot size={16} /> Equipe de IA
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabChange('automacao')}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '10px',
+                border: activeTab === 'automacao' ? '1px solid #6366f1' : '1px solid #e2e8f0',
+                background: activeTab === 'automacao' ? '#6366f1' : '#ffffff',
+                color: activeTab === 'automacao' ? '#ffffff' : '#475569',
+                fontWeight: 700,
+                fontSize: '0.86rem',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <Zap size={16} /> Automação
+            </button>
+          </div>
         </div>
-        <button className="btn-primary" onClick={handleOpenNewAgent}>
-          <Plus size={18} /> Novo Agente
-        </button>
+        {activeTab === 'equipe' && (
+          <button className="btn-primary" onClick={handleOpenNewAgent}>
+            <Plus size={18} /> Novo Agente
+          </button>
+        )}
       </header>
+
+      {activeTab === 'automacao' ? (
+        <Automations />
+      ) : (
+        <>
 
       {/* Card Executivo do Agente Sofia - Resumo do Sistema */}
       <div className="briefing-executive-card">
@@ -1608,6 +1674,8 @@ Quando o gestor responder autorizando o disparo com 'SIM', 'Pode confirmar', 'Ok
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

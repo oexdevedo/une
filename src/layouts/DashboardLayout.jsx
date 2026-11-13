@@ -31,10 +31,9 @@ const navItems = [
   { path: '/tarefas', icon: Notes, label: 'Tarefas' },
   { path: '/contatos', icon: Users, label: 'Contatos' },
   { path: '/formularios', icon: ClipboardNote, label: 'Formulários' },
-  { path: '/ia', icon: Robot, label: 'IA' },
+  { path: '/ia', icon: Robot, label: 'Equipe' },
   { path: '/contratos', icon: FileText, label: 'Contratos' },
   { path: '/arquivos', icon: Folder, label: 'Arquivos' },
-  { path: '/automacao', icon: Robot, label: 'Automação' },
   { path: '/massa', icon: Megaphone, label: 'Msg em massa' },
   { path: '/templates', icon: File, label: 'Templates' },
   { path: '/agenda', icon: Calendar, label: 'Agenda' }
