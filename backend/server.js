@@ -1193,7 +1193,9 @@ app.get('/api/forms', async (req, res) => {
       return {
         ...f,
         fields,
-        is_active: Boolean(f.is_active)
+        is_active: Boolean(f.is_active),
+        enable_booking: Boolean(f.enable_booking),
+        auto_reply_enabled: Boolean(f.auto_reply_enabled)
       };
     });
 
@@ -1257,7 +1259,12 @@ app.post('/api/forms', async (req, res) => {
       target_list_id,
       is_active,
       primary_color,
-      background_color
+      background_color,
+      enable_booking,
+      booking_title,
+      auto_reply_enabled,
+      auto_reply_channel,
+      auto_reply_message
     } = req.body;
 
     if (!title || !title.trim()) {
@@ -1295,8 +1302,13 @@ app.post('/api/forms', async (req, res) => {
         target_list_id,
         is_active,
         primary_color,
-        background_color
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        background_color,
+        enable_booking,
+        booking_title,
+        auto_reply_enabled,
+        auto_reply_channel,
+        auto_reply_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       workspaceId,
       req.user?.id || null,
@@ -1310,7 +1322,12 @@ app.post('/api/forms', async (req, res) => {
       target_list_id ? Number(target_list_id) : null,
       is_active !== undefined ? (is_active ? 1 : 0) : 1,
       primary_color || '#6366f1',
-      background_color || '#f8fafc'
+      background_color || '#f8fafc',
+      enable_booking ? 1 : 0,
+      booking_title ? booking_title.trim() : 'Agendamento via Formulário',
+      auto_reply_enabled ? 1 : 0,
+      auto_reply_channel || 'whatsapp',
+      auto_reply_message ? auto_reply_message.trim() : null
     ]);
 
     const created = await database.get('SELECT * FROM lead_forms WHERE id = ?', [result.lastID]);
@@ -1320,7 +1337,9 @@ app.post('/api/forms', async (req, res) => {
       form: {
         ...created,
         fields: Array.isArray(fields) ? fields : JSON.parse(created.fields || '[]'),
-        is_active: Boolean(created.is_active)
+        is_active: Boolean(created.is_active),
+        enable_booking: Boolean(created.enable_booking),
+        auto_reply_enabled: Boolean(created.auto_reply_enabled)
       }
     });
   } catch (error) {
@@ -1352,7 +1371,12 @@ app.put('/api/forms/:id', async (req, res) => {
       target_list_id,
       is_active,
       primary_color,
-      background_color
+      background_color,
+      enable_booking,
+      booking_title,
+      auto_reply_enabled,
+      auto_reply_channel,
+      auto_reply_message
     } = req.body;
 
     let cleanSlug = existing.slug;
@@ -1382,6 +1406,11 @@ app.put('/api/forms/:id', async (req, res) => {
         is_active = COALESCE(?, is_active),
         primary_color = COALESCE(?, primary_color),
         background_color = COALESCE(?, background_color),
+        enable_booking = COALESCE(?, enable_booking),
+        booking_title = COALESCE(?, booking_title),
+        auto_reply_enabled = COALESCE(?, auto_reply_enabled),
+        auto_reply_channel = COALESCE(?, auto_reply_channel),
+        auto_reply_message = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND workspace_id = ?
     `, [
@@ -1396,6 +1425,11 @@ app.put('/api/forms/:id', async (req, res) => {
       is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
       primary_color || null,
       background_color || null,
+      enable_booking !== undefined ? (enable_booking ? 1 : 0) : existing.enable_booking,
+      booking_title !== undefined ? booking_title.trim() : null,
+      auto_reply_enabled !== undefined ? (auto_reply_enabled ? 1 : 0) : existing.auto_reply_enabled,
+      auto_reply_channel || null,
+      auto_reply_message !== undefined ? (auto_reply_message ? auto_reply_message.trim() : null) : existing.auto_reply_message,
       formId,
       workspaceId
     ]);
@@ -1407,7 +1441,9 @@ app.put('/api/forms/:id', async (req, res) => {
       form: {
         ...updated,
         fields: JSON.parse(updated.fields || '[]'),
-        is_active: Boolean(updated.is_active)
+        is_active: Boolean(updated.is_active),
+        enable_booking: Boolean(updated.enable_booking),
+        auto_reply_enabled: Boolean(updated.auto_reply_enabled)
       }
     });
   } catch (error) {
@@ -1530,7 +1566,8 @@ app.get('/api/public/forms/:slug', async (req, res) => {
         redirect_url,
         is_active,
         primary_color,
-        background_color
+        background_color,
+        enable_booking
       FROM lead_forms
       WHERE slug = ?
     `, [slug]);
@@ -1569,7 +1606,8 @@ app.get('/api/public/forms/:slug', async (req, res) => {
         success_message: form.success_message,
         redirect_url: form.redirect_url,
         primary_color: form.primary_color || '#6366f1',
-        background_color: form.background_color || '#f8fafc'
+        background_color: form.background_color || '#f8fafc',
+        enable_booking: Boolean(form.enable_booking)
       }
     });
   } catch (error) {
@@ -1684,6 +1722,60 @@ app.post('/api/public/forms/:slug/submit', async (req, res) => {
     ]);
 
     await database.run('UPDATE lead_forms SET submissions_count = submissions_count + 1 WHERE id = ?', [form.id]);
+
+    // 10. Se o formulário estiver conectado à Agenda e o lead informou data/hora, cria evento na Agenda
+    const bookingDate = submittedData.booking_date || submittedData.data_agendamento || '';
+    const bookingTime = submittedData.booking_time || submittedData.horario_agendamento || '09:00';
+    if (form.enable_booking && bookingDate) {
+      try {
+        const eventTitle = `${form.booking_title || form.title} - ${leadName}`;
+        await database.run(
+          `INSERT INTO calendar_events (workspace_id, title, date, time, type, attendee_name, attendee_phone)
+           VALUES (?, ?, ?, ?, 'booking', ?, ?)`,
+          [form.workspace_id, eventTitle, String(bookingDate).trim(), String(bookingTime).trim(), leadName, leadPhone || null]
+        );
+        try {
+          const reminderService = require('./reminder_service');
+          await reminderService.syncAgendaToAgendadosList(form.workspace_id);
+        } catch {}
+      } catch (calErr) {
+        console.warn('Aviso ao criar evento na agenda pelo formulário:', calErr.message);
+      }
+    }
+
+    // 11. Se auto-resposta pós-preenchimento estiver ativada, envia mensagem via WhatsApp ou Telegram em background
+    if (form.auto_reply_enabled && form.auto_reply_message && leadPhone) {
+      let formattedDate = bookingDate;
+      if (bookingDate && bookingDate.includes('-')) {
+        const parts = bookingDate.split('-');
+        if (parts.length === 3) formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+
+      const finalMsg = String(form.auto_reply_message)
+        .replace(/\{nome\}/gi, leadName)
+        .replace(/\{data\}/gi, formattedDate || '-')
+        .replace(/\{horario\}/gi, bookingTime || '-')
+        .replace(/\{titulo\}/gi, form.title);
+
+      const channel = form.auto_reply_channel || 'whatsapp';
+
+      setImmediate(async () => {
+        try {
+          if (channel === 'whatsapp' || channel === 'both') {
+            await whatsappApi.sendMessage(form.workspace_id, leadPhone, finalMsg, null, leadName).catch(e => {
+              console.warn(`[Form Auto-Reply WhatsApp] Falha ao enviar para ${leadPhone}:`, e.message);
+            });
+          }
+          if (channel === 'telegram' || channel === 'both') {
+            await telegramUserApi.sendMessage(form.workspace_id, leadPhone, finalMsg, null, leadName).catch(e => {
+              console.warn(`[Form Auto-Reply Telegram] Falha ao enviar para ${leadPhone}:`, e.message);
+            });
+          }
+        } catch (bgErr) {
+          console.warn('[Form Auto-Reply] Erro em background:', bgErr.message);
+        }
+      });
+    }
 
     res.status(201).json({
       success: true,

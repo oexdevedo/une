@@ -50,6 +50,11 @@ export default function Forms() {
     is_active: true,
     primary_color: '#6366f1',
     background_color: '#f8fafc',
+    enable_booking: false,
+    booking_title: 'Agendamento via Formulário',
+    auto_reply_enabled: false,
+    auto_reply_channel: 'whatsapp',
+    auto_reply_message: 'Olá {nome}! Recebemos seu preenchimento com sucesso. Em breve nossa equipe falará com você!',
     fields: [
       { id: 'f_nome', name: 'nome', label: 'Nome Completo', type: 'text', placeholder: 'Digite seu nome completo', required: true },
       { id: 'f_whatsapp', name: 'whatsapp', label: 'WhatsApp / Telefone', type: 'phone', placeholder: '(11) 99999-9999', required: true },
@@ -59,6 +64,9 @@ export default function Forms() {
   };
 
   const [formData, setFormData] = useState(initialFormState);
+  const [isCreatingList, setIsCreatingList] = useState(false);
+  const [newListName, setNewListName] = useState('');
+  const [creatingListLoading, setCreatingListLoading] = useState(false);
 
   // Modal de Submissões / Leads Capturados
   const [isSubmissionsOpen, setIsSubmissionsOpen] = useState(false);
@@ -80,6 +88,38 @@ export default function Forms() {
       }
     } catch (err) {
       console.warn('Erro ao carregar listas de contatos:', err);
+    }
+  };
+
+  // Cria nova lista de contatos inline e já vincula ao formulário
+  const handleCreateNewList = async () => {
+    const trimmed = newListName.trim();
+    if (!trimmed) return;
+    setCreatingListLoading(true);
+    try {
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch('/api/lists', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ workspace_id: workspaceId, name: trimmed })
+      });
+      const data = await res.json();
+      if (res.ok && data.id) {
+        await fetchContactLists();
+        setFormData(prev => ({ ...prev, target_list_id: String(data.id) }));
+        setNewListName('');
+        setIsCreatingList(false);
+      } else {
+        alert(data.error || 'Erro ao criar lista.');
+      }
+    } catch (err) {
+      console.error('Erro ao criar lista:', err);
+      alert('Erro de conexão ao criar lista.');
+    } finally {
+      setCreatingListLoading(false);
     }
   };
 
@@ -152,6 +192,11 @@ export default function Forms() {
         is_active: form.is_active !== undefined ? form.is_active : true,
         primary_color: form.primary_color || '#6366f1',
         background_color: form.background_color || '#f8fafc',
+        enable_booking: Boolean(form.enable_booking),
+        booking_title: form.booking_title || 'Agendamento via Formulário',
+        auto_reply_enabled: Boolean(form.auto_reply_enabled),
+        auto_reply_channel: form.auto_reply_channel || 'whatsapp',
+        auto_reply_message: form.auto_reply_message || initialFormState.auto_reply_message,
         fields: Array.isArray(form.fields) && form.fields.length > 0 ? form.fields : initialFormState.fields
       });
     } else {
@@ -192,6 +237,11 @@ export default function Forms() {
         is_active: formData.is_active,
         primary_color: formData.primary_color,
         background_color: formData.background_color,
+        enable_booking: formData.enable_booking,
+        booking_title: formData.booking_title.trim(),
+        auto_reply_enabled: formData.auto_reply_enabled,
+        auto_reply_channel: formData.auto_reply_channel,
+        auto_reply_message: formData.auto_reply_message.trim(),
         fields: formData.fields
       };
 
@@ -733,6 +783,13 @@ export default function Forms() {
               >
                 3. Design & Sucesso
               </button>
+              <button 
+                type="button"
+                className={`forms-builder-tab ${builderTab === 'integrations' ? 'active' : ''}`}
+                onClick={() => setBuilderTab('integrations')}
+              >
+                4. Agenda & Mensagem
+              </button>
             </div>
 
             <form onSubmit={handleSaveForm}>
@@ -948,17 +1005,56 @@ export default function Forms() {
                     </div>
 
                     <div className="form-group" style={{ marginTop: '14px' }}>
-                      <label>Lista de Destino no CRM (WhatsApp):</label>
-                      <select 
-                        className="modern-input"
-                        value={formData.target_list_id}
-                        onChange={(e) => setFormData(prev => ({ ...prev, target_list_id: e.target.value }))}
-                      >
-                        <option value="">Nenhuma lista específica (Apenas salvar nos Contatos)</option>
-                        {contactLists.map(l => (
-                          <option key={l.id} value={l.id}>📁 {l.name} ({l.count || 0} contatos)</option>
-                        ))}
-                      </select>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <label style={{ margin: 0 }}>Lista de Destino no CRM (WhatsApp):</label>
+                        <button
+                          type="button"
+                          className="btn-add-field"
+                          onClick={() => setIsCreatingList(!isCreatingList)}
+                          style={{ padding: '4px 10px', fontSize: '0.76rem' }}
+                        >
+                          {isCreatingList ? 'Cancelar' : '+ Criar Nova Lista'}
+                        </button>
+                      </div>
+
+                      {isCreatingList ? (
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+                          <input
+                            type="text"
+                            className="modern-input"
+                            placeholder="Nome da nova lista (ex: Leads Formulário 2026)"
+                            value={newListName}
+                            onChange={(e) => setNewListName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleCreateNewList();
+                              }
+                            }}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            onClick={handleCreateNewList}
+                            disabled={creatingListLoading || !newListName.trim()}
+                            style={{ whiteSpace: 'nowrap' }}
+                          >
+                            {creatingListLoading ? 'Criando...' : 'Criar e Vincular'}
+                          </button>
+                        </div>
+                      ) : (
+                        <select 
+                          className="modern-input"
+                          value={formData.target_list_id}
+                          onChange={(e) => setFormData(prev => ({ ...prev, target_list_id: e.target.value }))}
+                        >
+                          <option value="">Nenhuma lista específica (Apenas salvar nos Contatos)</option>
+                          {contactLists.map(l => (
+                            <option key={l.id} value={l.id}>📁 {l.name} ({l.count || 0} contatos)</option>
+                          ))}
+                        </select>
+                      )}
                       <small style={{ color: '#64748b', fontSize: '0.78rem' }}>
                         Todo lead que preencher este formulário será automaticamente inserido nesta lista para disparos e automações.
                       </small>
@@ -1040,6 +1136,111 @@ export default function Forms() {
                       <small style={{ color: '#64748b', fontSize: '0.78rem' }}>
                         Se preenchido, o lead será automaticamente redirecionado após o envio.
                       </small>
+                    </div>
+                  </div>
+                )}
+
+                {/* ABA 4: AGENDA & MENSAGEM AUTOMÁTICA */}
+                {builderTab === 'integrations' && (
+                  <div className="builder-integrations-tab" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {/* BLOCO 1: CONEXÃO COM A AGENDA */}
+                    <div className="builder-field-card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '0.96rem', color: '#0f172a' }}>📅 Conectar com a Agenda (Reserva de Data)</h4>
+                          <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                            Permite que o lead escolha uma data e horário no formulário público e cria automaticamente o evento na Agenda.
+                          </p>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(formData.enable_booking)}
+                            onChange={(e) => setFormData(prev => ({ ...prev, enable_booking: e.target.checked }))}
+                          />
+                          Ativar
+                        </label>
+                      </div>
+
+                      {formData.enable_booking && (
+                        <div className="form-group" style={{ marginTop: '12px' }}>
+                          <label>Título do Evento na Agenda:</label>
+                          <input
+                            type="text"
+                            className="modern-input"
+                            value={formData.booking_title}
+                            onChange={(e) => setFormData(prev => ({ ...prev, booking_title: e.target.value }))}
+                            placeholder="Ex: Reunião de Diagnóstico"
+                          />
+                          <small style={{ color: '#64748b', fontSize: '0.76rem' }}>
+                            O evento será salvo como: &quot;{formData.booking_title || formData.title} - Nome do Lead&quot;.
+                          </small>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* BLOCO 2: CONEXÃO COM WHATSAPP / TELEGRAM */}
+                    <div className="builder-field-card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '0.96rem', color: '#0f172a' }}>💬 Mensagem Automática (WhatsApp / Telegram)</h4>
+                          <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                            Envia uma mensagem automática imediata para o lead após o preenchimento do formulário.
+                          </p>
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(formData.auto_reply_enabled)}
+                            onChange={(e) => setFormData(prev => ({ ...prev, auto_reply_enabled: e.target.checked }))}
+                          />
+                          Ativar
+                        </label>
+                      </div>
+
+                      {formData.auto_reply_enabled && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}>
+                          <div className="form-group">
+                            <label>Canal de Envio:</label>
+                            <select
+                              className="modern-input"
+                              value={formData.auto_reply_channel}
+                              onChange={(e) => setFormData(prev => ({ ...prev, auto_reply_channel: e.target.value }))}
+                            >
+                              <option value="whatsapp">📱 WhatsApp</option>
+                              <option value="telegram">✈️ Telegram</option>
+                              <option value="both">📱 + ✈️ WhatsApp e Telegram</option>
+                            </select>
+                          </div>
+
+                          <div className="form-group">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap', gap: '6px' }}>
+                              <label style={{ margin: 0 }}>Texto da Mensagem Automática:</label>
+                              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                {['{nome}', '{data}', '{horario}', '{titulo}'].map(v => (
+                                  <button
+                                    key={v}
+                                    type="button"
+                                    className="btn-add-field"
+                                    style={{ padding: '2px 8px', fontSize: '0.72rem' }}
+                                    onClick={() => setFormData(prev => ({ ...prev, auto_reply_message: (prev.auto_reply_message || '') + ' ' + v }))}
+                                    title={`Inserir variável ${v}`}
+                                  >
+                                    + {v}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <textarea
+                              className="modern-input"
+                              rows={4}
+                              value={formData.auto_reply_message}
+                              onChange={(e) => setFormData(prev => ({ ...prev, auto_reply_message: e.target.value }))}
+                              placeholder="Ex: Olá {nome}! Recebemos seu agendamento para o dia {data} às {horario}. Até breve!"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1228,3 +1429,4 @@ export default function Forms() {
     </div>
   );
 }
+

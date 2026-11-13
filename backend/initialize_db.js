@@ -522,6 +522,13 @@ async function init() {
   await ensureColumn(db, 'workspaces', 'banned_whatsapp_count', 'INTEGER DEFAULT 0');
   await ensureColumn(db, 'workspaces', 'failed_messages_count', 'INTEGER DEFAULT 0');
 
+  // Colunas de Agenda e Auto-Resposta para Formulários de Captura
+  await ensureColumn(db, 'lead_forms', 'enable_booking', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'lead_forms', 'booking_title', "TEXT DEFAULT 'Agendamento via Formulário'");
+  await ensureColumn(db, 'lead_forms', 'auto_reply_enabled', 'INTEGER DEFAULT 0');
+  await ensureColumn(db, 'lead_forms', 'auto_reply_channel', "TEXT DEFAULT 'whatsapp'");
+  await ensureColumn(db, 'lead_forms', 'auto_reply_message', 'TEXT');
+
   await db.exec(`
     CREATE TABLE IF NOT EXISTS whatsapp_ban_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

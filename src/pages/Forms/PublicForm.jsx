@@ -295,6 +295,38 @@ export default function PublicForm() {
             </div>
           ))}
 
+          {/* RESERVA DE DATA NA AGENDA (QUANDO ATIVADA) */}
+          {form.enable_booking && (
+            <div className="public-form-booking-box" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '14px 16px' }}>
+              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                📅 Escolha uma Data e Horário para Atendimento <span className="public-form-required-star">*</span>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <div className="public-form-group" style={{ flex: 1, minWidth: '150px' }}>
+                  <label className="public-form-label" style={{ fontSize: '0.78rem', color: '#64748b' }}>Data:</label>
+                  <input
+                    type="date"
+                    className="public-form-input"
+                    min={new Date().toISOString().split('T')[0]}
+                    value={answers.booking_date || ''}
+                    onChange={(e) => setAnswers(prev => ({ ...prev, booking_date: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="public-form-group" style={{ flex: 1, minWidth: '130px' }}>
+                  <label className="public-form-label" style={{ fontSize: '0.78rem', color: '#64748b' }}>Horário:</label>
+                  <input
+                    type="time"
+                    className="public-form-input"
+                    value={answers.booking_time || '09:00'}
+                    onChange={(e) => setAnswers(prev => ({ ...prev, booking_time: e.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* BOTÃO DE ENVIO COM COR DO TEMA */}
           <button
             type="submit"
@@ -313,3 +345,4 @@ export default function PublicForm() {
     </div>
   );
 }
+
