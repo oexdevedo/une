@@ -38,6 +38,75 @@ const upload = multer({
   }
 });
 
+// Storage para o Cofre de Arquivos (preserva nome seguro e extensão legível no disco)
+const filesStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const cleanBase = path.basename(file.originalname || 'arquivo', ext)
+      .replace(/[^a-zA-Z0-9_\-\.]/g, '_')
+      .slice(0, 60);
+    const unique = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    cb(null, `${unique}_${cleanBase}${ext}`);
+  }
+});
+
+const filesUpload = multer({
+  storage: filesStorage,
+  limits: {
+    fileSize: 100 * 1024 * 1024 // 100 MB máximo por arquivo (ideal para e-books, vídeos, fotos em alta resolução)
+  },
+  fileFilter: (req, file, cb) => {
+    const blockedExtensions = ['.exe', '.bat', '.cmd', '.sh', '.php', '.phtml', '.py', '.js', '.vbs', '.msi', '.com'];
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (blockedExtensions.includes(ext)) {
+      return cb(new Error('Tipo de arquivo não permitido por motivos de segurança.'));
+    }
+    cb(null, true);
+  }
+});
+
+function detectFileCategory(originalName, mimeType) {
+  const ext = path.extname(originalName || '').toLowerCase();
+  const mime = (mimeType || '').toLowerCase();
+  const lowerName = (originalName || '').toLowerCase();
+
+  // 1. Fotos & Imagens
+  const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico', '.tiff', '.heic'];
+  if (imageExts.includes(ext) || mime.startsWith('image/')) {
+    return 'fotos';
+  }
+
+  // 2. E-books & Livros
+  const ebookExts = ['.epub', '.mobi', '.azw', '.azw3', '.fb2', '.ibooks', '.cbr', '.cbz'];
+  if (ebookExts.includes(ext) || mime.includes('epub') || mime.includes('mobi')) {
+    return 'ebooks';
+  }
+  if (ext === '.pdf' && (
+    lowerName.includes('ebook') || lowerName.includes('e-book') || 
+    lowerName.includes('livro') || lowerName.includes('guia') || 
+    lowerName.includes('manual') || lowerName.includes('apostila')
+  )) {
+    return 'ebooks';
+  }
+
+  // 3. Documentos
+  const docExts = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.rtf', '.odt', '.ods', '.odp'];
+  if (docExts.includes(ext) || mime.startsWith('text/') || mime.includes('pdf') || mime.includes('officedocument') || mime.includes('msword') || mime.includes('excel')) {
+    return 'documentos';
+  }
+
+  // 4. Áudio & Vídeo
+  const mediaExts = ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
+  if (mediaExts.includes(ext) || mime.startsWith('audio/') || mime.startsWith('video/')) {
+    return 'midias';
+  }
+
+  return 'outros';
+}
+
 const PORT = process.env.PORT || 3001;
 
 // Confiar no proxy reverso (EasyPanel / Nginx / Traefik) para IP real e HTTPS
@@ -537,6 +606,236 @@ app.delete('/api/templates/:id', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao deletar template' });
+  }
+});
+
+// ==========================================
+// COFRE DE ARQUIVOS (DOCUMENTOS, FOTOS, E-BOOKS)
+// ==========================================
+
+// 1. Listar arquivos com filtros de categoria, pasta e busca
+app.get('/api/files', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const { category, folder, search } = req.query;
+
+    let query = 'SELECT * FROM stored_files WHERE workspace_id = ?';
+    const params = [workspaceId];
+
+    if (category && category !== 'all' && category !== 'todos') {
+      query += ' AND category = ?';
+      params.push(category);
+    }
+
+    if (folder && folder !== 'all' && folder !== 'todas') {
+      query += ' AND folder = ?';
+      params.push(folder);
+    }
+
+    if (search && search.trim()) {
+      query += ' AND (name LIKE ? OR original_name LIKE ? OR description LIKE ? OR extension LIKE ?)';
+      const term = `%${search.trim()}%`;
+      params.push(term, term, term, term);
+    }
+
+    query += ' ORDER BY id DESC';
+    const rows = await database.all(query, params);
+
+    // Sumários para métricas do dashboard de arquivos
+    const allFiles = await database.all('SELECT category, folder, size_bytes FROM stored_files WHERE workspace_id = ?', [workspaceId]);
+
+    let totalSize = 0;
+    const catCounts = {
+      todos: allFiles.length,
+      documentos: 0,
+      fotos: 0,
+      ebooks: 0,
+      midias: 0,
+      outros: 0
+    };
+    const folderSet = new Set(['Raiz']);
+
+    for (const f of allFiles) {
+      totalSize += Number(f.size_bytes || 0);
+      const cat = f.category || 'outros';
+      if (catCounts[cat] !== undefined) {
+        catCounts[cat]++;
+      } else {
+        catCounts.outros++;
+      }
+      if (f.folder && f.folder.trim()) {
+        folderSet.add(f.folder.trim());
+      }
+    }
+
+    const files = rows.map(r => ({
+      ...r,
+      url: `/uploads/${r.filename}`
+    }));
+
+    res.json({
+      success: true,
+      files,
+      summary: {
+        total_files: allFiles.length,
+        total_size_bytes: totalSize,
+        categories: catCounts,
+        folders: Array.from(folderSet).sort()
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao listar arquivos:', error);
+    res.status(500).json({ success: false, error: 'Erro ao carregar lista de arquivos.' });
+  }
+});
+
+// 2. Upload de novos arquivos (suporta múltiplos arquivos simultâneos)
+app.post('/api/files/upload', (req, res, next) => {
+  filesUpload.array('files', 20)(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ success: false, error: err.message || 'Erro no upload de arquivos.' });
+    }
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const uploaded = req.files || [];
+    if (uploaded.length === 0 && req.file) {
+      uploaded.push(req.file);
+    }
+
+    if (uploaded.length === 0) {
+      return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado.' });
+    }
+
+    const requestedFolder = (req.body.folder || 'Raiz').trim() || 'Raiz';
+    const explicitCat = (req.body.category || '').trim();
+    const description = (req.body.description || '').trim();
+    const userId = req.user?.id || null;
+
+    const insertedFiles = [];
+
+    for (const f of uploaded) {
+      const ext = path.extname(f.originalname || '').toLowerCase();
+      const detectedCat = explicitCat && explicitCat !== 'auto' ? explicitCat : detectFileCategory(f.originalname, f.mimetype);
+      const displayName = req.body.name && uploaded.length === 1 ? req.body.name.trim() : f.originalname;
+
+      const result = await database.run(
+        `INSERT INTO stored_files 
+          (workspace_id, user_id, name, filename, original_name, mime_type, extension, category, folder, size_bytes, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          workspaceId,
+          userId,
+          displayName,
+          f.filename,
+          f.originalname,
+          f.mimetype,
+          ext,
+          detectedCat,
+          requestedFolder,
+          f.size || 0,
+          description || null
+        ]
+      );
+
+      insertedFiles.push({
+        id: result.lastID,
+        workspace_id: workspaceId,
+        name: displayName,
+        filename: f.filename,
+        original_name: f.originalname,
+        mime_type: f.mimetype,
+        extension: ext,
+        category: detectedCat,
+        folder: requestedFolder,
+        size_bytes: f.size || 0,
+        description: description || null,
+        url: `/uploads/${f.filename}`
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `${insertedFiles.length} arquivo(s) armazenado(s) com sucesso.`,
+      files: insertedFiles
+    });
+  } catch (error) {
+    console.error('Erro ao salvar arquivos:', error);
+    res.status(500).json({ success: false, error: 'Falha ao salvar arquivos no banco de dados.' });
+  }
+});
+
+// 3. Atualizar dados de um arquivo (nome, pasta, categoria, descrição)
+app.put('/api/files/:id', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const fileId = req.params.id;
+    const { name, folder, category, description } = req.body;
+
+    const file = await database.get('SELECT * FROM stored_files WHERE id = ? AND workspace_id = ?', [fileId, workspaceId]);
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'Arquivo não encontrado.' });
+    }
+
+    const updatedName = name ? name.trim() : file.name;
+    const updatedFolder = folder ? folder.trim() : (file.folder || 'Raiz');
+    const updatedCat = category ? category.trim() : file.category;
+    const updatedDesc = description !== undefined ? description : file.description;
+
+    await database.run(
+      `UPDATE stored_files 
+       SET name = ?, folder = ?, category = ?, description = ?, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ? AND workspace_id = ?`,
+      [updatedName, updatedFolder, updatedCat, updatedDesc, fileId, workspaceId]
+    );
+
+    const updatedFile = await database.get('SELECT * FROM stored_files WHERE id = ?', [fileId]);
+    res.json({
+      success: true,
+      file: {
+        ...updatedFile,
+        url: `/uploads/${updatedFile.filename}`
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar arquivo:', error);
+    res.status(500).json({ success: false, error: 'Erro ao atualizar dados do arquivo.' });
+  }
+});
+
+// 4. Deletar arquivo do banco e remover do disco
+app.delete('/api/files/:id', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const fileId = req.params.id;
+
+    const file = await database.get('SELECT * FROM stored_files WHERE id = ? AND workspace_id = ?', [fileId, workspaceId]);
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'Arquivo não encontrado.' });
+    }
+
+    await database.run('DELETE FROM stored_files WHERE id = ? AND workspace_id = ?', [fileId, workspaceId]);
+
+    // Remove arquivo físico se existir no disco
+    try {
+      const diskPath = path.join(UPLOADS_DIR, file.filename);
+      if (fs.existsSync(diskPath)) {
+        fs.unlinkSync(diskPath);
+      }
+    } catch (fsErr) {
+      console.warn('Aviso ao remover arquivo físico do disco:', fsErr.message);
+    }
+
+    res.json({ success: true, message: 'Arquivo excluído com sucesso.' });
+  } catch (error) {
+    console.error('Erro ao deletar arquivo:', error);
+    res.status(500).json({ success: false, error: 'Erro ao excluir arquivo.' });
   }
 });
 

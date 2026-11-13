@@ -384,6 +384,29 @@ async function init() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS stored_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL DEFAULT 1,
+      user_id INTEGER,
+      name TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type TEXT,
+      extension TEXT,
+      category TEXT NOT NULL DEFAULT 'documentos',
+      folder TEXT DEFAULT 'Raiz',
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      description TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+  `);
+
+  await db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_stored_files_ws_cat ON stored_files(workspace_id, category);
+    CREATE INDEX IF NOT EXISTS idx_stored_files_ws_folder ON stored_files(workspace_id, folder);
   `);
 
   // 2. Garantir colunas essenciais caso o banco seja herdado de versão legada
