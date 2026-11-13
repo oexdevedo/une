@@ -528,6 +528,7 @@ async function init() {
   await ensureColumn(db, 'lead_forms', 'auto_reply_enabled', 'INTEGER DEFAULT 0');
   await ensureColumn(db, 'lead_forms', 'auto_reply_channel', "TEXT DEFAULT 'whatsapp'");
   await ensureColumn(db, 'lead_forms', 'auto_reply_message', 'TEXT');
+  await ensureColumn(db, 'form_submissions', 'lgpd_consent_at', 'DATETIME');
 
   await db.exec(`
     CREATE TABLE IF NOT EXISTS whatsapp_ban_logs (

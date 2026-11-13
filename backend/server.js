@@ -1631,6 +1631,13 @@ app.post('/api/public/forms/:slug/submit', async (req, res) => {
       return res.status(403).json({ success: false, error: 'Este formulário não está aceitando respostas no momento.' });
     }
 
+    if (!submittedData.lgpd_consent) {
+      return res.status(400).json({
+        success: false,
+        error: 'É necessário aceitar o termo de consentimento LGPD para enviar seus dados.'
+      });
+    }
+
     let fields = [];
     try {
       fields = typeof form.fields === 'string' ? JSON.parse(form.fields) : form.fields;
@@ -1700,9 +1707,6 @@ app.post('/api/public/forms/:slug/submit', async (req, res) => {
       }
     }
 
-    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '';
-    const userAgent = req.headers['user-agent'] || '';
-
     await database.run(`
       INSERT INTO form_submissions (
         form_id,
@@ -1710,15 +1714,14 @@ app.post('/api/public/forms/:slug/submit', async (req, res) => {
         contact_id,
         data,
         ip_address,
-        user_agent
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        user_agent,
+        lgpd_consent_at
+      ) VALUES (?, ?, ?, ?, NULL, NULL, CURRENT_TIMESTAMP)
     `, [
       form.id,
       form.workspace_id,
       contactId,
-      JSON.stringify(submittedData),
-      String(clientIp).slice(0, 45),
-      String(userAgent).slice(0, 255)
+      JSON.stringify(submittedData)
     ]);
 
     await database.run('UPDATE lead_forms SET submissions_count = submissions_count + 1 WHERE id = ?', [form.id]);

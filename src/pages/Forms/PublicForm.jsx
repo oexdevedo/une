@@ -14,6 +14,7 @@ export default function PublicForm() {
 
   // Estado dos campos preenchidos
   const [answers, setAnswers] = useState({});
+  const [lgpdConsent, setLgpdConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [successInfo, setSuccessInfo] = useState({ message: '', redirect_url: '' });
@@ -87,6 +88,11 @@ export default function PublicForm() {
       }
     }
 
+    if (!lgpdConsent) {
+      alert('Por favor, concorde com o termo de consentimento LGPD para enviar seus dados.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch(`/api/public/forms/${slug}/submit`, {
@@ -94,7 +100,7 @@ export default function PublicForm() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(answers)
+        body: JSON.stringify({ ...answers, lgpd_consent: lgpdConsent })
       });
 
       const data = await res.json();
@@ -326,6 +332,23 @@ export default function PublicForm() {
               </div>
             </div>
           )}
+
+          {/* TERMO DE CONSENTIMENTO LGPD */}
+          <div className="public-form-lgpd-box" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '12px 14px' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', fontSize: '0.82rem', color: '#475569', lineHeight: 1.45 }}>
+              <input
+                type="checkbox"
+                checked={lgpdConsent}
+                onChange={(e) => setLgpdConsent(e.target.checked)}
+                required
+                style={{ marginTop: '3px', accentColor: primaryCol, width: '16px', height: '16px', flexShrink: 0 }}
+              />
+              <span>
+                Concordo com o tratamento dos meus dados pessoais para fins de contato e atendimento, conforme a{' '}
+                <strong>Lei Geral de Proteção de Dados (LGPD)</strong>. <span className="public-form-required-star">*</span>
+              </span>
+            </label>
+          </div>
 
           {/* BOTÃO DE ENVIO COM COR DO TEMA */}
           <button
