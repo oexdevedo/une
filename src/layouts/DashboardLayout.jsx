@@ -18,7 +18,8 @@ import {
   Mail,
   Notes,
   Shield,
-  Folder
+  Folder,
+  ClipboardNote
 } from 'pixelarticons/react';
 
 import { getWorkspaceId, isUserAdmin } from '../utils/workspace';
@@ -29,6 +30,7 @@ const navItems = [
   { path: '/emails', icon: Mail, label: 'E-mails' },
   { path: '/tarefas', icon: Notes, label: 'Tarefas' },
   { path: '/contatos', icon: Users, label: 'Contatos' },
+  { path: '/formularios', icon: ClipboardNote, label: 'Formulários' },
   { path: '/ia', icon: Robot, label: 'IA' },
   { path: '/contratos', icon: FileText, label: 'Contratos' },
   { path: '/arquivos', icon: Folder, label: 'Arquivos' },

@@ -1151,6 +1151,551 @@ app.delete('/api/files/folders/:folderName/share/:username', async (req, res) =>
   }
 });
 
+// ==========================================
+// FORMULÁRIOS & CAPTURA DE LEADS (LEAD FORMS)
+// ==========================================
+
+// Helper para gerar slug único e amigável
+function generateSlug(text) {
+  const base = String(text || 'formulario')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'lead-form';
+  const rand = Math.random().toString(36).substring(2, 6);
+  return `${base}-${rand}`;
+}
+
+// 1. Listar formulários do workspace
+app.get('/api/forms', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+
+    const forms = await database.all(`
+      SELECT 
+        lf.*,
+        l.name as target_list_name
+      FROM lead_forms lf
+      LEFT JOIN lists l ON l.id = lf.target_list_id
+      WHERE lf.workspace_id = ?
+      ORDER BY lf.created_at DESC
+    `, [workspaceId]);
+
+    const parsed = forms.map(f => {
+      let fields = [];
+      try {
+        fields = typeof f.fields === 'string' ? JSON.parse(f.fields) : f.fields;
+      } catch {
+        fields = [];
+      }
+      return {
+        ...f,
+        fields,
+        is_active: Boolean(f.is_active)
+      };
+    });
+
+    res.json({ success: true, forms: parsed });
+  } catch (error) {
+    console.error('Erro ao listar formulários:', error);
+    res.status(500).json({ success: false, error: 'Erro ao listar formulários.' });
+  }
+});
+
+// 2. Obter formulário por ID (autenticado)
+app.get('/api/forms/:id', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const form = await database.get(`
+      SELECT lf.*, l.name as target_list_name
+      FROM lead_forms lf
+      LEFT JOIN lists l ON l.id = lf.target_list_id
+      WHERE lf.id = ? AND lf.workspace_id = ?
+    `, [req.params.id, workspaceId]);
+
+    if (!form) {
+      return res.status(404).json({ success: false, error: 'Formulário não encontrado.' });
+    }
+
+    let fields = [];
+    try {
+      fields = typeof form.fields === 'string' ? JSON.parse(form.fields) : form.fields;
+    } catch {
+      fields = [];
+    }
+
+    res.json({
+      success: true,
+      form: {
+        ...form,
+        fields,
+        is_active: Boolean(form.is_active)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao obter formulário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao obter formulário.' });
+  }
+});
+
+// 3. Criar novo formulário
+app.post('/api/forms', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const {
+      title,
+      description,
+      fields,
+      slug,
+      button_text,
+      success_message,
+      redirect_url,
+      target_list_id,
+      is_active,
+      primary_color,
+      background_color
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, error: 'O título do formulário é obrigatório.' });
+    }
+
+    let cleanSlug = (slug || '').toLowerCase().trim().replace(/[^a-z0-9_-]/g, '-').replace(/^-+|-+$/g, '');
+    if (!cleanSlug) {
+      cleanSlug = generateSlug(title);
+    } else {
+      const existingSlug = await database.get('SELECT id FROM lead_forms WHERE slug = ?', [cleanSlug]);
+      if (existingSlug) {
+        cleanSlug = `${cleanSlug}-${Math.random().toString(36).substring(2, 6)}`;
+      }
+    }
+
+    let fieldsJson = '[]';
+    if (Array.isArray(fields)) {
+      fieldsJson = JSON.stringify(fields);
+    } else if (typeof fields === 'string') {
+      fieldsJson = fields;
+    }
+
+    const result = await database.run(`
+      INSERT INTO lead_forms (
+        workspace_id,
+        user_id,
+        slug,
+        title,
+        description,
+        fields,
+        button_text,
+        success_message,
+        redirect_url,
+        target_list_id,
+        is_active,
+        primary_color,
+        background_color
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      workspaceId,
+      req.user?.id || null,
+      cleanSlug,
+      title.trim(),
+      description ? description.trim() : '',
+      fieldsJson,
+      button_text ? button_text.trim() : 'Enviar',
+      success_message ? success_message.trim() : 'Obrigado! Seus dados foram recebidos com sucesso.',
+      redirect_url ? redirect_url.trim() : null,
+      target_list_id ? Number(target_list_id) : null,
+      is_active !== undefined ? (is_active ? 1 : 0) : 1,
+      primary_color || '#6366f1',
+      background_color || '#f8fafc'
+    ]);
+
+    const created = await database.get('SELECT * FROM lead_forms WHERE id = ?', [result.lastID]);
+    res.status(201).json({
+      success: true,
+      message: 'Formulário criado com sucesso!',
+      form: {
+        ...created,
+        fields: Array.isArray(fields) ? fields : JSON.parse(created.fields || '[]'),
+        is_active: Boolean(created.is_active)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao criar formulário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao salvar formulário.' });
+  }
+});
+
+// 4. Atualizar formulário
+app.put('/api/forms/:id', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const formId = req.params.id;
+
+    const existing = await database.get('SELECT * FROM lead_forms WHERE id = ? AND workspace_id = ?', [formId, workspaceId]);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Formulário não encontrado.' });
+    }
+
+    const {
+      title,
+      description,
+      fields,
+      slug,
+      button_text,
+      success_message,
+      redirect_url,
+      target_list_id,
+      is_active,
+      primary_color,
+      background_color
+    } = req.body;
+
+    let cleanSlug = existing.slug;
+    if (slug && slug.trim() && slug.trim().toLowerCase() !== existing.slug) {
+      cleanSlug = slug.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '-').replace(/^-+|-+$/g, '');
+      const slugCheck = await database.get('SELECT id FROM lead_forms WHERE slug = ? AND id != ?', [cleanSlug, formId]);
+      if (slugCheck) {
+        return res.status(400).json({ success: false, error: 'Este link/slug já está sendo utilizado por outro formulário.' });
+      }
+    }
+
+    let fieldsJson = existing.fields;
+    if (fields !== undefined) {
+      fieldsJson = Array.isArray(fields) ? JSON.stringify(fields) : String(fields);
+    }
+
+    await database.run(`
+      UPDATE lead_forms SET
+        title = COALESCE(?, title),
+        description = COALESCE(?, description),
+        slug = ?,
+        fields = ?,
+        button_text = COALESCE(?, button_text),
+        success_message = COALESCE(?, success_message),
+        redirect_url = ?,
+        target_list_id = ?,
+        is_active = COALESCE(?, is_active),
+        primary_color = COALESCE(?, primary_color),
+        background_color = COALESCE(?, background_color),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND workspace_id = ?
+    `, [
+      title ? title.trim() : null,
+      description !== undefined ? description.trim() : null,
+      cleanSlug,
+      fieldsJson,
+      button_text ? button_text.trim() : null,
+      success_message ? success_message.trim() : null,
+      redirect_url !== undefined ? (redirect_url ? redirect_url.trim() : null) : existing.redirect_url,
+      target_list_id !== undefined ? (target_list_id ? Number(target_list_id) : null) : existing.target_list_id,
+      is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+      primary_color || null,
+      background_color || null,
+      formId,
+      workspaceId
+    ]);
+
+    const updated = await database.get('SELECT * FROM lead_forms WHERE id = ?', [formId]);
+    res.json({
+      success: true,
+      message: 'Formulário atualizado com sucesso!',
+      form: {
+        ...updated,
+        fields: JSON.parse(updated.fields || '[]'),
+        is_active: Boolean(updated.is_active)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar formulário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao atualizar formulário.' });
+  }
+});
+
+// 5. Excluir formulário
+app.delete('/api/forms/:id', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const formId = req.params.id;
+
+    await database.run('DELETE FROM form_submissions WHERE form_id = ? AND workspace_id = ?', [formId, workspaceId]);
+    const result = await database.run('DELETE FROM lead_forms WHERE id = ? AND workspace_id = ?', [formId, workspaceId]);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, error: 'Formulário não encontrado.' });
+    }
+
+    res.json({ success: true, message: 'Formulário e respostas excluídos com sucesso.' });
+  } catch (error) {
+    console.error('Erro ao excluir formulário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao excluir formulário.' });
+  }
+});
+
+// 6. Listar respostas / leads capturados de um formulário
+app.get('/api/forms/:id/submissions', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const formId = req.params.id;
+
+    const form = await database.get('SELECT id, title, slug, fields FROM lead_forms WHERE id = ? AND workspace_id = ?', [formId, workspaceId]);
+    if (!form) {
+      return res.status(404).json({ success: false, error: 'Formulário não encontrado.' });
+    }
+
+    const submissions = await database.all(`
+      SELECT 
+        fs.*,
+        c.name as contact_name,
+        c.phone as contact_phone
+      FROM form_submissions fs
+      LEFT JOIN contacts c ON c.id = fs.contact_id
+      WHERE fs.form_id = ? AND fs.workspace_id = ?
+      ORDER BY fs.created_at DESC
+    `, [formId, workspaceId]);
+
+    const parsedSubmissions = submissions.map(s => {
+      let data = {};
+      try {
+        data = typeof s.data === 'string' ? JSON.parse(s.data) : s.data;
+      } catch {
+        data = {};
+      }
+      return {
+        ...s,
+        data
+      };
+    });
+
+    res.json({
+      success: true,
+      form_title: form.title,
+      form_slug: form.slug,
+      form_fields: JSON.parse(form.fields || '[]'),
+      submissions: parsedSubmissions
+    });
+  } catch (error) {
+    console.error('Erro ao listar respostas do formulário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao carregar respostas.' });
+  }
+});
+
+// 7. Excluir uma resposta individual de lead
+app.delete('/api/forms/submissions/:submissionId', async (req, res) => {
+  try {
+    const workspaceId = getEffectiveWorkspaceId(req);
+    const database = await db.getDB();
+    const subId = req.params.submissionId;
+
+    const sub = await database.get('SELECT form_id FROM form_submissions WHERE id = ? AND workspace_id = ?', [subId, workspaceId]);
+    if (!sub) {
+      return res.status(404).json({ success: false, error: 'Resposta não encontrada.' });
+    }
+
+    await database.run('DELETE FROM form_submissions WHERE id = ?', [subId]);
+    await database.run('UPDATE lead_forms SET submissions_count = MAX(0, submissions_count - 1) WHERE id = ?', [sub.form_id]);
+
+    res.json({ success: true, message: 'Resposta excluída com sucesso.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Erro ao excluir resposta.' });
+  }
+});
+
+// ==========================================
+// ROTAS PÚBLICAS DE FORMULÁRIO (SEM AUTENTICAÇÃO)
+// ==========================================
+
+// 8. Obter dados públicos do formulário por slug (para exibição no navegador)
+app.get('/api/public/forms/:slug', async (req, res) => {
+  try {
+    const database = await db.getDB();
+    const slug = req.params.slug;
+
+    const form = await database.get(`
+      SELECT 
+        id,
+        workspace_id,
+        slug,
+        title,
+        description,
+        fields,
+        button_text,
+        success_message,
+        redirect_url,
+        is_active,
+        primary_color,
+        background_color
+      FROM lead_forms
+      WHERE slug = ?
+    `, [slug]);
+
+    if (!form) {
+      return res.status(404).json({ success: false, error: 'Formulário não encontrado ou link inválido.' });
+    }
+
+    if (!form.is_active) {
+      return res.status(403).json({ 
+        success: false, 
+        is_inactive: true, 
+        title: form.title,
+        error: 'Este formulário foi encerrado ou está temporariamente inativo.' 
+      });
+    }
+
+    // Registra visualização (view counter)
+    await database.run('UPDATE lead_forms SET views_count = views_count + 1 WHERE id = ?', [form.id]);
+
+    let parsedFields = [];
+    try {
+      parsedFields = typeof form.fields === 'string' ? JSON.parse(form.fields) : form.fields;
+    } catch {
+      parsedFields = [];
+    }
+
+    res.json({
+      success: true,
+      form: {
+        slug: form.slug,
+        title: form.title,
+        description: form.description,
+        fields: parsedFields,
+        button_text: form.button_text || 'Enviar',
+        success_message: form.success_message,
+        redirect_url: form.redirect_url,
+        primary_color: form.primary_color || '#6366f1',
+        background_color: form.background_color || '#f8fafc'
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao buscar formulário público:', error);
+    res.status(500).json({ success: false, error: 'Erro ao carregar formulário público.' });
+  }
+});
+
+// 9. Envio público do formulário (Captura de Lead)
+app.post('/api/public/forms/:slug/submit', async (req, res) => {
+  try {
+    const database = await db.getDB();
+    const slug = req.params.slug;
+    const submittedData = req.body || {};
+
+    const form = await database.get('SELECT * FROM lead_forms WHERE slug = ?', [slug]);
+    if (!form) {
+      return res.status(404).json({ success: false, error: 'Formulário não encontrado.' });
+    }
+    if (!form.is_active) {
+      return res.status(403).json({ success: false, error: 'Este formulário não está aceitando respostas no momento.' });
+    }
+
+    let fields = [];
+    try {
+      fields = typeof form.fields === 'string' ? JSON.parse(form.fields) : form.fields;
+    } catch {
+      fields = [];
+    }
+
+    // Valida campos obrigatórios
+    for (const f of fields) {
+      if (f.required) {
+        const val = submittedData[f.name];
+        if (val === undefined || val === null || String(val).trim() === '') {
+          return res.status(400).json({ 
+            success: false, 
+            error: `O campo "${f.label || f.name}" é obrigatório.` 
+          });
+        }
+      }
+    }
+
+    // Extrai nome e telefone/whatsapp para cadastrar no CRM de Contatos
+    let leadName = '';
+    let leadPhone = '';
+
+    for (const [key, val] of Object.entries(submittedData)) {
+      const lowerKey = key.toLowerCase();
+      if (!leadName && (lowerKey.includes('nome') || lowerKey.includes('name') || lowerKey.includes('cliente'))) {
+        leadName = String(val).trim();
+      }
+      if (!leadPhone && (lowerKey.includes('phone') || lowerKey.includes('tel') || lowerKey.includes('zap') || lowerKey.includes('whats') || lowerKey.includes('celular'))) {
+        leadPhone = String(val).replace(/\D/g, '');
+      }
+    }
+
+    if (!leadName) {
+      const firstEntry = Object.values(submittedData).find(v => typeof v === 'string' && v.trim().length > 1);
+      leadName = firstEntry ? String(firstEntry).trim() : 'Lead Capturado';
+    }
+
+    let contactId = null;
+
+    if (leadPhone && leadPhone.length >= 8) {
+      if ((leadPhone.length === 10 || leadPhone.length === 11) && !leadPhone.startsWith('55')) {
+        leadPhone = `55${leadPhone}`;
+      }
+
+      const existingContact = await database.get(
+        'SELECT id FROM contacts WHERE workspace_id = ? AND phone = ?',
+        [form.workspace_id, leadPhone]
+      );
+
+      if (existingContact) {
+        contactId = existingContact.id;
+        if (form.target_list_id) {
+          await database.run(
+            'UPDATE contacts SET list_id = ?, name = COALESCE(NULLIF(?, ""), name) WHERE id = ?',
+            [form.target_list_id, leadName, contactId]
+          );
+        }
+      } else {
+        const contactResult = await database.run(
+          `INSERT INTO contacts (workspace_id, list_id, name, phone, status)
+           VALUES (?, ?, ?, ?, 'active')`,
+          [form.workspace_id, form.target_list_id || null, leadName, leadPhone]
+        );
+        contactId = contactResult.lastID;
+      }
+    }
+
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '';
+    const userAgent = req.headers['user-agent'] || '';
+
+    await database.run(`
+      INSERT INTO form_submissions (
+        form_id,
+        workspace_id,
+        contact_id,
+        data,
+        ip_address,
+        user_agent
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      form.id,
+      form.workspace_id,
+      contactId,
+      JSON.stringify(submittedData),
+      String(clientIp).slice(0, 45),
+      String(userAgent).slice(0, 255)
+    ]);
+
+    await database.run('UPDATE lead_forms SET submissions_count = submissions_count + 1 WHERE id = ?', [form.id]);
+
+    res.status(201).json({
+      success: true,
+      message: form.success_message || 'Dados enviados com sucesso!',
+      redirect_url: form.redirect_url || null
+    });
+  } catch (error) {
+    console.error('Erro ao processar envio de formulário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao processar seu envio. Tente novamente mais tarde.' });
+  }
+});
+
 // APIs para Eventos Manuais da Agenda
 app.get('/api/calendar/events', async (req, res) => {
   try {

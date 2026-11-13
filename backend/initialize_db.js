@@ -416,6 +416,40 @@ async function init() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (file_id) REFERENCES stored_files(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS lead_forms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL DEFAULT 1,
+      user_id INTEGER,
+      slug TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      fields TEXT NOT NULL,
+      button_text TEXT DEFAULT 'Enviar Dados',
+      success_message TEXT DEFAULT 'Obrigado! Seus dados foram recebidos com sucesso. Em breve nossa equipe entrará em contato.',
+      redirect_url TEXT,
+      target_list_id INTEGER,
+      is_active INTEGER DEFAULT 1,
+      primary_color TEXT DEFAULT '#6366f1',
+      background_color TEXT DEFAULT '#f8fafc',
+      submissions_count INTEGER DEFAULT 0,
+      views_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS form_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      form_id INTEGER NOT NULL,
+      workspace_id INTEGER NOT NULL,
+      contact_id INTEGER,
+      data TEXT NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (form_id) REFERENCES lead_forms(id) ON DELETE CASCADE
+    );
   `);
 
   await db.exec(`
@@ -424,6 +458,10 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_file_shares_user ON file_shares(LOWER(shared_with_username));
     CREATE INDEX IF NOT EXISTS idx_file_shares_file ON file_shares(file_id);
     CREATE INDEX IF NOT EXISTS idx_file_shares_folder ON file_shares(owner_workspace_id, folder_name);
+    CREATE INDEX IF NOT EXISTS idx_lead_forms_ws ON lead_forms(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_lead_forms_slug ON lead_forms(slug);
+    CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(form_id);
+    CREATE INDEX IF NOT EXISTS idx_form_submissions_ws ON form_submissions(workspace_id);
   `);
 
   // 2. Garantir colunas essenciais caso o banco seja herdado de versão legada
@@ -967,6 +1005,36 @@ async function importSeedData(db) {
           [ea.workspace_id || 1, ea.name, ea.email_address, ea.display_name, ea.imap_host, ea.imap_port, ea.imap_secure, ea.smtp_host, ea.smtp_port, ea.smtp_secure, ea.username, ea.password, ea.auto_reply_enabled, ea.status]
         );
       }
+    }
+
+    // 9. Se lead_forms estiver vazia, criar formulário padrão de captura de leads
+    const formCount = await db.get('SELECT COUNT(*) as c FROM lead_forms');
+    if (formCount && formCount.c === 0) {
+      const defaultFields = JSON.stringify([
+        { id: 'f_nome', name: 'nome', label: 'Nome Completo', type: 'text', placeholder: 'Digite seu nome completo', required: true },
+        { id: 'f_whatsapp', name: 'whatsapp', label: 'WhatsApp / Telefone', type: 'phone', placeholder: '(11) 99999-9999', required: true },
+        { id: 'f_email', name: 'email', label: 'E-mail Comercial', type: 'email', placeholder: 'seu@email.com', required: false },
+        { id: 'f_interesse', name: 'interesse', label: 'Qual o seu principal interesse?', type: 'select', options: ['Consultoria Comercial', 'Automação de WhatsApp', 'Planos e Preços', 'Outro'], required: false },
+        { id: 'f_mensagem', name: 'mensagem', label: 'Mensagem ou Observação', type: 'textarea', placeholder: 'Conte um pouco sobre sua necessidade...', required: false }
+      ]);
+
+      await db.run(
+        `INSERT INTO lead_forms (workspace_id, slug, title, description, fields, button_text, success_message, is_active, primary_color, background_color)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          1,
+          'captura-consultoria',
+          'Solicite uma Consultoria Gratuita',
+          'Preencha o formulário abaixo para receber o contato exclusivo de um de nossos especialistas em até 15 minutos.',
+          defaultFields,
+          'Quero Minha Consultoria Gratuita',
+          'Obrigado! Seus dados foram recebidos com sucesso. Em breve nossa equipe entrará em contato via WhatsApp.',
+          1,
+          '#6366f1',
+          '#f8fafc'
+        ]
+      );
+      console.log('✓ Formulário modelo de captura de leads criado (slug: captura-consultoria)');
     }
   } catch (err) {
     console.warn('Aviso ao importar seed_data.json:', err.message);

@@ -16,6 +16,8 @@ import Contracts from './pages/Contracts/Contracts';
 import Emails from './pages/Emails/Emails';
 import Tasks from './pages/Tasks/Tasks';
 import Files from './pages/Files/Files';
+import Forms from './pages/Forms/Forms';
+import PublicForm from './pages/Forms/PublicForm';
 import AdminDashboard from './pages/Admin/AdminDashboard';
 
 function PlaceholderPage({ title }) {
@@ -72,6 +74,10 @@ function App() {
           } 
         />
         
+        {/* Rotas Públicas dos Formulários de Captura (Abertas a qualquer visitante) */}
+        <Route path="/f/:slug" element={<PublicForm />} />
+        <Route path="/form/:slug" element={<PublicForm />} />
+
         <Route 
           path="/" 
           element={
@@ -83,15 +89,16 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="mensagens" element={<Chat />} />
           <Route path="contatos" element={<Contacts />} />
+          <Route path="formularios" element={<Forms />} />
           <Route path="ia" element={<Agents />} />
           <Route path="emails" element={<Emails />} />
           <Route path="tarefas" element={<Tasks />} />
           <Route path="contratos" element={<Contracts />} />
+          <Route path="arquivos" element={<Files />} />
           <Route path="automacao" element={<Automations />} />
           <Route path="massa" element={<MassMessage />} />
           <Route path="agenda" element={<Calendar />} />
           <Route path="templates" element={<Templates />} />
-          <Route path="arquivos" element={<Files />} />
           <Route path="admin" element={<AdminDashboard />} />
           <Route path="configuracoes" element={<Settings />} />
           <Route path="configuracoes/conexoes" element={<Settings initialTab="conexoes" />} />
