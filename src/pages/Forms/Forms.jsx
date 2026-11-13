@@ -50,6 +50,7 @@ export default function Forms() {
     is_active: true,
     primary_color: '#6366f1',
     background_color: '#f8fafc',
+    banner_url: '',
     enable_booking: false,
     booking_title: 'Agendamento via Formulário',
     auto_reply_enabled: false,
@@ -67,6 +68,7 @@ export default function Forms() {
   const [isCreatingList, setIsCreatingList] = useState(false);
   const [newListName, setNewListName] = useState('');
   const [creatingListLoading, setCreatingListLoading] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
 
   // Modal de Submissões / Leads Capturados
   const [isSubmissionsOpen, setIsSubmissionsOpen] = useState(false);
@@ -120,6 +122,34 @@ export default function Forms() {
       alert('Erro de conexão ao criar lista.');
     } finally {
       setCreatingListLoading(false);
+    }
+  };
+
+  // Upload de Banner da Empresa
+  const handleBannerUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingBanner(true);
+    try {
+      const fd = new FormData();
+      fd.append('banner', file);
+      const token = localStorage.getItem('unne_token');
+      const res = await fetch('/api/forms/banner', {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: fd
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.url) {
+        setFormData(prev => ({ ...prev, banner_url: data.url }));
+      } else {
+        alert(data.error || 'Erro ao enviar banner.');
+      }
+    } catch (err) {
+      console.error('Erro ao enviar banner:', err);
+      alert('Erro de conexão ao enviar banner.');
+    } finally {
+      setUploadingBanner(false);
     }
   };
 
@@ -192,6 +222,7 @@ export default function Forms() {
         is_active: form.is_active !== undefined ? form.is_active : true,
         primary_color: form.primary_color || '#6366f1',
         background_color: form.background_color || '#f8fafc',
+        banner_url: form.banner_url || '',
         enable_booking: Boolean(form.enable_booking),
         booking_title: form.booking_title || 'Agendamento via Formulário',
         auto_reply_enabled: Boolean(form.auto_reply_enabled),
@@ -237,6 +268,7 @@ export default function Forms() {
         is_active: formData.is_active,
         primary_color: formData.primary_color,
         background_color: formData.background_color,
+        banner_url: formData.banner_url || null,
         enable_booking: formData.enable_booking,
         booking_title: formData.booking_title.trim(),
         auto_reply_enabled: formData.auto_reply_enabled,
@@ -1076,6 +1108,56 @@ export default function Forms() {
                 {/* ABA 3: APARÊNCIA & PÓS-ENVIO */}
                 {builderTab === 'appearance' && (
                   <div className="builder-appearance-tab">
+                    {/* BANNER DA EMPRESA */}
+                    <div className="form-group" style={{ marginBottom: '16px' }}>
+                      <label>Banner / Capa com a Marca da Empresa (Opcional):</label>
+                      {formData.banner_url ? (
+                        <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #e2e8f0', marginBottom: '8px' }}>
+                          <img
+                            src={formData.banner_url}
+                            alt="Banner da Empresa"
+                            style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', display: 'block' }}
+                          />
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => setFormData(prev => ({ ...prev, banner_url: '' }))}
+                            style={{
+                              position: 'absolute',
+                              top: '8px',
+                              right: '8px',
+                              padding: '4px 10px',
+                              fontSize: '0.76rem',
+                              background: 'rgba(255,255,255,0.92)',
+                              color: '#dc2626',
+                              borderColor: '#fecaca'
+                            }}
+                          >
+                            Remover Banner
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                          <label
+                            className="btn-secondary"
+                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', margin: 0 }}
+                          >
+                            {uploadingBanner ? 'Enviando...' : '🖼️ Carregar Imagem de Banner'}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleBannerUpload}
+                              disabled={uploadingBanner}
+                              style={{ display: 'none' }}
+                            />
+                          </label>
+                          <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                            Recomendado: PNG ou JPG horizontal (ex: 1200x400px).
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="form-group">
                       <label>Texto do Botão de Envio:</label>
                       <input 

@@ -231,6 +231,17 @@ export default function PublicForm() {
   return (
     <div className="public-form-wrapper" style={{ backgroundColor: form.background_color || '#f8fafc' }}>
       <div className="public-form-card">
+        {/* BANNER DA EMPRESA (QUANDO CONFIGURADO) */}
+        {form.banner_url && (
+          <div style={{ margin: '-36px -32px 24px -32px', borderRadius: '20px 20px 0 0', overflow: 'hidden', borderBottom: '1px solid #e2e8f0' }}>
+            <img
+              src={form.banner_url}
+              alt={form.title}
+              style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
+        )}
+
         {/* CABEÇALHO DO FORMULÁRIO */}
         <div className="public-form-header">
           <div className="public-form-badge" style={{ backgroundColor: `${primaryCol}18`, color: primaryCol }}>

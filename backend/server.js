@@ -1167,6 +1167,22 @@ function generateSlug(text) {
   return `${base}-${rand}`;
 }
 
+// 0. Upload de Banner da Empresa para o Formulário
+app.post('/api/forms/banner', filesUpload.single('banner'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'Nenhuma imagem enviada.' });
+    }
+    res.json({
+      success: true,
+      url: `/uploads/${req.file.filename}`
+    });
+  } catch (error) {
+    console.error('Erro ao enviar banner do formulário:', error);
+    res.status(500).json({ success: false, error: 'Erro ao salvar banner.' });
+  }
+});
+
 // 1. Listar formulários do workspace
 app.get('/api/forms', async (req, res) => {
   try {
@@ -1264,7 +1280,8 @@ app.post('/api/forms', async (req, res) => {
       booking_title,
       auto_reply_enabled,
       auto_reply_channel,
-      auto_reply_message
+      auto_reply_message,
+      banner_url
     } = req.body;
 
     if (!title || !title.trim()) {
@@ -1307,8 +1324,9 @@ app.post('/api/forms', async (req, res) => {
         booking_title,
         auto_reply_enabled,
         auto_reply_channel,
-        auto_reply_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        auto_reply_message,
+        banner_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       workspaceId,
       req.user?.id || null,
@@ -1327,7 +1345,8 @@ app.post('/api/forms', async (req, res) => {
       booking_title ? booking_title.trim() : 'Agendamento via Formulário',
       auto_reply_enabled ? 1 : 0,
       auto_reply_channel || 'whatsapp',
-      auto_reply_message ? auto_reply_message.trim() : null
+      auto_reply_message ? auto_reply_message.trim() : null,
+      banner_url ? banner_url.trim() : null
     ]);
 
     const created = await database.get('SELECT * FROM lead_forms WHERE id = ?', [result.lastID]);
@@ -1376,7 +1395,8 @@ app.put('/api/forms/:id', async (req, res) => {
       booking_title,
       auto_reply_enabled,
       auto_reply_channel,
-      auto_reply_message
+      auto_reply_message,
+      banner_url
     } = req.body;
 
     let cleanSlug = existing.slug;
@@ -1411,6 +1431,7 @@ app.put('/api/forms/:id', async (req, res) => {
         auto_reply_enabled = COALESCE(?, auto_reply_enabled),
         auto_reply_channel = COALESCE(?, auto_reply_channel),
         auto_reply_message = ?,
+        banner_url = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND workspace_id = ?
     `, [
@@ -1430,6 +1451,7 @@ app.put('/api/forms/:id', async (req, res) => {
       auto_reply_enabled !== undefined ? (auto_reply_enabled ? 1 : 0) : existing.auto_reply_enabled,
       auto_reply_channel || null,
       auto_reply_message !== undefined ? (auto_reply_message ? auto_reply_message.trim() : null) : existing.auto_reply_message,
+      banner_url !== undefined ? (banner_url ? banner_url.trim() : null) : existing.banner_url,
       formId,
       workspaceId
     ]);
@@ -1567,7 +1589,8 @@ app.get('/api/public/forms/:slug', async (req, res) => {
         is_active,
         primary_color,
         background_color,
-        enable_booking
+        enable_booking,
+        banner_url
       FROM lead_forms
       WHERE slug = ?
     `, [slug]);
@@ -1607,7 +1630,8 @@ app.get('/api/public/forms/:slug', async (req, res) => {
         redirect_url: form.redirect_url,
         primary_color: form.primary_color || '#6366f1',
         background_color: form.background_color || '#f8fafc',
-        enable_booking: Boolean(form.enable_booking)
+        enable_booking: Boolean(form.enable_booking),
+        banner_url: form.banner_url || null
       }
     });
   } catch (error) {
