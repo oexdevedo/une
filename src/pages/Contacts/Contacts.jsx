@@ -896,71 +896,95 @@ export default function Contacts() {
             Carregando listas...
           </div>
         ) : (
-          <div className="lists-grid">
-            {lists
-              .filter(l => !searchQuery.trim() || l.name.toLowerCase().includes(searchQuery.toLowerCase()))
-              .map(list => {
-                const isAgendados = list.name === 'Agendados';
+          <div className="table-container">
+            <table className="leads-table">
+              <thead>
+                <tr>
+                  <th>Nome da Lista</th>
+                  <th>Tipo</th>
+                  <th>Contatos</th>
+                  <th style={{ textAlign: 'right' }}>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lists
+                  .filter(l => !searchQuery.trim() || l.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map(list => {
+                    const isAgendados = list.name === 'Agendados';
 
-                return (
-                  <div 
-                    key={list.id} 
-                    className={`list-card ${isAgendados ? 'system-card' : ''}`}
-                    onClick={() => setActiveList(list)}
-                  >
-                    <div className="list-card-header">
-                      <div className="list-icon" style={{ backgroundColor: isAgendados ? '#E0F2FE' : '#FEF3C7' }}>
-                        {isAgendados ? (
-                          <Calendar size={20} color="#0284C7" />
-                        ) : (
-                          <Users size={20} color="#F59E0B" />
-                        )}
-                      </div>
-                      
-                      {!isAgendados && (
-                        <div className="dropdown-container">
-                          <button 
-                            className="icon-btn-small" 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              setActiveDropdownList(activeDropdownList === list.id ? null : list.id);
-                              setActiveDropdownLead(null);
-                            }}
-                          >
-                            <MoreHorizontal size={16} />
-                          </button>
-                          {activeDropdownList === list.id && (
-                            <div className="dropdown-menu" onClick={e => e.stopPropagation()}>
-                              <button className="dropdown-item danger" onClick={() => handleDeleteList(list)}>
-                                <Trash size={14} /> Deletar Lista
-                              </button>
+                    return (
+                      <tr
+                        key={list.id}
+                        onClick={() => setActiveList(list)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div
+                              className="list-icon"
+                              style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: isAgendados ? '#E0F2FE' : '#FEF3C7',
+                                flexShrink: 0
+                              }}
+                            >
+                              {isAgendados ? (
+                                <Calendar size={18} color="#0284C7" />
+                              ) : (
+                                <Users size={18} color="#F59E0B" />
+                              )}
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <h3 className="list-name">{list.name}</h3>
-
-                    {isAgendados && (
-                      <div className="system-badge">
-                        <Check size={12} /> Automática • Agenda
-                      </div>
-                    )}
-
-                    <div className="list-meta" style={{ marginTop: isAgendados ? '8px' : '0' }}>
-                      <span>{list.count || 0} contatos</span>
-                      <span className="dot">•</span>
-                      <span>{isAgendados ? 'Cal.com' : 'Personalizada'}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            
-            <div className="list-card dashed-card" onClick={() => setIsModalOpen(true)}>
-               <Plus size={24} color="#A1A1AA" />
-               <span>Criar Nova Lista Vazia</span>
-            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 700, color: '#18181b', fontSize: '0.94rem' }}>{list.name}</span>
+                              {isAgendados && (
+                                <span className="system-badge" style={{ margin: 0 }}>
+                                  <Check size={12} /> Automática • Agenda
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '0.84rem', color: '#64748b', fontWeight: 500 }}>
+                            {isAgendados ? 'Cal.com / Agenda' : 'Personalizada'}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: 700, color: '#334155', fontSize: '0.88rem' }}>
+                            {list.count || 0} contatos
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              className="btn-secondary"
+                              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                              onClick={() => setActiveList(list)}
+                            >
+                              Abrir
+                            </button>
+                            {!isAgendados && (
+                              <button
+                                className="icon-btn-small"
+                                title="Deletar Lista"
+                                onClick={() => handleDeleteList(list)}
+                                style={{ color: '#ef4444' }}
+                              >
+                                <Trash size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
